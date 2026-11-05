@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+.whatsnext/config.local.json
+.whatsnext/sessions/

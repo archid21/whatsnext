@@ -1,0 +1,15 @@
+{
+  "name": "whatsnext",
+  "owner": { "name": "Archi Dubey" },
+  "description": "whatsnext: one plan, one next step, for every coding agent",
+  "plugins": [
+    {
+      "name": "whatsnext",
+      "source": "./",
+      "description": "One plan, one next step, for every coding agent. Check items off with a command that must pass, resume a session from a short note, and hand off with one prompt. Plain files in your repository.",
+      "version": "0.1.0",
+      "author": { "name": "Archi Dubey" },
+      "license": "MIT"
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "whatsnext/config.schema.json",
+  "title": "whatsnext configuration",
+  "description": "One layer of whatsnext settings. Layers, later wins: built-in defaults, user (~/.config/whatsnext/config.json), project (.whatsnext/config.json, committed), project-local (.whatsnext/config.local.json, git-ignored). Every field is optional; a missing field keeps the value from the layer before. `whatsnext config show` prints each effective value and its layer.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Path or URL of this schema, for editor autocomplete."
+    },
+    "modules": {
+      "type": "object",
+      "description": "Turn modules on or off. A module that is off adds no hooks and no tokens.",
+      "additionalProperties": false,
+      "properties": {
+        "plan": { "type": "boolean", "default": true, "description": "PLAN.md, stable IDs, checklist, Start, soft checkout." },
+        "progress": { "type": "boolean", "default": true, "description": "Progress files (one per task), resume note, freshness check." }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "description": "Where each record lives, relative to the project root. Absolute paths and `..` are rejected.",
+      "additionalProperties": false,
+      "properties": {
+        "entry": { "type": "string", "x-relativePath": true, "default": "docs/project/README.md", "description": "Entry point: pointers only." },
+        "plan": { "type": "string", "x-relativePath": true, "default": "docs/project/PLAN.md", "description": "Plan file." },
+        "progress": { "type": "string", "x-relativePath": true, "default": "docs/project/progress", "description": "Progress folder: one progress file per task." },
+        "plans": { "type": "string", "x-relativePath": true, "default": "docs/project/plans", "description": "Captured plan-mode plans, one file per plan (ADR-0006)." },
+        "handoff": { "type": "string", "x-relativePath": true, "default": "docs/project/HANDOFF.md", "description": "The handoff note that `wrap up` writes and the compacts read (ADR-0008). A line `Handoff: <path>` in AGENTS.md names another path when this setting is left at its default." }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "branchOnStart": {
+          "enum": ["ask", "branch", "stay", "worktree"],
+          "default": "ask",
+          "description": "What Start does about the git branch (ADR-0002): ask each time, always create a new branch, always stay on the current branch, or always create a worktree."
+        },
+        "staleAfter": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*[mh]$",
+          "default": "4h",
+          "description": "Idle time after which a checkout goes stale and the holder is asked 'Done, keep or release?' (ADR-0002). Minutes (30m) or hours (4h)."
+        },
+        "verifyTimeout": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*[smh]$",
+          "default": "30m",
+          "description": "Longest a `plan done <id> --verify \"<cmd>\"` command may run before it is stopped and counted as a failure (ADR-0003). Seconds (90s), minutes (30m) or hours (1h)."
+        }
+      }
+    },
+    "backend": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "default": "local-files", "description": "Coordination backend that receives events. local-files reads and writes only the repository." }
+      }
+    }
+  }
+}

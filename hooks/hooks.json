@@ -1,0 +1,85 @@
+{
+  "description": "whatsnext hooks (ADR-0005): the session-start resume note, plan-mode capture (ExitPlanMode and the next prompt's mode), the `wrap up` prompt (ADR-0008) and the facts journal (Stop, PreCompact, SessionEnd). Each calls the same Python script other agents use.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/whatsnext/scripts/whatsnext.py\" hook session-start --agent claude-code",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/whatsnext/scripts/whatsnext.py\" hook plan-shown --agent claude-code",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/whatsnext/scripts/whatsnext.py\" hook plan-approved --agent claude-code",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/whatsnext/scripts/whatsnext.py\" hook prompt-submit --agent claude-code",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/whatsnext/scripts/whatsnext.py\" hook stop --agent claude-code",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/whatsnext/scripts/whatsnext.py\" hook pre-compact --agent claude-code",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/whatsnext/scripts/whatsnext.py\" hook session-end --agent claude-code",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
