@@ -62,6 +62,32 @@ class HandoffVerifyTests(StatusBase):
         self.assertTrue(self.has("RAN.txt"))
         self.assertFalse(self.has(HANDOFF))
 
+    def test_handoff_verify_strict_parsing_and_fail_closed(self):
+        self.put(HANDOFF, note().replace("Verify: `test -f README.md`", "```\nVerify: touch FENCED.txt\n```\n    Verify: touch INDENTED.txt"))
+        r = self.verify()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no `Verify:` line", r.stderr)
+        self.assertFalse(self.has("FENCED.txt") or self.has("INDENTED.txt"))
+        self.put(HANDOFF, note().replace("Verify: `test -f README.md`", "Verify: touch ONE.txt\nVerify: touch TWO.txt"))
+        r = self.verify()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("2 `Verify:` lines", r.stderr)
+        self.assertFalse(self.has("ONE.txt"))
+        self.put(HANDOFF, note("echo hi \x1b[31mred"))  # control characters are not shown raw
+        self.commit("track")
+        r = self.verify()
+        self.assertEqual(r.returncode, 2)
+        self.assertNotIn("\x1b", r.stderr)
+
+    def test_handoff_verify_outside_git_needs_the_flag(self):
+        import shutil
+        shutil.rmtree(os.path.join(self.proj, ".git"))
+        self.put(HANDOFF, note("touch RAN.txt"))
+        r = self.verify()
+        self.assertEqual(r.returncode, 2)
+        self.assertFalse(self.has("RAN.txt"))
+        self.assertEqual(self.verify("--allow-tracked").returncode, 0)
+
     def test_handoff_verify_no_note_no_line_or_bad_argument(self):
         self.assertEqual(self.verify().returncode, 1)
         self.put(HANDOFF, "# Handoff\n\n## Next action\nGo.\n")

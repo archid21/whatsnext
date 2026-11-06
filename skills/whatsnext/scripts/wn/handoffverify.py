@@ -11,36 +11,59 @@ import re
 import sys
 
 from . import config as gwconfig
+from . import packet as gwpacket
 from . import plan as gwplan
 from . import status as gwstatus
 from . import wrapup as gwwrapup
 
-VERIFY_LINE_RE = re.compile(r"^\s*verify\s*:\s*(.+?)\s*$", re.IGNORECASE)
+VERIFY_LINE_RE = re.compile(r"^verify\s*:\s*(.+?)\s*$", re.IGNORECASE)  # at the start of a line: no indent
+SHOW_MAX = 300
 
 
-def verify_command(body):
-    """The command on the `Verify:` line of the note's Next action section, or None."""
-    lines = body.split("\n")
-    section = gwstatus.get_section(lines, "Next action")
+def shown(command):
+    """The command for a person to read: control characters removed, long text clipped."""
+    return gwpacket.clip(gwpacket.clean(command), SHOW_MAX)
+
+
+def verify_commands(body):
+    """Every `Verify:` line in the note's Next action section, outside code fences and not indented."""
+    section = gwstatus.get_section(body.split("\n"), "Next action")
+    found, fenced = [], False
     for line in section.split("\n"):
-        m = VERIFY_LINE_RE.match(line)
+        if line.lstrip().startswith(("```", "~~~")):
+            fenced = not fenced
+            continue
+        m = None if fenced else VERIFY_LINE_RE.match(line)
         if m:
             command = m.group(1).strip()
             if len(command) >= 2 and command[0] == command[-1] == "`":
                 command = command[1:-1].strip()
-            return command or None
-    return None
+            if command:
+                found.append(command)
+    return found
+
+
+def verify_command(body):
+    """The note's one `Verify:` command, or None (none, or more than one: see `verify_commands`)."""
+    found = verify_commands(body)
+    return found[0] if len(found) == 1 else None
 
 
 def is_tracked(root, path):
-    """True when git tracks `path` (so a clone of the repository carries it)."""
-    return gwstatus.git(root, "ls-files", "--error-unmatch", "--", path)[0] == 0
+    """True unless git says plainly that `path` is not tracked. Outside git, or when git cannot answer, the note's
+    provenance is unknown, so it counts as tracked (the person must pass --allow-tracked)."""
+    if not gwstatus.in_git(root):
+        return True
+    return gwstatus.git(root, "ls-files", "--error-unmatch", "--", path)[0] != 1
 
 
 def archived_copy(root, effective):
     """The archive file whose content equals the note's, or None."""
     handoff = gwwrapup.handoff_path(root, effective)
     folder = os.path.join(os.path.dirname(handoff), gwwrapup.ARCHIVE_DIR)
+    inside = os.path.realpath(root)
+    if os.path.islink(folder) or os.path.commonpath([os.path.realpath(os.path.dirname(folder)), inside]) != inside:
+        return None  # the same guards the archive keeps: no link may lead out of the project
     try:
         with open(handoff, "rb") as f:
             want = hashlib.sha256(f.read().decode("utf-8", "replace").encode("utf-8", "replace")).hexdigest()
@@ -76,16 +99,19 @@ def run(argv):
     except OSError:
         print("No handoff note at %s." % rel, file=sys.stderr)
         return 1
-    command = verify_command(body)
-    if not command:
-        print("%s has no `Verify:` line under `## Next action`. Nothing was run." % rel, file=sys.stderr)
+    found = verify_commands(body)
+    if len(found) != 1:
+        print("%s has %s under `## Next action`. Nothing was run." % (
+            rel, "no `Verify:` line" if not found else "%d `Verify:` lines (it needs exactly one)" % len(found)), file=sys.stderr)
         return 1
+    command = found[0]
     if is_tracked(root, handoff) and not args.allow_tracked:
-        print("%s is tracked by git, so a clone of this repository carries it and its command is not yours. "
+        print("%s is tracked by git (or git cannot say), so its command may not be yours. "
               "Nothing was run.\nRead the command: %s\nIf you trust it, run: whatsnext handoff verify --allow-tracked"
-              % (rel, command), file=sys.stderr)
+              % (rel, shown(command)), file=sys.stderr)
         return 2
     ctx = gwplan.Ctx(root, effective)
+    print("Running: %s" % shown(command), flush=True)
     result = gwplan.run_verify(root, command, gwplan.verify_timeout(ctx))
     took = gwplan.format_seconds(result["seconds"])
     if not result["passed"]:

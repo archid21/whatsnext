@@ -246,7 +246,7 @@ def git_facts(root, effective, task):
     files left out, as the facts journal does), `problem` a short phrase or None."""
     if not gwstatus.in_git(root):
         return None
-    facts = {"new": None, "commits": [], "dirty": [], "problem": None}
+    facts = {"new": None, "commits": [], "dirty": [], "problem": None, "not_ancestor": None}
     recorded = task.field("branch")
     branch = gwstatus.current_branch(root)
     if recorded and recorded.lower() != gwstatus.NONE and branch != recorded:
@@ -265,6 +265,7 @@ def git_facts(root, effective, task):
         else:
             facts["problem"] = (facts["problem"] + "; " if facts["problem"] else "") + \
                 "recorded commit %s is not in this history" % commit
+            facts["not_ancestor"] = commit
     code, out = gwstatus.git(root, "rev-parse", "--show-prefix")
     prefix = out.strip() if code == 0 else ""
     journal = os.path.join(gwstatus.status_folder(root, effective), "journal", task.id + ".md")
@@ -425,6 +426,10 @@ def build(root, effective, compacted=False, session_id=None):
     facts = git_facts(root, effective, task)
     warning = old_warning(task, now, effective.get("note.staleDays"), facts["new"] if facts else None,
                           effective.get("note.staleCommits"))
+    if facts and facts.get("not_ancestor"):  # a rebase, reset or force-push: the commit count would mislead
+        gone = "Warning: the recorded commit %s is not in this history (rebase, reset or force-push). " \
+               "Check git log and the code before you trust the note." % facts["not_ancestor"]
+        warning = warning + "\n" + gone if warning else gone
     last = last_line(task, now)
     stale = gwclaims.stale_in_worktree(root, effective) if effective.module_on("plan") else []
     stale_text = ("Stale checkouts: %s. Run: whatsnext plan list" % ", ".join(c["id"] for c, _idle in stale)

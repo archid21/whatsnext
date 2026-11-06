@@ -133,6 +133,40 @@ class StaleCommitsTests(HookBase):
         self.assertIn("note.staleCommits = 20", r.stdout)
 
 
+class AncestorTests(HookBase):
+    def setUp(self):
+        super().setUp()
+        self.cfg()
+        self.put("base.txt", "x\n")
+        self.commit("base")
+        self.main = self.branch()
+
+    def note(self):
+        return self.hook("session-start", {"source": "startup", "session_id": "s1"})
+
+    def test_ancestor_a_commit_outside_the_history_warns_and_counts_nothing(self):
+        self.git("checkout", "-q", "-b", "side")
+        self.put("src/side.py", "x\n")
+        self.commit("side work")
+        side = self.head()
+        self.git("checkout", "-q", self.main)  # the side commit is no longer in HEAD's history
+        self.put("src/more.py", "x\n")
+        self.commit("main work")
+        self.task(commit=side)
+        out = self.note()
+        self.assertRegex(out, r"Warning: the recorded commit %s is not in this history \(rebase, reset or force-push\)\." % side)
+        self.assertNotIn("new commit", out)
+        self.assertIn("recorded commit %s is not in this history" % side, out)
+
+    def test_ancestor_a_normal_history_has_no_such_warning(self):
+        self.task()
+        self.put("src/a.py", "x\n")
+        self.commit("work")
+        out = self.note()
+        self.assertNotIn("not in this history", out)
+        self.assertIn("1 new commit", out)
+
+
 class CutLineTests(HookBase):
     def setUp(self):
         super().setUp()
