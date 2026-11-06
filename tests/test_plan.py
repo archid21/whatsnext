@@ -166,6 +166,39 @@ class ListNextTests(PlanBase):
         _r, data = self.jplan("next")
         self.assertEqual((data["candidates"], data["recommended"], data["message"]), ([], None, "Nothing open in Now or Next."))
 
+    HANDOFF = ("# Handoff\n\nSession: abc-123\nTask: none\nWritten: 2026-11-06T22:56Z\n\n## Goal\n\nShip it.\n\n"
+               "## Next action\n\nRun doctor.\nVerify: `true`\n\n## Open questions and blockers\n\n"
+               "Push main? Codex hooks not run.\n")
+
+    def test_next_shows_handoff_when_plan_is_empty(self):
+        self.put("docs/project/HANDOFF.md", self.HANDOFF)
+        self.put(PLAN_PATH, PLAN.replace("- [ ] P-1", "- [x] P-1"))
+        r = self.plan("next")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(r.stdout.startswith("Nothing open in Now or Next."), r.stdout)
+        self.assertIn("Handoff: docs/project/HANDOFF.md, written 2026-11-06T22:56Z (Fri 2026-11-06 2:56 PM PST)", r.stdout)
+        self.assertIn("Next action: Run doctor. Verify: `true`", r.stdout)
+        self.assertIn("Open questions and blockers: Push main? Codex hooks not run.", r.stdout)
+        _r, data = self.jplan("next")
+        self.assertEqual(data["message"], "Nothing open in Now or Next.")
+        self.assertEqual(data["handoff"]["path"], "docs/project/HANDOFF.md")
+        self.assertEqual(data["handoff"]["written"], "2026-11-06T22:56Z")
+        self.assertEqual(data["handoff"]["next_action"], "Run doctor. Verify: `true`")
+        self.assertEqual(data["handoff"]["open_questions"], "Push main? Codex hooks not run.")
+
+    def test_next_shows_handoff_below_open_items_and_skips_it_when_none_or_empty(self):
+        r = self.plan("next")
+        self.assertNotIn("Handoff:", r.stdout)
+        _r, data = self.jplan("next")
+        self.assertIsNone(data["handoff"])
+        self.put("docs/project/HANDOFF.md", self.HANDOFF)
+        r = self.plan("next")
+        self.assertTrue(r.stdout.startswith("Next up:"), r.stdout)
+        self.assertLess(r.stdout.index("1. P-13"), r.stdout.index("Handoff:"))
+        self.put("docs/project/HANDOFF.md", "# Handoff\n\nSession: s\nTask: none\nWritten: 2026-11-06T22:56Z\n\n"
+                 "## Open questions and blockers\n\nnone\n")
+        self.assertNotIn("Open questions and blockers", self.plan("next").stdout)
+
     def test_missing_plan_file(self):
         os.remove(self.p(PLAN_PATH))
         for args in (["list"], ["next"]):

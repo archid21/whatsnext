@@ -4,6 +4,8 @@ One line per item: `- [ ] P-N Title · done means: <how we know it is done>`.
 
 ## Now
 
+- [x] P-32 `plan next` shows the handoff's open questions and Next action · done means: `python3 -m unittest tests.test_plan -k next_shows_handoff` passes: with a HANDOFF.md present, `plan next` prints its open questions and Next action with the file path and written time (UTC and Pacific), whoever wrote it, and `--json` has a `handoff` field · evidence: verified: python3 -m unittest tests.test_plan -k next_shows_handoff passed in 1.5 s (2026-11-06T23:40Z) at 1285a38 t:e9d12aeb
+
 - [x] P-4 Auto-compact safety net (with P-20, P-26) · done means: `python3 -m unittest tests.test_hook -k compacted_without_wrapup` passes and the resume note shows the same fact · evidence: verified: python3 -m unittest tests.test_hook -k compacted_without_wrapup passed in 1.4 s (2026-11-06T18:20Z)
 - [x] P-20 Cap the PreCompact text and read `custom_instructions` (part of P-4 bundle) · done means: `precompact_cap` test passes: output is 3,000 characters or less, and a non-empty `custom_instructions` drops the handoff text · evidence: verified: python3 -m unittest tests.test_hook -k precompact_cap passed in 1.0 s (2026-11-06T18:20Z)
 - [x] P-26 Hook output contract test (part of P-4 bundle) · done means: `python3 -m unittest tests.test_hook -k output_contract` passes: PreCompact prints plain text, never JSON · evidence: verified: python3 -m unittest tests.test_hook -k output_contract passed in 2.4 s (2026-11-06T18:20Z)

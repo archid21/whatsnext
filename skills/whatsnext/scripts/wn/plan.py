@@ -24,6 +24,7 @@ from . import config as gwconfig
 from . import journal as gwjournal
 from . import redact as gwredact
 from . import status as gwstatus
+from . import wrapup as gwwrapup
 from .ask import NEEDS_ANSWER, ask, option
 from .util import now_utc, write_atomic
 
@@ -396,12 +397,47 @@ def candidates(views, limit):
     return out[:max(limit, 0)]
 
 
+def handoff_block(ctx):
+    """P-32: the handoff note's Next action and open questions, for `plan next`, or None when there is no note or
+    it has neither. It is shown whoever wrote it: after `/clear` the session id is new and never matches."""
+    path = gwwrapup.handoff_path(ctx.root, ctx.effective)
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            body = f.read()
+    except OSError:
+        return None
+    questions = gwwrapup.section_text(body, ("Open questions and blockers", "Open questions"))
+    if questions.lower().rstrip(".") == "none":
+        questions = ""
+    next_action = gwwrapup.section_text(body, ("Next action",))
+    if not (questions or next_action):
+        return None
+    when = gwclaims.to_dt(gwwrapup.read_header(path)["written"])
+    return {"path": gwconfig.display_path(path, ctx.root),
+            "written": when.strftime("%Y-%m-%dT%H:%MZ") if when else None,
+            "written_pacific": gwwrapup.pacific_now(when)[0] if when else None,
+            "next_action": next_action, "open_questions": questions}
+
+
+def print_handoff(block):
+    if not block:
+        return
+    when = " (%s)" % block["written_pacific"] if block["written_pacific"] else ""
+    print("Handoff: %s, written %s%s" % (block["path"], block["written"] or "at an unknown time", when))
+    if block["next_action"]:
+        print("  Next action: %s" % block["next_action"])
+    if block["open_questions"]:
+        print("  Open questions and blockers: %s" % block["open_questions"])
+
+
 def cmd_next(ctx, args):
     if not ctx.has_plan():
         if args.json:
-            print(json.dumps({"candidates": [], "recommended": None, "message": no_plan(ctx)}, indent=2))
+            print(json.dumps({"candidates": [], "recommended": None, "message": no_plan(ctx),
+                              "handoff": handoff_block(ctx)}, indent=2))
         else:
             print(no_plan(ctx))
+            print_handoff(handoff_block(ctx))
         return 0
     views = ctx.views()
     found = candidates(views, args.limit)
@@ -410,10 +446,11 @@ def cmd_next(ctx, args):
         "Nothing ready in Now or Next: %s wait%s for open items (`blocked by:`)." % (", ".join(waiting), "s" if len(waiting) == 1 else "")
     if args.json:
         print(json.dumps({"candidates": found, "recommended": found[0]["id"] if found else None,
-                          "message": "" if found else empty}, indent=2))
+                          "message": "" if found else empty, "handoff": handoff_block(ctx)}, indent=2))
         return 0
     if not found:
         print(empty)
+        print_handoff(handoff_block(ctx))
         return 0
     print("Next up:")
     for n, v in enumerate(found, 1):
@@ -428,6 +465,7 @@ def cmd_next(ctx, args):
         if v["done_means"]:
             line += " · done means: " + v["done_means"]
         print(line + ("  [%s]" % "; ".join(notes) if notes else ""))
+    print_handoff(handoff_block(ctx))
     return 0
 
 

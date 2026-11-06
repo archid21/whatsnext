@@ -8,6 +8,8 @@ whatsnext is a plugin for Claude Code and Codex. It keeps a plan checklist, chec
 
 MIT license · Python 3.9+, standard library only · no database, no background process
 
+**New here? Read the [user guide](docs/GUIDE.md):** what to say to save a session, resume it, pick work and mark it done.
+
 ---
 
 ## The problem: every session starts blank

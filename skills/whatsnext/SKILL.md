@@ -13,7 +13,7 @@ All logic is in one script: `python3 scripts/whatsnext.py <command>` (Python 3.9
 
 | The user says | Run |
 |---|---|
-| "what's next?" | `plan next --json`, then the Start flow below |
+| "what's next?" | `plan next --json`. When `handoff` is not null, show its `next_action` and `open_questions` first, with its `path` and `written_pacific` time, even when no item is open. Then the Start flow below |
 | "start P-13" | `plan start P-13 --agent <your name>` (Start flow below) |
 | "mark P-13 done" | When a command can prove it: `plan done P-13 --verify "<cmd>"` (runs from the project root; exit 0 ticks it as confirmed, a failure leaves it open and journals the last 20 output lines; do not combine with `--evidence`). Otherwise `plan done P-13 --evidence "<one line>"` (shows as `done*`, not verified) or `--unverified`; ask the user which |
 | "keep working on P-12" (a stale item) | `plan keep P-12` |
