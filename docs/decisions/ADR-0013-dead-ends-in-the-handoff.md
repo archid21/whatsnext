@@ -1,7 +1,7 @@
 # ADR-0013: The handoff note has a Dead ends section, and the compact text keeps it
 
 - **Date:** 2026-11-06T20:02Z
-- **Status:** proposed (agent), awaiting the user's decision
+- **Status:** accepted (user), 2026-11-06
 
 Amends ADR-0008 item 3 (the note's structure) and ADR-0009 item 1 (what the compact text drops).
 

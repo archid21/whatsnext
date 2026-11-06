@@ -16,4 +16,4 @@ Dates are UTC. This list is the current set of decisions for whatsnext. Earlier 
 | 0010 | 2026-11-05T18:40Z | With rightsize, rightsize decides when and whatsnext decides what | accepted (user) | [ADR-0010](ADR-0010-working-with-rightsize.md) |
 | 0011 | 2026-11-06T18:41Z | PreCompact reads the end of the transcript to keep the user's latest request | accepted (user) | [ADR-0011](ADR-0011-precompact-reads-the-last-request.md) |
 | 0012 | 2026-11-06T19:04Z | A plan item may carry a `suggest:` hint that whatsnext stores and never uses | accepted (user) | [ADR-0012](ADR-0012-suggest-field.md) |
-| 0013 | 2026-11-06T20:02Z | The handoff note has a Dead ends section, and the compact text keeps it | proposed (agent) | [ADR-0013](ADR-0013-dead-ends-in-the-handoff.md) |
+| 0013 | 2026-11-06T20:02Z | The handoff note has a Dead ends section, and the compact text keeps it | accepted (user) | [ADR-0013](ADR-0013-dead-ends-in-the-handoff.md) |
