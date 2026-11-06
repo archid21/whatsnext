@@ -9,6 +9,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from fixtures import ts  # noqa: E402
 from test_handoff import note  # noqa: E402
 from test_wrapup import HookBase  # noqa: E402
 
@@ -83,6 +84,53 @@ class WrapupStatusTests(HookBase):
         out = self.hook("session-start", {"source": "startup", "session_id": "s1"})
         self.assertLessEqual(len(out), 1200)
         self.assertIn("Next:", out)
+
+
+class StaleCommitsTests(HookBase):
+    def setUp(self):
+        super().setUp()
+        self.cfg()
+        self.task(updated=ts(60))  # updated an hour ago: young by days
+        self.commit("task")
+
+    def note(self):
+        return self.hook("session-start", {"source": "startup", "session_id": "s1"})
+
+    made = 0
+
+    def commits(self, n):
+        for _ in range(n):
+            self.made += 1
+            self.put("src/c%d.py" % self.made, "x\n")
+            self.commit("feat: c%d" % self.made)
+
+    def test_stale_commits_n_new_commits_make_a_young_note_stale(self):
+        self.commits(3)
+        self.assertNotIn("Warning:", self.note())
+        self.commits(20)  # plus the task commit itself: 24 since the recorded one
+        out = self.note()
+        self.assertRegex(out, r"Warning: the note is 24 new commits since it\. Check git log")
+        self.assertNotIn(" old (updated", out)  # young by days: only the commit reason
+
+    def test_stale_commits_both_limits_are_read_from_config(self):
+        base = self.head()
+        self.cfg(note={"staleCommits": 4})
+        self.commits(2)
+        self.assertNotIn("Warning:", self.note())  # 3 since the recorded commit (the task commit counts)
+        self.commits(1)
+        self.assertIn("Warning: the note is 4 new commits since it.", self.note())
+        self.cfg(note={"staleCommits": 50, "staleDays": 1})
+        self.task(updated="2026-10-27T14:05Z", commit=base)  # old by days, quiet by commits
+        out = self.note()
+        self.assertRegex(out, r"Warning: the note is \d+ days old \(updated 2026-10-27T14:05Z\)\. Check")
+        self.assertNotIn("new commits since it", out)
+        self.cfg(note={"staleCommits": 3, "staleDays": 1})
+        self.assertRegex(self.note(), r"days old \(updated 2026-10-27T14:05Z\) and 3 new commits since it")
+
+    def test_stale_commits_bad_values_fall_back_to_the_defaults(self):
+        self.cfg(note={"staleCommits": 0})
+        r = self.gw(["config", "show"])
+        self.assertIn("note.staleCommits = 20", r.stdout)
 
 
 class CutLineTests(HookBase):

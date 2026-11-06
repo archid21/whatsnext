@@ -173,6 +173,18 @@ class WrapUpHookTests(HookBase):
         self.prompt("wrap up")
         self.assertEqual(os.listdir(shutil_target), [])
 
+    def test_archive_stays_inside_the_project_when_a_parent_folder_is_a_link(self):
+        outside = os.path.join(self.tmp.name, "elsewhere")
+        os.makedirs(outside)
+        with open(os.path.join(outside, "HANDOFF.md"), "w", encoding="utf-8") as f:
+            f.write("# Handoff\n\nSession: s0\nTask: P-13\nWritten: 2026-11-05T05:03Z\n\n## Goal\nold\n")
+        import shutil
+        shutil.rmtree(self.p("docs/project"), ignore_errors=True)
+        os.makedirs(self.p("docs"), exist_ok=True)
+        os.symlink(outside, self.p("docs/project"))  # docs/project -> outside the project
+        self.prompt("wrap up")
+        self.assertEqual(sorted(os.listdir(outside)), ["HANDOFF.md"])  # no handoffs/ folder was made out there
+
     def test_archive_failure_does_not_stop_the_wrap_up(self):
         self.put_note()
         self.put("docs/project/handoffs", "a file where the folder should be\n")

@@ -398,6 +398,10 @@ def archive_handoff(root, effective, keep=ARCHIVE_KEEP):
     folder = os.path.join(os.path.dirname(handoff), ARCHIVE_DIR)
     if os.path.islink(folder):  # the archive folder is a real folder or nothing: a link could point anywhere
         return None
+    inside = os.path.realpath(root)  # no link on the way (a linked `docs/project`, say) may lead outside the project
+    parent = os.path.realpath(os.path.dirname(folder))
+    if os.path.commonpath([parent, inside]) != inside:
+        return None
     os.makedirs(folder, exist_ok=True)
     digest = hashlib.sha256(body.encode("utf-8", "replace")).hexdigest()
     for name in os.listdir(folder):

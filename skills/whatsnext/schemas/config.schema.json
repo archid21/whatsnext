@@ -31,6 +31,14 @@
         "handoff": { "type": "string", "x-relativePath": true, "default": "docs/project/HANDOFF.md", "description": "The handoff note that `wrap up` writes and the compacts read (ADR-0008). A line `Handoff: <path>` in AGENTS.md names another path when this setting is left at its default." }
       }
     },
+    "note": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "staleDays": { "type": "integer", "minimum": 1, "default": 7, "description": "The resume note warns that it is stale when the progress file was last updated more than this many days ago." },
+        "staleCommits": { "type": "integer", "minimum": 1, "default": 20, "description": "The resume note warns that it is stale when this many commits or more were made since the progress file's recorded commit." }
+      }
+    },
     "plan": {
       "type": "object",
       "additionalProperties": false,

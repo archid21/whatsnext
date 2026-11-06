@@ -222,13 +222,20 @@ def last_line(task, now):
     return "Note: %s, %s old" % (mark, age_text(then, now)) if then else "Note: %s, age unknown" % mark
 
 
-def old_warning(task, now):
-    """A warning when Updated (else the Note time) is more than STALE_DAYS old, else None."""
+def old_warning(task, now, days=STALE_DAYS, new_commits=None, commit_limit=None):
+    """A warning when Updated (else the Note time) is more than `days` old, or when `new_commits` reaches
+    `commit_limit` (both limits are settings, `note.staleDays` and `note.staleCommits`); else None."""
     then = gwclaims.to_dt(task.field("updated")) or note_time(task)
-    if then is None or now - then <= datetime.timedelta(days=STALE_DAYS):
+    old = then is not None and now - then > datetime.timedelta(days=days)
+    busy = bool(commit_limit) and new_commits is not None and new_commits >= commit_limit
+    if not old and not busy:
         return None
-    return "Warning: the note is %s old (updated %s). Check git log and the code before you trust it." % (
-        age_text(then, now), task.field("updated") or "unknown")
+    reasons = []
+    if old:
+        reasons.append("%s old (updated %s)" % (age_text(then, now), task.field("updated") or "unknown"))
+    if busy:
+        reasons.append("%d new commits since it" % new_commits)
+    return "Warning: the note is %s. Check git log and the code before you trust it." % " and ".join(reasons)
 
 
 def git_facts(root, effective, task):
@@ -406,7 +413,8 @@ def build(root, effective, compacted=False, session_id=None):
     info = handoff_info(root, effective, task, session_id)
     command, source = run_command(root, effective, task)
     facts = git_facts(root, effective, task)
-    warning = old_warning(task, now)
+    warning = old_warning(task, now, effective.get("note.staleDays"), facts["new"] if facts else None,
+                          effective.get("note.staleCommits"))
     last = last_line(task, now)
     stale = gwclaims.stale_in_worktree(root, effective) if effective.module_on("plan") else []
     stale_text = ("Stale checkouts: %s. Run: whatsnext plan list" % ", ".join(c["id"] for c, _idle in stale)
