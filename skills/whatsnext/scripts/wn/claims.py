@@ -15,6 +15,7 @@ import datetime
 import json
 import os
 import re
+import stat
 import uuid
 
 from . import status as gwstatus
@@ -132,6 +133,48 @@ def sibling_roots(root):
     return found
 
 
+SIBLING_FIELDS = ("agent", "session", "branch", "worktree", "since", "updated", "asked_at", "token")
+CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+
+
+def safe_text(value, limit=80):
+    """`value` as short plain text: control characters (escape sequences, new lines) removed, clipped."""
+    return CONTROL_RE.sub("", str(value))[:limit]
+
+
+def read_sibling_file(path):
+    """One sibling claim as a dict of plain, short strings, or None. The file is opened without following a link and
+    judged by the open descriptor (a plain file, not over MAX_CLAIM_BYTES), so nothing can change between the
+    check and the read. Only the known claim fields are kept."""
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_CLAIM_BYTES:
+            return None
+        with os.fdopen(fd, "rb", closefd=False) as f:
+            raw = f.read(MAX_CLAIM_BYTES + 1)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    if len(raw) > MAX_CLAIM_BYTES:
+        return None
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("id"), str):
+        return None
+    clean = {"id": data["id"]}
+    for key in SIBLING_FIELDS:
+        if data.get(key) is not None:
+            clean[key] = safe_text(data[key])
+    return clean
+
+
 def read_siblings(root):
     """Claims in the `.whatsnext/claims/` folder of each other worktree (P-10), read only. A Codex sandbox cannot write
     the git folder, so its claim lands in its own worktree. Only plain files of a sane size and name are read, and a
@@ -148,16 +191,11 @@ def read_siblings(root):
         for name in names:
             path = os.path.join(folder, name)
             item_id = name[:-5]
-            if (not name.endswith(".json") or not ITEM_ID_RE.match(item_id) or os.path.islink(path)
-                    or not os.path.isfile(path) or os.path.getsize(path) > MAX_CLAIM_BYTES):
+            if not name.endswith(".json") or not ITEM_ID_RE.match(item_id):
                 continue
-            try:
-                with open(path, encoding="utf-8") as f:
-                    data = json.load(f)
-            except (OSError, ValueError):
-                continue
-            if isinstance(data, dict) and data.get("id") == item_id and item_id not in out:
-                out[item_id] = dict(data, sibling_worktree=sibling)
+            data = read_sibling_file(path)
+            if data is not None and data.get("id") == item_id and item_id not in out:
+                out[item_id] = dict(data, id=item_id, sibling_worktree=safe_text(sibling))
     return out
 
 

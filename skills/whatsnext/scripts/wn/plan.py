@@ -289,6 +289,7 @@ class Ctx(object):
             since = gwclaims.to_dt(claim.get("since"))
             info = {"agent": claim.get("agent"), "branch": claim.get("branch"), "session": claim.get("session"),
                     "worktree": claim.get("worktree"), "since": claim.get("since"),
+                    "sibling_worktree": claim.get("sibling_worktree"),
                     "since_short": gwclaims.short_time(since, self.now) if since else "unknown",
                     "idle_since": gwclaims.stamp(idle) if idle else None,
                     "idle_short": gwclaims.short_time(idle, self.now) if idle else "unknown", "stale": stale}
@@ -323,6 +324,8 @@ def describe_claim(info):
     if info["branch"]:
         text += " · %s" % info["branch"]
     text += " · since %s" % info["since_short"]
+    if info.get("sibling_worktree"):  # a claim another worktree keeps: shown as such, never taken as ours (P-10)
+        text += " · in worktree %s" % info["sibling_worktree"]
     if info["stale"]:
         text += " · stale, idle since %s" % info["idle_short"]
     return text + ")"
