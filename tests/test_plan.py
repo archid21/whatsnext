@@ -805,11 +805,32 @@ class OutputTailTests(unittest.TestCase):
 class VerifyTests(PlanBase):
     """`plan done <id> --verify "<cmd>"` (ADR-0003)."""
 
+    def test_verify_records_state(self):
+        r = self.plan("done", "P-13", "--verify", "test -f README.md")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        head = self.head()
+        self.assertRegex(self.get(PLAN_PATH), r"\(%s\) at %s t:[0-9a-f]{8}\n" % (STAMP, head))
+        self.assertNotIn("changed since", self.plan("check").stdout)  # right after verify: nothing changed
+        self.commit("record the verify")  # PLAN.md and progress files only: still the same code
+        self.assertNotIn("changed since", self.plan("check").stdout)
+        self.put("src/new.py", "x = 1\n")  # an edit
+        out = self.plan("check").stdout
+        self.assertIn("warning: P-13 was verified at %s, and the code has changed since. Run its verify again." % head, out)
+        self.commit("feat: new")
+        out = self.plan("check").stdout
+        self.assertIn("verified at %s, and the code has changed since (1 commit)." % head, out)
+        self.assertIn("verified_stale", self.plan("list", "--json").stdout)
+
+    def test_evidence_without_a_state_is_never_flagged(self):
+        self.put(PLAN_PATH, PLAN.replace("- [ ] P-16 Audit log", "- [x] P-16 Audit log · done means: x · evidence: verified: true passed in 1 s (t)"))
+        self.put("src/new.py", "x = 1\n")
+        self.assertNotIn("changed since", self.plan("check").stdout)
+
     def test_pass_ticks_the_item_with_verified_evidence_and_list_shows_plain_done(self):
         r = self.plan("done", "P-13", "--verify", "test -f README.md")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertRegex(self.get(PLAN_PATH),
-                         r"- \[x\] P-13 Add login · done means: login tests pass · evidence: verified: test -f README.md passed in \d+(\.\d)? s \(%s\)\n" % STAMP)
+                         r"- \[x\] P-13 Add login · done means: login tests pass · evidence: verified: test -f README.md passed in \d+(\.\d)? s \(%s\)( at [0-9a-f]{7,} t:[0-9a-f]{8})?\n" % STAMP)
         self.assertEqual(self.get(PLAN_PATH).count("[x]"), 1)
         out = self.plan("list").stdout
         self.assertIn("P-13  Add login  [done]", out)

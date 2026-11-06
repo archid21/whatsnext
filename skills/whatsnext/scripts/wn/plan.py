@@ -8,6 +8,7 @@ again with the answer flag. Exit codes: 0 done, 1 error, 3 module off,
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -37,6 +38,7 @@ UNVERIFIED = "checked by a person, not verified"
 UNVERIFIED_MARK = "*"  # `plan list` shows "done*" and one footnote instead of UNVERIFIED on each row
 VERIFIED_PREFIX = "verified:"  # evidence that `plan done --verify` wrote after a passing command (ADR-0003)
 VERIFY_TIMEOUT_RE = re.compile(r"^([1-9][0-9]*)([smh])$")
+STATE_RE = re.compile(r"\) at ([0-9a-f]{7,40}) t:([0-9a-f]{8})\s*$")  # the code state `plan done --verify` appends (P-8)
 VERIFY_TIMEOUT_DEFAULT = 30 * 60  # seconds, when plan.verifyTimeout cannot be read
 VERIFY_TAIL_LINES = 20  # output lines kept in the journal after a failed verify
 VERIFY_LINE_MAX = 200
@@ -181,6 +183,58 @@ class Ctx(object):
         root = gwconfig.find_root(cwd)
         return cls(root, gwconfig.load(root))
 
+    def bookkeeping(self):
+        """Paths whatsnext itself writes (the plan, the progress folder, `.whatsnext/`), as git prints them."""
+        code, out = gwstatus.git(self.root, "rev-parse", "--show-prefix")
+        prefix = out.strip() if code == 0 else ""
+        return (gwjournal.rel_path(self.root, prefix, self.plan_path),
+                gwjournal.rel_path(self.root, prefix, self.folder) + "/",
+                gwjournal.rel_path(self.root, prefix, os.path.join(self.root, gwjournal.SESSIONS_DIR)) + "/")
+
+    def code_state(self):
+        """(short commit, 8-character hash of the code) now, or None outside git. The hash covers the content of
+        every tracked and untracked file except the bookkeeping ones, so a verify followed by a commit of
+        the same content keeps the same hash."""
+        if getattr(self, "_state", False) is not False:
+            return self._state
+        self._state = None
+        commit = gwstatus.current_commit(self.root)
+        if commit is not None:
+            skip = self.bookkeeping()
+            code, out = gwstatus.git(self.root, "-c", "core.quotepath=off", "ls-files", "-s", "-z")
+            files = {}
+            for entry in out.split("\0") if code == 0 else []:
+                meta, _tab, name = entry.partition("\t")
+                if name and not gwjournal.is_bookkeeping(name, skip):
+                    files[name] = meta.split()[1]
+            code, out = gwstatus.git(self.root, "-c", "core.quotepath=off", "ls-files", "-m", "-o",
+                                     "--exclude-standard", "-z")
+            for name in out.split("\0") if code == 0 else []:
+                if not name or gwjournal.is_bookkeeping(name, skip):
+                    continue
+                try:
+                    with open(os.path.join(self.root, name), "rb") as f:
+                        files[name] = hashlib.sha1(f.read()).hexdigest()
+                except OSError:
+                    files.pop(name, None)  # deleted
+            digest = hashlib.sha1("".join("%s\0%s\n" % (n, files[n]) for n in sorted(files)).encode("utf-8", "replace"))
+            self._state = (commit, digest.hexdigest()[:8])
+        return self._state
+
+    def verify_drift(self, evidence):
+        """A short phrase when the code has changed since `plan done --verify` proved an item, else None.
+        Evidence with no recorded state (an older item, or one verified outside git) is never flagged."""
+        m = STATE_RE.search(evidence or "")
+        now = self.code_state() if m and is_verified(evidence) else None
+        if not m or now is None or now[1] == m.group(2):
+            return None
+        skip = self.bookkeeping()
+        code, out = gwstatus.git(self.root, "rev-list", "--count", "--end-of-options", m.group(1) + "..HEAD", "--", ".",
+                                 *[":(exclude)" + s.rstrip("/") for s in skip])
+        n = int(out.strip()) if code == 0 and out.strip().isdigit() else None
+        since = " (%d commit%s)" % (n, "" if n == 1 else "s") if n else ""
+        return "verified at %s, and the code has changed since%s" % (m.group(1), since)
+
     def has_plan(self):
         return os.path.isfile(self.plan_path)
 
@@ -219,6 +273,7 @@ class Ctx(object):
         return {"id": item.id, "title": item.title, "section": item.section, "status": status,
                 "done_means": item.done_means, "evidence": item.evidence,
                 "verified": is_verified(item.evidence) if item.checked else None,
+                "verified_stale": self.verify_drift(item.evidence) if item.checked else None,
                 "stale": stale, "claim": info}
 
     def emit(self, event, payload):
@@ -342,6 +397,9 @@ def check(ctx):
     for it in items:
         if it.checked and not it.evidence:
             warnings.append("%s is checked without evidence (%s)." % (it.id, UNVERIFIED))
+        drift = ctx.verify_drift(it.evidence) if it.checked else None
+        if drift:
+            warnings.append("%s was %s. Run its verify again." % (it.id, drift))
         if not it.checked and not it.done_means:
             warnings.append("%s has no \"done means\"." % it.id)
     return errors, warnings
@@ -378,11 +436,12 @@ def ask_evidence(as_json, item_id, title):
                answer='--evidence "<text>" or --unverified', free_text=True)
 
 
-def mark_done(ctx, item_id, evidence, unverified, strict=True, stamp=None):
+def mark_done(ctx, item_id, evidence, unverified, strict=True, stamp=None, suffix=""):
     """Check the item off with evidence, set its progress file to done, release its claim.
 
     Returns (ok, message). With strict False an item that is already checked is not an error.
-    `stamp` is the time written after the evidence (default: now).
+    `stamp` is the time written after the evidence (default: now). `suffix` is written after the stamp
+    (the code state of a verified item).
     """
     if not ctx.has_plan():
         return False, no_plan(ctx)
@@ -392,7 +451,7 @@ def mark_done(ctx, item_id, evidence, unverified, strict=True, stamp=None):
     if item.checked and strict:
         return False, "%s is already done." % item_id
     if not item.checked:
-        text = evidence_text(evidence, unverified, stamp)
+        text = evidence_text(evidence, unverified, stamp) + suffix
 
         def change(line):
             line = re.sub(r"\[ \]", "[x]", line, count=1)
@@ -611,7 +670,9 @@ def done_verified(ctx, args):
             "seconds": round(result["seconds"], 1), "timed_out": result["timed_out"], "time": stamp}
     if result["passed"]:
         evidence = "%s %s passed in %s" % (VERIFIED_PREFIX, short_command(command), format_seconds(result["seconds"]))
-        ok, message = mark_done(ctx, args.id, evidence, False, stamp=stamp)
+        state = ctx.code_state()  # taken before mark_done writes the plan and progress files
+        ok, message = mark_done(ctx, args.id, evidence, False, stamp=stamp,
+                                suffix=" at %s t:%s" % state if state else "")
         if ok:
             gwstatus.set_note(ctx.folder, args.id, "confirmed", stamp)
             message = "%s Verified: %s passed in %s." % (message, short_command(command), format_seconds(result["seconds"]))
