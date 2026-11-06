@@ -375,6 +375,7 @@ def instructions(root, effective, now=None, session_id=None):
 
 ARCHIVE_DIR = "handoffs"  # next to the handoff note: docs/project/handoffs/
 ARCHIVE_KEEP = 10  # archived notes kept; the oldest go first
+ARCHIVE_NAME_RE = re.compile(r"^\d{8}T\d{4}Z-[A-Za-z0-9._-]{1,40}(-\d+)?\.md$")  # only files the archive wrote
 
 
 def archive_handoff(root, effective, keep=ARCHIVE_KEEP):
@@ -395,10 +396,12 @@ def archive_handoff(root, effective, keep=ARCHIVE_KEEP):
             ).astimezone(datetime.timezone.utc).strftime("%Y%m%dT%H%MZ")
     label = re.sub(r"[^A-Za-z0-9._-]+", "-", header["task"] or header["session"] or "note").strip("-")[:40] or "note"
     folder = os.path.join(os.path.dirname(handoff), ARCHIVE_DIR)
+    if os.path.islink(folder):  # the archive folder is a real folder or nothing: a link could point anywhere
+        return None
     os.makedirs(folder, exist_ok=True)
     digest = hashlib.sha256(body.encode("utf-8", "replace")).hexdigest()
     for name in os.listdir(folder):
-        if name.endswith(".md"):
+        if ARCHIVE_NAME_RE.match(name) and not os.path.islink(os.path.join(folder, name)):
             try:
                 with open(os.path.join(folder, name), encoding="utf-8", errors="replace") as f:
                     if hashlib.sha256(f.read().encode("utf-8", "replace")).hexdigest() == digest:
@@ -407,11 +410,12 @@ def archive_handoff(root, effective, keep=ARCHIVE_KEEP):
                 continue
     path = os.path.join(folder, "%s-%s.md" % (when, label))
     n = 1
-    while os.path.exists(path):
+    while os.path.lexists(path):  # lexists: a dangling link is taken too, never written through
         n += 1
         path = os.path.join(folder, "%s-%s-%d.md" % (when, label, n))
     write_atomic(path, body)
-    names = sorted(n for n in os.listdir(folder) if n.endswith(".md"))
+    names = sorted(n for n in os.listdir(folder)
+                   if ARCHIVE_NAME_RE.match(n) and not os.path.islink(os.path.join(folder, n)))
     for old in names[:max(len(names) - keep, 0)]:
         try:
             os.remove(os.path.join(folder, old))

@@ -149,6 +149,30 @@ class WrapUpHookTests(HookBase):
         self.assertEqual(names[0], "20261104T1000Z-P-13.md")  # the three oldest are gone
         self.assertEqual(names[-1], "20261113T1000Z-P-13.md")
 
+    def test_archive_never_writes_through_a_link_or_deletes_other_files(self):
+        from wn import wrapup as wnwrapup
+        outside = os.path.join(self.tmp.name, "outside")
+        os.makedirs(outside)
+        folder = self.p("docs/project/handoffs")
+        os.makedirs(folder)
+        os.symlink(os.path.join(outside, "victim.md"), os.path.join(folder, "20261105T0503Z-P-13.md"))  # dangling link
+        self.put_note()
+        self.prompt("wrap up")
+        self.assertFalse(os.path.exists(os.path.join(outside, "victim.md")))
+        self.assertTrue(os.path.exists(os.path.join(folder, "20261105T0503Z-P-13-2.md")))
+        for i in range(wnwrapup.ARCHIVE_KEEP + 2):  # other files in the folder are never pruned
+            self.put("docs/project/handoffs/notes-%d.md" % i, "mine\n")
+        self.put_note(written="2026-11-06T10:00Z", extra="again")
+        self.prompt("wrap up")
+        self.assertEqual(len([n for n in os.listdir(folder) if n.startswith("notes-")]), wnwrapup.ARCHIVE_KEEP + 2)
+        shutil_target = self.p("docs/project/elsewhere")
+        os.makedirs(shutil_target)
+        os.rename(folder, folder + ".old")
+        os.symlink(shutil_target, folder)  # the folder itself is a link: nothing is archived into it
+        self.put_note(written="2026-11-07T10:00Z", extra="third")
+        self.prompt("wrap up")
+        self.assertEqual(os.listdir(shutil_target), [])
+
     def test_archive_failure_does_not_stop_the_wrap_up(self):
         self.put_note()
         self.put("docs/project/handoffs", "a file where the folder should be\n")
