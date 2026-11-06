@@ -26,11 +26,14 @@ from . import capture as gwcapture
 from . import config as gwconfig
 from . import journal as gwjournal
 from . import packet as gwpacket
+from . import redact as gwredact
+from . import sessions as gwsessions
 from . import status as gwstatus
 from . import wrapup as gwwrapup
 
 EVENTS = ("session-start", "plan-shown", "plan-approved", "prompt-submit", "stop", "pre-compact", "session-end")
 PRECOMPACT_CAP = 3000  # characters printed at PreCompact (P-20)
+REQUEST_CAP = 2000  # characters of the user's latest request kept verbatim (P-6)
 FACT_EVENTS = ("stop", "pre-compact", "session-end")  # these write the facts layer
 AGENTS = ("claude-code", "codex")
 
@@ -141,6 +144,22 @@ def session_start(root, effective, data, agent=None):
     return text + "\n"
 
 
+def latest_request(transcript, facts):
+    """The "Keep verbatim" block for the user's latest request, or "". It is redacted, clipped to REQUEST_CAP
+    characters, and short enough that it and the facts block fit the PreCompact cap. Any error gives ""."""
+    if not transcript or not os.path.isfile(transcript):
+        return ""
+    try:
+        text = gwsessions.latest_request(transcript, gwwrapup.PROMPT)
+    except (OSError, ValueError):
+        return ""
+    if not text:
+        return ""
+    head = "Keep verbatim (the user's latest request):\n"
+    room = min(REQUEST_CAP, PRECOMPACT_CAP - len(facts) - len(head) - 4)
+    return head + gwwrapup.clip_to(gwredact.mask_secrets(text), room) if room > 0 else ""
+
+
 def precompact(root, effective, data, agent=None):
     """PreCompact (P-4, P-20, P-26). Records "compacted without wrap-up" when this session has no fresh handoff
     note (the resume note shows it after the compact). Claude Code: returns plain text, at most PRECOMPACT_CAP
@@ -163,12 +182,14 @@ def precompact(root, effective, data, agent=None):
     if when:
         lines.append("Compacted without wrap-up at %s." % when)
     facts = " ".join(lines)
+    request = latest_request(transcript, facts)
     custom = data.get("custom_instructions")
     if isinstance(custom, str) and custom.strip():  # the user wrote their own compact text: add only the facts
-        return gwwrapup.clip_to(facts, PRECOMPACT_CAP) + "\n"
-    room = PRECOMPACT_CAP - len(facts) - 2
+        return gwwrapup.clip_to(request + "\n\n" + facts if request else facts, PRECOMPACT_CAP) + "\n"
+    tail = (request + "\n\n" if request else "") + facts
+    room = PRECOMPACT_CAP - len(tail) - 2
     body = gwwrapup.clip_to(gwwrapup.compact_instructions(root, effective, session_id).strip(), max(room, 0))
-    return (body + "\n\n" if body else "") + gwwrapup.clip_to(facts, PRECOMPACT_CAP) + "\n"
+    return (body + "\n\n" if body else "") + gwwrapup.clip_to(tail, PRECOMPACT_CAP) + "\n"
 
 
 def handle(event, data, agent=None):

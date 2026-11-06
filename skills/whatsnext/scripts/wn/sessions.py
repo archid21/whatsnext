@@ -91,3 +91,43 @@ def last_turn_time(path, skip_prompt=None):
         if when is not None and (last is None or when > last):
             last = when
     return last
+
+
+TAIL_BYTES = 1000000  # how much of the transcript's end `latest_request` reads
+NOT_A_REQUEST = ("<command-", "<local-command", "/compact", "<system-reminder", "<task-notification")
+
+
+def tail_entries(path, size=TAIL_BYTES):
+    """The JSON objects in the last `size` bytes of a transcript (a cut first line is dropped)."""
+    with open(path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        end = f.tell()
+        f.seek(max(end - size, 0))
+        raw = f.read()
+    lines = raw.decode("utf-8", errors="replace").split("\n")
+    if end > size:
+        lines = lines[1:]
+    for line in lines:
+        try:
+            item = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(item, dict):
+            yield item
+
+
+def latest_request(path, skip_prompt=None):
+    """The text of the user's latest real request in a transcript, or None. Tool results, meta, sidechain and
+    compact-summary entries, slash-command and injected entries, and the prompt `skip_prompt` are not requests."""
+    found = None
+    for item in tail_entries(path):
+        if item.get("isCompactSummary"):
+            continue
+        text = prompt_text(item)
+        if text is None:
+            continue
+        text = text.strip()
+        if not text or text.startswith(NOT_A_REQUEST) or (skip_prompt is not None and text == skip_prompt):
+            continue
+        found = text
+    return found

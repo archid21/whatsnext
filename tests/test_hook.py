@@ -502,6 +502,57 @@ class PreCompactTests(HookBase):
         self.assertNotIn("handoff note", custom)
         self.assertLessEqual(len(custom), 3000)
 
+    def transcript(self, entries):
+        path = os.path.join(self.tmp.name, "t.jsonl")
+        with open(path, "w", encoding="utf-8") as f:
+            for e in entries:
+                f.write(json.dumps(e) + "\n")
+        return path
+
+    @staticmethod
+    def user(text, **extra):
+        return dict({"type": "user", "message": {"role": "user", "content": text}}, **extra)
+
+    def test_latest_request(self):
+        self.task()
+        long_text = "Please do the login work. " + "x" * 3000
+        path = self.transcript([
+            self.user("older request"),
+            self.user(long_text),
+            {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "content": "TOOLRESULT-1"}]}},
+            self.user("meta note", isMeta=True),
+            self.user("sidechain note", isSidechain=True),
+            self.user("wrap up"),
+            self.user("<command-name>/compact</command-name>"),
+            self.user("summary text", isCompactSummary=True),
+            {"type": "assistant", "message": {"role": "assistant", "content": "an answer"}},
+        ])
+        out = self.hook("pre-compact", {"session_id": "s1", "transcript_path": path})
+        self.assertIn("Keep verbatim (the user's latest request):\nPlease do the login work.", out)
+        block = out.split("Keep verbatim (the user's latest request):\n")[1].split("\n\n")[0]
+        self.assertLessEqual(len(block), 2000)
+        self.assertTrue(block.endswith("\u2026"))
+        for skipped in ("older request", "TOOLRESULT-1", "meta note", "sidechain note", "summary text", "<command-name>"):
+            self.assertNotIn(skipped, out)
+        self.assertLessEqual(len(out), 3000)
+        self.assertIn("whatsnext facts:", out)
+
+    def test_latest_request_is_redacted_and_kept_with_custom_instructions(self):
+        self.task()
+        key = "sk-ant-" + "a" * 30
+        path = self.transcript([self.user("use key %s and <private>my secret plan</private> now" % key)])
+        out = self.hook("pre-compact", {"session_id": "s1", "transcript_path": path, "custom_instructions": "mine"})
+        self.assertIn("use key [redacted] and now", out)
+        self.assertNotIn(key, out)
+        self.assertNotIn("secret plan", out)
+
+    def test_latest_request_missing_or_unreadable_is_silent(self):
+        self.task()
+        for path in (None, os.path.join(self.tmp.name, "absent.jsonl"), self.transcript([{"type": "system"}])):
+            out = self.hook("pre-compact", {"session_id": "s1", "transcript_path": path})
+            self.assertNotIn("Keep verbatim", out)
+            self.assertIn("whatsnext facts:", out)
+
     def test_output_contract(self):
         self.task()
         out = self.hook("pre-compact", {"session_id": "s1"})

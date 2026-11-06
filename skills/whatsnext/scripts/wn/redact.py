@@ -101,3 +101,15 @@ def clean(text, where, quiet=False):
     if not quiet:
         warn(text, where)
     return text
+
+
+def mask_secrets(text):
+    """`text` with private spans removed and anything that looks like a secret replaced by `[redacted]`.
+    For text that is printed or stored without a human looking first (a hook's output)."""
+    text = strip_private(text or "")
+    for kind, pattern in SECRET_PATTERNS:
+        if kind == "key, password or token assignment":
+            text = pattern.sub(lambda m: re.split(r"[:=]", m.group(0), 1)[0] + "= [redacted]", text)
+        else:
+            text = pattern.sub("[redacted]", text)
+    return text
