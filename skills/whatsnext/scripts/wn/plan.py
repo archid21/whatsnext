@@ -958,7 +958,9 @@ def cmd_start(ctx, args):
         return result
     if earlier and result["action"] != "worktree":
         gwstatus.stamp_file(ctx.root, ctx.folder, ctx.effective, item.id, state="active")
+    overlaps = file_overlaps(ctx, item.id)
     info = {"started": True, "id": item.id, "title": item.title, "done_means": done_means, "agent": agent,
+            "file_overlap": [{"id": o, "files": f} for o, f in overlaps],
             "progress_file": result["progress_file"], "branch": result["branch"], "branch_action": result["action"],
             "worktree": result["worktree"], "earlier_work": earlier, "next_step": NEXT_STEP}
     if as_json:
@@ -973,8 +975,36 @@ def cmd_start(ctx, args):
         print("Worktree: %s (branch %s). Tell the user to open this folder and continue there." % (info["worktree"], info["branch"]))
     elif info["branch"]:
         print("Branch: %s%s" % (info["branch"], " (new)" if info["branch_action"] == "branch" else ""))
+    if overlaps:
+        print("warning: " + overlap_text(item.id, overlaps) + " Two agents may edit the same files; ask the user, or pick other files.",
+              file=sys.stderr)
     print("Next: " + NEXT_STEP)
     return 0
+
+
+def file_overlaps(ctx, item_id):
+    """P-11: [(other item id, shared files)] where another in-progress (claimed) item's progress file lists a file
+    that `item_id`'s progress file lists too. Advice only; there is no lock."""
+    tasks = ctx.tasks()
+    mine = tasks.get(item_id)
+    if mine is None:
+        return []
+    names = set(mine.file_list())
+    out = []
+    for other_id in sorted(gwclaims.read_all(ctx.root)):
+        task = tasks.get(other_id)
+        if other_id == item_id or task is None:
+            continue
+        shared = sorted(names & set(task.file_list()))
+        if shared:
+            out.append((other_id, shared))
+    return out
+
+
+def overlap_text(item_id, overlaps):
+    return "%s lists files that %s." % (item_id, "; ".join(
+        "%s (in progress) also lists: %s" % (other, ", ".join(shared[:5]) + (", +%d more" % (len(shared) - 5) if len(shared) > 5 else ""))
+        for other, shared in overlaps))
 
 
 def earlier_work(ctx, item_id):

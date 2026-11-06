@@ -444,6 +444,14 @@ def build(root, effective, compacted=False, session_id=None):
         gone = "Warning: the recorded commit %s is not in this history (rebase, reset or force-push). " \
                "Check git log and the code before you trust the note." % facts["not_ancestor"]
         warning = warning + "\n" + gone if warning else gone
+    if effective.module_on("plan"):  # P-11: another in-progress item lists the same files
+        try:
+            overlaps = gwplan.file_overlaps(gwplan.Ctx(root, effective), task.id)
+        except Exception:
+            overlaps = []
+        if overlaps:
+            line = "Overlap: " + gwplan.overlap_text(task.id, overlaps)
+            warning = warning + "\n" + line if warning else line
     last = last_line(task, now)
     stale = gwclaims.stale_in_worktree(root, effective) if effective.module_on("plan") else []
     stale_text = ("Stale checkouts: %s. Run: whatsnext plan list" % ", ".join(c["id"] for c, _idle in stale)

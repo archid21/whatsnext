@@ -877,6 +877,39 @@ class DriftTests(PlanBase):
         self.assertNotIn("ticked by hand", out)
 
 
+class FileOverlapTests(PlanBase):
+    def setUp(self):
+        super().setUp()
+        self.put(PLAN_PATH, PLAN.replace("- [ ] P-16 Audit log", "- [ ] P-16 Audit log · done means: it logs"))
+        self.commit("plan")
+
+    def test_file_overlap_start_warns_when_another_in_progress_item_lists_the_same_files(self):
+        self.assertEqual(self.start("P-13", "--branch", "stay").returncode, 0)
+        self.task("P-13", branch=self.branch(), files="src/a.py, src/b.py")
+        self.put("%s/P-16.md" % STATUS, task_text("P-16", title="Audit log", state="parked", branch=self.branch(),
+                                                  files="src/b.py, src/c.py"))
+        r = self.plan("start", "P-16", "--agent", "codex", "--branch", "stay", "--current", "keep")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("warning: P-16 lists files that P-13 (in progress) also lists: src/b.py.", r.stderr)
+        self.assertIn("Started P-16", r.stdout)  # advice only: the start still happens
+
+    def test_file_overlap_json_and_the_resume_note(self):
+        self.start("P-13", "--branch", "stay")
+        self.task("P-13", branch=self.branch(), files="src/a.py")
+        self.put("%s/P-16.md" % STATUS, task_text("P-16", title="Audit log", state="parked", branch=self.branch(), files="src/a.py"))
+        r, data = self.jplan("start", "P-16", "--agent", "codex", "--branch", "stay", "--current", "keep")
+        self.assertEqual(data["file_overlap"], [{"id": "P-13", "files": ["src/a.py"]}])
+        note = self.gw(["progress", "resume-note"]).stdout
+        self.assertIn("Overlap: P-16 lists files that P-13 (in progress) also lists: src/a.py.", note)
+
+    def test_file_overlap_no_shared_file_no_warning(self):
+        self.start("P-13", "--branch", "stay")
+        self.task("P-13", branch=self.branch(), files="src/a.py")
+        self.put("%s/P-16.md" % STATUS, task_text("P-16", title="Audit log", state="parked", branch=self.branch(), files="src/z.py"))
+        r = self.plan("start", "P-16", "--agent", "codex", "--branch", "stay", "--current", "keep")
+        self.assertNotIn("also lists", r.stderr)
+
+
 class OutputTailTests(unittest.TestCase):
     def test_tail_strips_colors_blank_ends_and_clips(self):
         self.assertEqual(plan.output_tail(b"a\n\x1b[31mred\x1b[0m\n\n"), ["a", "red"])
