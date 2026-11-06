@@ -580,6 +580,31 @@ class PreCompactTests(HookBase):
         start = self.hook("session-start", {"source": "startup"})
         self.assertFalse(start.lstrip().startswith("{"))
 
+    def test_postcompact_bak(self):
+        self.task(steps=["- [x] Write the form", "- [ ] Add the tests", "- [ ] Ship it"])
+        first = "Summary: we wrote the form and will add the tests. key=sk-ant-" + "b" * 30
+        self.assertEqual(self.hook("post-compact", {"session_id": "s1", "compact_summary": first}), "")
+        path = ".whatsnext/sessions/s1.summary.md"
+        self.assertIn("we wrote the form", self.get(path))
+        self.assertNotIn("sk-ant-", self.get(path))
+        self.assertFalse(self.has(path + ".bak"))
+        second = "Second summary: nothing about the steps."
+        self.hook("post-compact", {"session_id": "s1", "compact_summary": second})
+        self.assertIn("Second summary", self.get(path))
+        self.assertIn("we wrote the form", self.get(path + ".bak"))  # the previous one is kept
+        note = self.hook("session-start", {"source": "compact", "session_id": "s1"})
+        self.assertIn("Summary kept 0 of 3 plan steps.", note)
+        self.hook("post-compact", {"session_id": "s1", "compact_summary": "Write the form. Add the tests."})
+        self.assertIn("Summary kept 2 of 3 plan steps.", self.hook("session-start", {"source": "compact", "session_id": "s1"}))
+        self.assertNotIn("Summary kept", self.hook("session-start", {"source": "startup", "session_id": "s1"}))
+
+    def test_postcompact_empty_summary_says_do_not_trust_and_bad_input_is_silent(self):
+        self.task()
+        self.hook("post-compact", {"session_id": "s1", "compact_summary": "  "})
+        self.assertIn("do not trust", self.hook("session-start", {"source": "compact", "session_id": "s1"}))
+        self.assertEqual(self.hook("post-compact", {"compact_summary": "x"}), "")  # no session id: nothing written
+        self.assertEqual(self.hook("post-compact", raw="not json"), "")
+
     def test_codex_gets_no_text_but_the_fact_and_the_note(self):
         self.task()
         self.assertEqual(self.hook("pre-compact", {"session_id": "s1"}, agent="codex"), "")
@@ -595,9 +620,9 @@ class ClaudeCodeConfigTests(unittest.TestCase):
     def test_hooks_json_calls_known_events(self):
         with open(os.path.join(str(ROOT), "hooks", "hooks.json"), encoding="utf-8") as f:
             data = json.load(f)["hooks"]
-        self.assertEqual(sorted(data), ["PostToolUse", "PreCompact", "PreToolUse", "SessionEnd", "SessionStart",
-                                        "Stop", "UserPromptSubmit"])
-        for name, event in (("PreCompact", "pre-compact"), ("SessionEnd", "session-end"), ("Stop", "stop")):
+        self.assertEqual(sorted(data), ["PostCompact", "PostToolUse", "PreCompact", "PreToolUse", "SessionEnd",
+                                        "SessionStart", "Stop", "UserPromptSubmit"])
+        for name, event in (("PreCompact", "pre-compact"), ("PostCompact", "post-compact"), ("SessionEnd", "session-end"), ("Stop", "stop")):
             self.assertEqual(len(data[name]), 1)
             self.assertIn(" hook %s --agent claude-code" % event, data[name][0]["hooks"][0]["command"])
         self.assertEqual(data["PreToolUse"][0]["matcher"], "ExitPlanMode")

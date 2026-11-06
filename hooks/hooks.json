@@ -70,6 +70,17 @@
         ]
       }
     ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/whatsnext/scripts/whatsnext.py\" hook post-compact --agent claude-code",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "SessionEnd": [
       {
         "hooks": [

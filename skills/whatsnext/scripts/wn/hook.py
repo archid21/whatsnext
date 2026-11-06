@@ -13,6 +13,7 @@ every event does nothing.
 - stop: Codex reads its plan from `transcript_path` (item 5).
 - stop: also records a wrap-up that was requested in this session and wrote the handoff (ADR-0008).
 - pre-compact: Claude Code prints plain text (the compact instructions, capped; P-20); every agent records a compact with no fresh handoff (P-4).
+- post-compact: Claude Code's PostCompact; keeps `compact_summary` in git-ignored session state (P-21).
 - stop / pre-compact / session-end: also write the facts (journal line and progress header, ADR-0005).
 """
 
@@ -31,7 +32,8 @@ from . import sessions as gwsessions
 from . import status as gwstatus
 from . import wrapup as gwwrapup
 
-EVENTS = ("session-start", "plan-shown", "plan-approved", "prompt-submit", "stop", "pre-compact", "session-end")
+EVENTS = ("session-start", "plan-shown", "plan-approved", "prompt-submit", "stop", "pre-compact", "post-compact",
+          "session-end")
 PRECOMPACT_CAP = 3000  # characters printed at PreCompact (P-20)
 REQUEST_CAP = 2000  # characters of the user's latest request kept verbatim (P-6)
 FACT_EVENTS = ("stop", "pre-compact", "session-end")  # these write the facts layer
@@ -221,6 +223,11 @@ def handle(event, data, agent=None):
             out = precompact(root, effective, data, agent)
         except Exception:  # PreCompact output is a help, never a failure
             out = ""
+    elif event == "post-compact":
+        try:  # keep the summary and say how much of the plan it kept (P-21); never break the session
+            gwwrapup.save_summary(root, data.get("session_id"), data.get("compact_summary"), branch_task(root, effective))
+        except Exception:
+            pass
     elif event == "stop":
         if agent == "codex":
             codex_stop(root, effective, data)

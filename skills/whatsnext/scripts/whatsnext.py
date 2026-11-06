@@ -29,7 +29,7 @@ COMMANDS = {
 }
 
 # Hook events and the agents a hook may name with `--agent` (ADR-0005).
-HOOK_EVENTS = ("session-start", "plan-shown", "plan-approved", "prompt-submit", "stop", "pre-compact", "session-end")
+HOOK_EVENTS = ("session-start", "plan-shown", "plan-approved", "prompt-submit", "stop", "pre-compact", "post-compact", "session-end")
 HOOK_AGENTS = ("claude-code", "codex")
 
 

@@ -205,6 +205,70 @@ def mark_compacted(root, session_id, when):
     return path
 
 
+def summary_path(root, session_id):
+    name = gwjournal.safe_session_id(session_id)
+    return os.path.join(root, gwjournal.SESSIONS_DIR, name + ".summary.md") if name else None
+
+
+def plan_step_texts(task):
+    """The text of each step in the task's Plan steps section."""
+    from . import capture as gwcapture
+    out = []
+    for line in task.sections.get("plan steps", "").splitlines():
+        m = gwcapture.STEP_RE.match(line.strip())
+        if m:
+            out.append(m.group(2).strip())
+    return out
+
+
+def kept_steps(summary, steps):
+    """How many of `steps` the summary still names (case and spacing ignored)."""
+    flat = " ".join((summary or "").lower().split())
+    return sum(1 for step in steps if " ".join(step.lower().split()) in flat)
+
+
+def save_summary(root, session_id, summary, task=None):
+    """PostCompact: keep Claude Code's summary in git-ignored session state, the previous one as `.bak`, and record
+    how many plan steps it still names. An empty summary writes a marker and no file. Returns the state dict."""
+    path = summary_path(root, session_id)
+    if path is None:
+        return None
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    state = {"session_id": session_id, "saved": gwstatus.stamp_time(), "ok": bool(isinstance(summary, str) and summary.strip())}
+    if os.path.isfile(path):
+        os.replace(path, path + ".bak")
+    if state["ok"]:
+        from . import redact as gwredact
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(gwredact.mask_secrets(summary))
+        os.replace(tmp, path)
+        steps = plan_step_texts(task) if task is not None else []
+        if steps:
+            state["steps_total"], state["steps_kept"] = len(steps), kept_steps(summary, steps)
+    with open(path[:-3] + ".json", "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=2)
+        f.write("\n")
+    return state
+
+
+def summary_line(root, session_id):
+    """The resume-note sentence about the saved summary, or None."""
+    path = summary_path(root, session_id) if session_id else None
+    try:
+        with open(path[:-3] + ".json", encoding="utf-8") as f:
+            state = json.load(f)
+    except (OSError, ValueError, TypeError):
+        return None
+    if not isinstance(state, dict):
+        return None
+    if not state.get("ok"):
+        return "The compact summary was empty: do not trust it; the note below is the record."
+    if isinstance(state.get("steps_total"), int):
+        return "Summary kept %d of %d plan steps." % (state.get("steps_kept", 0), state["steps_total"])
+    return None
+
+
 def compacted_without_wrapup(root, session_id):
     """The UTC text of the last compact with no fresh handoff in this session, or None."""
     path = compact_marker_path(root, session_id) if session_id else None
