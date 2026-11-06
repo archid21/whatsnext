@@ -350,6 +350,13 @@ def next_line(task, limit, handoff=None):
 # ---- the note --------------------------------------------------------------
 
 
+def compacted_text(root, session_id):
+    when = gwwrapup.compacted_without_wrapup(root, session_id)
+    if when:
+        return "Context was compacted without wrap-up at %s; this restates the task." % when
+    return "Context was compacted; this restates the task."
+
+
 def build(root, effective, compacted=False, session_id=None):
     """The note as {"text", "included", "pointed"}, or None when it must stay silent.
     `included` names the sections in the text; `pointed` the ones the cap left out. `session_id` is the
@@ -363,7 +370,7 @@ def build(root, effective, compacted=False, session_id=None):
     if task is None:
         lines = ["whatsnext: where we left off."]
         if compacted:
-            lines.append("Context was compacted; this restates the task.")
+            lines.append(compacted_text(root, session_id))
         lines.append(NO_TASK)
         info = handoff_info(root, effective, None, session_id)
         if info:
@@ -371,6 +378,7 @@ def build(root, effective, compacted=False, session_id=None):
         return {"text": "\n".join(lines)[:cap], "included": ["first"], "pointed": []}
 
     now = now_utc()
+    compacted_line = compacted_text(root, session_id) if compacted else None
     info = handoff_info(root, effective, task, session_id)
     command, source = run_command(root, effective, task)
     facts = git_facts(root, effective, task)
@@ -391,7 +399,7 @@ def build(root, effective, compacted=False, session_id=None):
     def assemble():
         sections = {"first": [first_line(task, state["title"])]}
         if compacted and state["extras"]:
-            sections["compacted"] = ["Context was compacted; this restates the task."]
+            sections["compacted"] = [compacted_line]
         done = done_line(task, state["done"])
         if done:
             sections["done"] = [done]

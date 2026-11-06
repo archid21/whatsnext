@@ -453,6 +453,77 @@ class FactsTests(HookBase):
             self.assertIn(".whatsnext/sessions/", f.read().splitlines())
 
 
+class PreCompactTests(HookBase):
+    """P-4, P-20, P-26: the auto-compact safety net."""
+
+    def handoff(self, session="s1"):
+        """A fresh handoff note this session wrote (header and sidecar)."""
+        from wn import config as wnconfig
+        from wn import wrapup as wnwrapup
+        path = wnwrapup.handoff_path(self.proj, wnconfig.load(self.proj))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("# Handoff\n\nSession: %s\nTask: P-13\nWritten: 2026-11-06T18:08Z\n\n## Next action\n\nRun it.\n" % session)
+        wnwrapup.write_sidecar(self.proj, session, path)
+
+    def test_compacted_without_wrapup(self):
+        self.task()
+        out = self.hook("pre-compact", {"session_id": "s1"})
+        self.assertRegex(out, r"Compacted without wrap-up at \d{4}-\d\d-\d\dT\d\d:\d\dZ\.")
+        note = self.hook("session-start", {"source": "compact", "session_id": "s1"})
+        self.assertRegex(note, r"Context was compacted without wrap-up at \d{4}-")
+        plain = self.hook("session-start", {"source": "startup", "session_id": "s1"})
+        self.assertNotIn("without wrap-up", plain)
+
+    def test_a_fresh_handoff_records_no_fact_and_clears_an_old_one(self):
+        self.task()
+        self.hook("pre-compact", {"session_id": "s1"})
+        self.handoff()
+        out = self.hook("pre-compact", {"session_id": "s1"})
+        self.assertNotIn("without wrap-up", out)
+        self.assertNotIn("without wrap-up", self.hook("session-start", {"source": "compact", "session_id": "s1"}))
+
+    def test_precompact_cap(self):
+        self.task()
+        self.handoff()
+        from wn import config as wnconfig
+        from wn import wrapup as wnwrapup
+        path = wnwrapup.handoff_path(self.proj, wnconfig.load(self.proj))
+        with open(path, "a", encoding="utf-8") as f:
+            f.write("\n## Goal\n\n" + "long text. " * 1000 + "\n")
+        wnwrapup.write_sidecar(self.proj, "s1", path)
+        out = self.hook("pre-compact", {"session_id": "s1"})
+        self.assertLessEqual(len(out), 3000)
+        self.assertIn("whatsnext facts:", out)
+        self.assertIn("Run it", out)
+        custom = self.hook("pre-compact", {"session_id": "s1", "custom_instructions": "keep the login bug"})
+        self.assertTrue(custom.startswith("whatsnext facts:"))
+        self.assertNotIn("long text", custom)
+        self.assertNotIn("handoff note", custom)
+        self.assertLessEqual(len(custom), 3000)
+
+    def test_output_contract(self):
+        self.task()
+        out = self.hook("pre-compact", {"session_id": "s1"})
+        self.assertTrue(out.strip())
+        self.assertFalse(out.lstrip().startswith(("{", "[")))  # plain text, never JSON
+        self.assertNotIn("hookSpecificOutput", out)
+        for event in ("stop", "session-end", "plan-shown", "plan-approved", "prompt-submit"):
+            self.assertEqual(self.hook(event, {"session_id": "s1"}), "")
+        start = self.hook("session-start", {"source": "startup"})
+        self.assertFalse(start.lstrip().startswith("{"))
+
+    def test_codex_gets_no_text_but_the_fact_and_the_note(self):
+        self.task()
+        self.assertEqual(self.hook("pre-compact", {"session_id": "s1"}, agent="codex"), "")
+        self.assertIn("without wrap-up", self.hook("session-start", {"source": "compact", "session_id": "s1"}, agent="codex"))
+
+    def test_outside_a_project_and_without_a_task_stay_quiet_and_safe(self):
+        self.assertEqual(self.hook("pre-compact", {"session_id": "s1"}), "")  # no active task: nothing printed or written
+        self.assertFalse(self.has(".whatsnext/sessions"))
+        self.assertEqual(self.hook("pre-compact", raw="not json"), "")
+
+
 class ClaudeCodeConfigTests(unittest.TestCase):
     def test_hooks_json_calls_known_events(self):
         with open(os.path.join(str(ROOT), "hooks", "hooks.json"), encoding="utf-8") as f:

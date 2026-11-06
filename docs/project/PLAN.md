@@ -4,9 +4,9 @@ One line per item: `- [ ] P-N Title · done means: <how we know it is done>`.
 
 ## Now
 
-- [ ] P-4 Auto-compact safety net (with P-20, P-26) · done means: `python3 -m unittest tests.test_hook -k compacted_without_wrapup` passes and the resume note shows the same fact
-- [ ] P-20 Cap the PreCompact text and read `custom_instructions` (part of P-4 bundle) · done means: `precompact_cap` test passes: output is 3,000 characters or less, and a non-empty `custom_instructions` drops the handoff text
-- [ ] P-26 Hook output contract test (part of P-4 bundle) · done means: `python3 -m unittest tests.test_hook -k output_contract` passes: PreCompact prints plain text, never JSON
+- [x] P-4 Auto-compact safety net (with P-20, P-26) · done means: `python3 -m unittest tests.test_hook -k compacted_without_wrapup` passes and the resume note shows the same fact · evidence: verified: python3 -m unittest tests.test_hook -k compacted_without_wrapup passed in 1.4 s (2026-11-06T18:20Z)
+- [x] P-20 Cap the PreCompact text and read `custom_instructions` (part of P-4 bundle) · done means: `precompact_cap` test passes: output is 3,000 characters or less, and a non-empty `custom_instructions` drops the handoff text · evidence: verified: python3 -m unittest tests.test_hook -k precompact_cap passed in 1.0 s (2026-11-06T18:20Z)
+- [x] P-26 Hook output contract test (part of P-4 bundle) · done means: `python3 -m unittest tests.test_hook -k output_contract` passes: PreCompact prints plain text, never JSON · evidence: verified: python3 -m unittest tests.test_hook -k output_contract passed in 2.4 s (2026-11-06T18:20Z)
 - [ ] P-6 Keep the latest request verbatim · done means: `python3 -m unittest tests.test_hook -k latest_request` passes: last real user prompt is printed, clipped to 2,000 characters, with tool results and `isMeta` entries skipped
 - [ ] P-5 Facts-only compact text when no handoff · done means: `python3 -m unittest tests.test_compact -k facts_only` passes: output lists task, branch, Next, plan step and files changed, with no newline
 - [ ] P-8 Verify records the code state · done means: `python3 -m unittest tests.test_plan -k verify_records_state` passes and `plan check` flags a verified item after a new commit

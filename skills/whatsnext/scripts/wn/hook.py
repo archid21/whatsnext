@@ -12,6 +12,7 @@ every event does nothing.
   prints the instructions that write the handoff note (ADR-0008).
 - stop: Codex reads its plan from `transcript_path` (item 5).
 - stop: also records a wrap-up that was requested in this session and wrote the handoff (ADR-0008).
+- pre-compact: Claude Code prints plain text (the compact instructions, capped; P-20); every agent records a compact with no fresh handoff (P-4).
 - stop / pre-compact / session-end: also write the facts (journal line and progress header, ADR-0005).
 """
 
@@ -29,6 +30,7 @@ from . import status as gwstatus
 from . import wrapup as gwwrapup
 
 EVENTS = ("session-start", "plan-shown", "plan-approved", "prompt-submit", "stop", "pre-compact", "session-end")
+PRECOMPACT_CAP = 3000  # characters printed at PreCompact (P-20)
 FACT_EVENTS = ("stop", "pre-compact", "session-end")  # these write the facts layer
 AGENTS = ("claude-code", "codex")
 
@@ -139,6 +141,36 @@ def session_start(root, effective, data, agent=None):
     return text + "\n"
 
 
+def precompact(root, effective, data, agent=None):
+    """PreCompact (P-4, P-20, P-26). Records "compacted without wrap-up" when this session has no fresh handoff
+    note (the resume note shows it after the compact). Claude Code: returns plain text, at most PRECOMPACT_CAP
+    characters: the compact instructions and a facts block, or the facts block alone when the user typed
+    `/compact <text>`. Codex ignores PreCompact output, so it gets no text."""
+    task = branch_task(root, effective)
+    if task is None:  # no active task on this branch: nothing to carry, nothing written
+        return ""
+    session_id = data.get("session_id") if isinstance(data.get("session_id"), str) else None
+    transcript = data.get("transcript_path") if isinstance(data.get("transcript_path"), str) else None
+    state = gwwrapup.handoff_state(gwwrapup.handoff_path(root, effective), transcript, session_id, root)
+    when = gwstatus.stamp_time() if state["stale"] else None
+    gwwrapup.mark_compacted(root, session_id, when)
+    if agent == "codex":
+        return ""
+    lines = ["whatsnext facts:", gwpacket.first_line(task, gwpacket.MAX_TITLE) + "."]
+    next_text = " ".join(task.section("Next action").split())
+    if next_text:
+        lines.append("Next: " + gwwrapup.clip_to(next_text, 300))
+    if when:
+        lines.append("Compacted without wrap-up at %s." % when)
+    facts = " ".join(lines)
+    custom = data.get("custom_instructions")
+    if isinstance(custom, str) and custom.strip():  # the user wrote their own compact text: add only the facts
+        return gwwrapup.clip_to(facts, PRECOMPACT_CAP) + "\n"
+    room = PRECOMPACT_CAP - len(facts) - 2
+    body = gwwrapup.clip_to(gwwrapup.compact_instructions(root, effective, session_id).strip(), max(room, 0))
+    return (body + "\n\n" if body else "") + gwwrapup.clip_to(facts, PRECOMPACT_CAP) + "\n"
+
+
 def handle(event, data, agent=None):
     """The text to print for one event ("" for nothing)."""
     if not isinstance(data, dict):
@@ -147,6 +179,7 @@ def handle(event, data, agent=None):
     if found is None:
         return ""
     root, effective = found
+    out = ""
     if event == "session-start":
         return session_start(root, effective, data, agent)
     if event == "plan-shown":
@@ -164,6 +197,11 @@ def handle(event, data, agent=None):
         prompt = data.get("prompt")
         if isinstance(prompt, str) and prompt.strip() == gwwrapup.PROMPT:
             return gwwrapup.begin(root, effective, data)
+    elif event == "pre-compact":
+        try:
+            out = precompact(root, effective, data, agent)
+        except Exception:  # PreCompact output is a help, never a failure
+            out = ""
     elif event == "stop":
         if agent == "codex":
             codex_stop(root, effective, data)
@@ -176,7 +214,7 @@ def handle(event, data, agent=None):
             gwjournal.record(root, effective, event, data)
         except Exception:  # the facts must never break the agent's session (the caller hides stderr anyway)
             pass
-    return ""
+    return out
 
 
 def read_input(stream):

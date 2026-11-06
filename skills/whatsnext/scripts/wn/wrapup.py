@@ -177,6 +177,44 @@ def handoff_state(handoff, transcript=None, session_id=None, root=None):
     return {"exists": exists, "modified": modified, "last_turn": last, "foreign": foreign, "stale": stale}
 
 
+# ---- compacted without a wrap-up (P-4) ---------------------------------------
+
+
+def compact_marker_path(root, session_id):
+    name = gwjournal.safe_session_id(session_id)
+    return os.path.join(root, gwjournal.SESSIONS_DIR, name + ".compact.json") if name else None
+
+
+def mark_compacted(root, session_id, when):
+    """Record that a compact is about to happen with no fresh handoff (`when` = UTC text), or, when `when` is
+    None, clear an older record. Nothing is written without a usable session id."""
+    path = compact_marker_path(root, session_id)
+    if path is None:
+        return None
+    if when is None:
+        if os.path.isfile(path):
+            os.remove(path)
+        return None
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"session_id": session_id, "without_wrapup": when}, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, path)
+    return path
+
+
+def compacted_without_wrapup(root, session_id):
+    """The UTC text of the last compact with no fresh handoff in this session, or None."""
+    path = compact_marker_path(root, session_id) if session_id else None
+    try:
+        with open(path, encoding="utf-8") as f:
+            when = json.load(f).get("without_wrapup")
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+    return when if isinstance(when, str) and when else None
+
+
 # ---- wrap up: the hook ------------------------------------------------------
 
 
