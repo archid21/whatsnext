@@ -877,6 +877,61 @@ class DriftTests(PlanBase):
         self.assertNotIn("ticked by hand", out)
 
 
+class BlockedByTests(PlanBase):
+    PLAN = """# Plan
+
+## Now
+
+- [ ] P-1 First job · done means: a
+- [ ] P-2 Second job · done means: b · blocked by: P-1
+- [ ] P-3 Third job · blocked by: P-1, P-2 · done means: c
+- [ ] P-4 Free job · done means: d
+
+## Next
+
+- [ ] P-5 Later job · done means: e · blocked by: P-9
+"""
+
+    def setUp(self):
+        super().setUp()
+        self.put(PLAN_PATH, self.PLAN)
+        self.commit("blocked plan")
+
+    def ids(self):
+        r, data = self.jplan("next", "--limit", "10")
+        return [c["id"] for c in data["candidates"]]
+
+    def test_blocked_by_parses_in_either_position(self):
+        _lines, items = plan.parse_text(self.PLAN)
+        by_id = {i.id: i for i in items}
+        self.assertEqual(by_id["P-1"].blocked_by, [])
+        self.assertEqual(by_id["P-2"].blocked_by, ["P-1"])
+        self.assertEqual(by_id["P-3"].blocked_by, ["P-1", "P-2"])
+        self.assertEqual(by_id["P-3"].done_means, "c")  # the field does not leak into done means
+        self.assertEqual(by_id["P-2"].title, "Second job")
+
+    def test_blocked_by_next_skips_an_item_whose_blocker_is_open(self):
+        self.assertEqual(self.ids(), ["P-1", "P-4"])  # P-2 and P-3 wait; P-5 is in Next and Now has candidates
+        r = self.plan("done", "P-1", "--unverified")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.ids(), ["P-2", "P-4"])  # P-3 still waits for P-2
+        self.plan("done", "P-2", "--unverified")
+        self.assertEqual(self.ids(), ["P-3", "P-4"])
+
+    def test_blocked_by_says_so_when_everything_waits_and_list_json_has_the_fields(self):
+        self.put(PLAN_PATH, "# Plan\n\n## Now\n\n- [ ] P-1 A · blocked by: P-2\n- [ ] P-2 B · blocked by: P-1\n")
+        r = self.plan("next")
+        self.assertIn("Nothing ready in Now or Next: P-1, P-2 wait for open items", r.stdout)
+        self.assertIn('"blocked_on"', self.plan("list", "--json").stdout)
+
+    def test_blocked_by_check_reports_an_id_that_is_not_in_the_plan(self):
+        out = self.plan("check").stdout
+        self.assertIn("warning: P-5 is blocked by P-9, which is not in the plan.", out)
+        self.assertNotIn("P-2 is blocked by", out)
+        self.put(PLAN_PATH, self.PLAN.replace("blocked by: P-1\n", "blocked by: P-2\n"))
+        self.assertIn("P-2 is blocked by itself.", self.plan("check").stdout)
+
+
 class FileOverlapTests(PlanBase):
     def setUp(self):
         super().setUp()

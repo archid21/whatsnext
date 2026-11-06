@@ -64,6 +64,7 @@ class Item(object):
         self.evidence = evidence
         self.section = section
         self.index = index  # line number (0-based) in the file
+        self.blocked_by = []  # ids named by a `blocked by: P-3, P-5` field (P-13)
 
 
 def strip_comments(line, in_comment):
@@ -105,6 +106,21 @@ def parse_rest(rest):
     return title or "", done_means, evidence
 
 
+BLOCKED_RE = re.compile(r"^blocked by\s*:\s*(.*)$", re.I)
+
+
+def parse_blocked_by(rest):
+    """The item ids on a `blocked by:` field of the text after the item id, in order, without repeats."""
+    found = []
+    for part in FIELD_SPLIT_RE.split(rest.strip()):
+        m = BLOCKED_RE.match(part.strip())
+        if m:
+            for item_id in re.findall(ID_PATTERN, m.group(1)):
+                if item_id not in found:
+                    found.append(item_id)
+    return found
+
+
 def parse_text(text):
     """(lines, items). Lines keep their line ends; items are in file order."""
     lines = text.split("\n")
@@ -121,7 +137,9 @@ def parse_text(text):
         m = ITEM_RE.match(visible)
         if m:
             title, done_means, evidence = parse_rest(m.group(5))
-            items.append(Item(m.group(4), title, m.group(2) in "xX", done_means, evidence, section, i))
+            item = Item(m.group(4), title, m.group(2) in "xX", done_means, evidence, section, i)
+            item.blocked_by = parse_blocked_by(m.group(5))
+            items.append(item)
     return lines, items
 
 
@@ -246,7 +264,12 @@ class Ctx(object):
     def views(self, items=None):
         items = self.items() if items is None else items
         tasks, claim_map = self.tasks(), gwclaims.read_all(self.root, siblings=True)
-        return [self.view(it, tasks.get(it.id), claim_map.get(it.id)) for it in items]
+        open_ids = {it.id for it in self.items() if not it.checked}
+        out = [self.view(it, tasks.get(it.id), claim_map.get(it.id)) for it in items]
+        for view, it in zip(out, items):  # P-13: the ids this item waits for that are still open
+            view["blocked_by"] = list(it.blocked_by)
+            view["blocked_on"] = [i for i in it.blocked_by if i in open_ids and i != it.id]
+        return out
 
     def view(self, item, task, claim):
         stale, idle = False, None
@@ -344,7 +367,9 @@ def cmd_list(ctx, args):
 
 
 def candidates(views, limit):
-    """Open unclaimed items in Now, then stale ones in Now, else open items in Next."""
+    """Open unclaimed items in Now, then stale ones in Now, else open items in Next. An item that waits for an open
+    item (`blocked by:`) is left out (P-13)."""
+    views = [v for v in views if not v.get("blocked_on")]
     out = [dict(v, source="Now") for v in views if v["section"] == "Now" and v["status"] == "open"]
     out += [dict(v, source="Now") for v in views if v["section"] == "Now" and v["status"] == "in progress" and v["stale"]]
     if not out:
@@ -359,13 +384,17 @@ def cmd_next(ctx, args):
         else:
             print(no_plan(ctx))
         return 0
-    found = candidates(ctx.views(), args.limit)
+    views = ctx.views()
+    found = candidates(views, args.limit)
+    waiting = [v["id"] for v in views if v.get("blocked_on") and v["status"] == "open" and v["section"] in ("Now", "Next")]
+    empty = "Nothing open in Now or Next." if not waiting else \
+        "Nothing ready in Now or Next: %s wait%s for open items (`blocked by:`)." % (", ".join(waiting), "s" if len(waiting) == 1 else "")
     if args.json:
         print(json.dumps({"candidates": found, "recommended": found[0]["id"] if found else None,
-                          "message": "" if found else "Nothing open in Now or Next."}, indent=2))
+                          "message": "" if found else empty}, indent=2))
         return 0
     if not found:
-        print("Nothing open in Now or Next.")
+        print(empty)
         return 0
     print("Next up:")
     for n, v in enumerate(found, 1):
@@ -401,6 +430,13 @@ def check(ctx):
             warnings.append("%s was %s. Run its verify again." % (it.id, drift))
         if not it.checked and not it.done_means:
             warnings.append("%s has no \"done means\"." % it.id)
+    known = {it.id for it in items}
+    for it in items:
+        for other in it.blocked_by:
+            if other == it.id:
+                warnings.append("%s is blocked by itself." % it.id)
+            elif other not in known:
+                warnings.append("%s is blocked by %s, which is not in the plan." % (it.id, other))
     warnings.extend(drift_warnings(ctx, items))
     return errors, warnings
 
