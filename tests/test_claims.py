@@ -39,14 +39,16 @@ class SiblingWorktreeTests(PlanBase):
         if item:
             self.assertEqual(item["claim"]["agent"], "codex")
 
-    def test_sibling_worktree_claim_is_read_only_and_never_blocks_the_claim_logic(self):
+    def test_sibling_worktree_claim_is_read_only_and_is_never_taken_as_ours(self):
         sibling = self.worktree()
         self.put_claim(sibling)
         self.assertEqual(claims.read_all(self.proj), {})  # the plain read is unchanged
         found = claims.read_all(self.proj, siblings=True)
         self.assertEqual(found["P-13"]["sibling_worktree"], sibling)
         self.assertIsNone(claims.read(self.proj, "P-13"))  # no sibling claim is ever taken as ours
-        self.assertEqual(self.start("P-13", "--branch", "stay").returncode, 0)  # and a start is not blocked
+        r = self.start("P-13", "--branch", "stay")  # another worktree holds it, so this start is refused (P-12)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("was just taken by codex", r.stderr + r.stdout)
 
     def test_sibling_worktree_unsafe_files_are_ignored(self):
         sibling = self.worktree()
@@ -76,6 +78,33 @@ class SiblingWorktreeTests(PlanBase):
         out = self.plan("list").stdout
         self.assertIn("in worktree %s" % sibling, out)
         self.assertNotIn("\x1b", out)
+
+    def test_sibling_worktree_a_claim_there_stops_a_new_claim_here(self):
+        sibling = self.worktree()
+        self.put_claim(sibling)  # agent codex holds P-13 in the other worktree's own folder
+        mine, other = claims.claim(self.proj, "P-13", "claude")
+        self.assertIsNone(mine)
+        self.assertEqual(other["agent"], "codex")
+        self.assertIsNone(claims.read(self.proj, "P-13"))  # nothing was written here
+        mine, other = claims.claim(self.proj, "P-13", "claude", takeover=True)  # a takeover is still allowed
+        self.assertIsNotNone(mine)
+
+    def test_sibling_worktree_the_earlier_of_two_simultaneous_claims_wins_on_both_sides(self):
+        sibling = self.worktree()
+        early = {"id": "P-13", "agent": "codex", "branch": "sib", "worktree": sibling, "since": "2026-11-06T10:00:00Z",
+                 "updated": "2026-11-06T10:00:00Z", "token": "aaa", "asked_at": None}
+        self.put_claim(sibling, data=early)
+        # this side wrote at 10:00:05, after the other one: it read no rival before its write (simulated), then finds one
+        orig = claims.read_siblings
+        calls = []
+        claims.read_siblings = lambda root: {} if not calls.append(1) and len(calls) == 1 else orig(root)
+        try:
+            mine, other = claims.claim(self.proj, "P-13", "claude")
+        finally:
+            claims.read_siblings = orig
+        self.assertIsNone(mine)
+        self.assertEqual(other["token"], "aaa")
+        self.assertIsNone(claims.read(self.proj, "P-13"))  # the later claim removed itself
 
     def test_sibling_worktree_none_outside_git(self):
         self.assertEqual(claims.sibling_roots(self.tmp.name), [])

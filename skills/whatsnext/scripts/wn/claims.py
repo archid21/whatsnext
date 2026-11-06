@@ -268,6 +268,10 @@ def claim(root, item_id, agent, session=None, branch=None, takeover=False):
     mine = {"id": item_id, "agent": agent, "session": session, "branch": branch,
             "worktree": worktree_root(root), "since": now, "updated": now,
             "token": uuid.uuid4().hex, "asked_at": None}
+    if existing is None and not takeover:
+        rival = read_siblings(root).get(item_id)  # P-12: a claim another worktree keeps in its own folder
+        if rival:
+            return None, rival
     if existing is None:
         if os.path.exists(path):  # unreadable file: treat as a claim of unknown owner
             if not takeover:
@@ -285,8 +289,26 @@ def claim(root, item_id, agent, session=None, branch=None, takeover=False):
         return None, existing
     check = read(root, item_id)  # read it back: only the last writer keeps it
     if check and check.get("token") == mine["token"]:
+        rival = None if (existing is not None or takeover) else read_siblings(root).get(item_id)
+        if rival and rival.get("token") != mine["token"] and \
+                (str(rival.get("since") or ""), str(rival.get("token") or "")) < (str(mine["since"]), mine["token"]):
+            _drop_mine(root, item_id, mine["token"])  # both wrote at once: the earlier claim wins, on both sides
+            return None, rival
         return check, None
     return None, check or {"id": item_id, "agent": "unknown"}
+
+
+def _drop_mine(root, item_id, token):
+    """Remove this claim from both folders, but only a file that still holds `token`."""
+    for folder in (claims_dir(root), fallback_dir(root)):
+        path = os.path.join(folder, item_id + ".json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                if json.load(f).get("token") != token:
+                    continue
+            os.remove(path)
+        except (OSError, ValueError, AttributeError):
+            pass
 
 
 def update(root, item_id, **fields):
