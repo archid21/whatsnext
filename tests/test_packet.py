@@ -85,6 +85,44 @@ class WrapupStatusTests(HookBase):
         self.assertIn("Next:", out)
 
 
+class CutLineTests(HookBase):
+    def setUp(self):
+        super().setUp()
+        self.cfg()
+
+    def note(self):
+        return self.hook("session-start", {"source": "startup", "session_id": "s1"})
+
+    def test_cut_line_a_note_that_fits_has_none(self):
+        self.task(done="- Wrote the form\n- Added the tests")
+        self.commit("task")
+        out = self.note()
+        self.assertNotIn("cut:", out)
+
+    def test_cut_line_names_what_the_cap_left_out(self):
+        done = "\n".join("- Finished step %d of the long job: %s" % (i, "w" * 90) for i in range(8))
+        self.task(done=done, title="t" * 90, next_action="n" * 380)
+        self.commit("task")
+        for i in range(6):
+            self.put("src/f%d.py" % i, "x\n")
+            self.commit("feat: change number %d with a long subject line %s" % (i, "s" * 50))
+        out = self.note()
+        self.assertLessEqual(len(out), 1200)
+        last = out.rstrip("\n").splitlines()[-1]
+        self.assertRegex(last, r"^cut: (Done \+\d+)?(, )?(\d+ commits?)?\. Full: progress show$")
+        self.assertIn("Done +", last)
+        self.assertIn("Next:", out)  # Next is never the loss
+
+    def test_cut_line_counts_are_right(self):
+        from wn import packet as wnpacket
+        task = type("T", (), {"section": lambda self, name: "\n".join("- e%d" % i for i in range(7)) if name == "Done" else ""})()
+        facts = {"new": 9, "commits": [("a", "x")] * 9, "dirty": [], "problem": None}
+        state = {"done": 2, "commits": 1}
+        self.assertEqual(wnpacket.cut_line(task, facts, state), "cut: Done +6, 8 commits. Full: progress show")
+        self.assertIsNone(wnpacket.cut_line(task, facts, {"done": 0, "commits": 3}))
+        self.assertEqual(wnpacket.cut_line(task, facts, {"done": 0, "commits": 0}), "cut: 9 commits. Full: progress show")
+
+
 class DeadEndsPromptTests(HookBase):
     def test_dead_ends_the_wrap_up_prompt_asks_for_the_section(self):
         self.cfg()

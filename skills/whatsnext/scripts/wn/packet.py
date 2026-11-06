@@ -304,6 +304,24 @@ def done_line(task, level):
     return "Done: " + "; ".join(shown) + (" (+%d earlier)" % more if more > 0 else "")
 
 
+DONE_TAKE = (2, 1, 1, 0)  # Done entries shown at trim level 0 to 3 (see done_line)
+
+
+def cut_line(task, facts, state):
+    """The last line when the cap trimmed Done or the commit list: what the reader did not see and where the rest is.
+    None when nothing was trimmed. Level 0 of Done and 3 commits are the untrimmed note."""
+    parts = []
+    if state["done"] > 0:
+        hidden = len(entries(task.section("Done"))) - DONE_TAKE[min(state["done"], 3)]
+        if hidden > 0:
+            parts.append("Done +%d" % hidden)
+    if state["commits"] < 3 and facts is not None and facts["new"]:
+        hidden = facts["new"] - min(state["commits"], len(facts["commits"]))
+        if hidden > 0:
+            parts.append("%d commit%s" % (hidden, "" if hidden == 1 else "s"))
+    return "cut: %s. Full: progress show" % ", ".join(parts) if parts else None
+
+
 def handoff_info(root, effective, task, session_id):
     """The handoff note as {"rel", "related", "next", "written"}, or None when there is no file.
     `related`: its `Session:` is this session, or its `Task:` is the active task. `written`: the `Written:` time
@@ -422,6 +440,9 @@ def build(root, effective, compacted=False, session_id=None):
         if warning:
             sections["warning"] = [warning]
         sections["note"] = [last]
+        cut = cut_line(task, facts, state)
+        if cut:
+            sections["cut"] = [cut]
         return sections
 
     def text_of(sections):
@@ -439,7 +460,7 @@ def build(root, effective, compacted=False, session_id=None):
     text = text_of(sections)
     if len(text) > cap:
         text = text[:cap].rstrip()
-    wanted = ["first", "done", "next", "handoff", "run", "since", "warning", "note"]
+    wanted = ["first", "done", "next", "handoff", "run", "since", "warning", "note", "cut"]
     return {
         "text": text,
         "included": [k for k in wanted if k in sections],
