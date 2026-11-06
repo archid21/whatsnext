@@ -10,10 +10,12 @@ One line per item: `- [ ] P-N Title · done means: <how we know it is done>`.
 - [x] P-6 Keep the latest request verbatim · done means: `python3 -m unittest tests.test_hook -k latest_request` passes: last real user prompt is printed, clipped to 2,000 characters, with tool results and `isMeta` entries skipped · evidence: verified: python3 -m unittest tests.test_hook -k latest_request passed in 2.2 s (2026-11-06T18:44Z)
 - [x] P-5 Facts-only compact text when no handoff · done means: `python3 -m unittest tests.test_compact -k facts_only` passes: output lists task, branch, Next, plan step and files changed, with no newline · evidence: verified: python3 -m unittest tests.test_compact -k facts_only passed in 1.5 s (2026-11-06T19:02Z)
 - [ ] P-8 Verify records the code state · done means: `python3 -m unittest tests.test_plan -k verify_records_state` passes and `plan check` flags a verified item after a new commit
-- [ ] P-24 "Dead ends" line in the note and the compact text · done means: `python3 -m unittest tests.test_packet -k dead_ends` passes and the compact text keeps dead ends within 300 characters
+- [ ] P-24 "Dead ends" line in the note and the compact text, with the reason each was dropped · done means: `python3 -m unittest tests.test_packet -k dead_ends` passes, the compact text keeps dead ends and their reasons within 300 characters, and the one-line `/compact` text no longer says to drop dead ends without an exception
 
 ## Next
 
+- [ ] P-28 Wrap-up template: exact values and reasons · done means: `python3 -m unittest tests.test_wrapup -k template_exact` passes: the `wrap up` text asks for exact paths, ids, versions, URLs, commands and error text, a reason for each decision with no ADR, the user's corrections in their words, "If it fails:" after `Verify:`, and asked-for work not done; `## Next action` cap is raised to 400 characters and the `/compact` line still fits 1,800
+- [ ] P-29 Atomic plan and progress writes · done means: `python3 -m unittest tests.test_plan -k atomic_write` passes: PLAN.md and progress files are written to a temporary file and swapped in, and a write that fails leaves the old file whole
 - [ ] P-21 Keep the compact summary and check it · done means: `python3 -m unittest tests.test_hook -k postcompact_bak` passes: the previous summary is kept as `.bak` and the resume note shows the kept-steps line
 - [ ] P-22 Codex marker fallback after compact · done means: `python3 -m unittest tests.test_hook -k compact_marker_once` passes: the resume note prints once at the next prompt, then the marker is gone
 - [ ] P-25 Open subagents and in-progress todo in the keep-list · done means: `python3 -m unittest tests.test_compact -k subagents` passes: launched agents and the in-progress todo appear in the PreCompact text
@@ -36,4 +38,6 @@ One line per item: `- [ ] P-N Title · done means: <how we know it is done>`.
 - [ ] P-11 File-overlap warning at `plan start` · done means: `python3 -m unittest tests.test_plan -k file_overlap` passes: starting an item whose Files list overlaps an in-progress item prints a warning
 - [ ] P-10 Sibling-worktree claim view · done means: `python3 -m unittest tests.test_claims -k sibling_worktree` passes: a claim in another worktree's `.whatsnext/claims/` shows in `plan list`
 - [ ] P-12 Two-agent soak test · done means: `python3 tests/soak_two_agents.py --runs 20` reports zero double claims across two worktrees
-- [ ] P-13 `blocked by:` ready queue · done means: `python3 -m unittest tests.test_plan -k blocked_by` passes: `plan next` skips an item whose `blocked by:` item is still open
+- [ ] P-13 `blocked by:` ready queue · done means: `python3 -m unittest tests.test_plan -k blocked_by` passes: `plan next` skips an item whose `blocked by:` item is still open, and `plan check` reports a `blocked by:` id that is not in the plan
+- [ ] P-30 Optional `suggest:` field (ADR-0012) · done means: `python3 -m unittest tests.test_plan -k suggest_field` passes: `suggest: sonnet/high` is kept as written before or after `done means:`, shows in `plan next --json`, `plan list --json` and `plan start`, and a line without it is unchanged
+- [ ] P-31 Done-means command check · done means: `python3 -m unittest tests.test_plan -k done_means_command` passes: `plan check` warns on an open item whose done means has no command in backticks, and the warning names the item
