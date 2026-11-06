@@ -1,7 +1,7 @@
 # ADR-0011: PreCompact reads the end of the transcript to keep the user's latest request
 
 - **Date:** 2026-11-06T18:41Z
-- **Status:** proposed (agent), awaiting the user's decision
+- **Status:** accepted (user), 2026-11-06
 
 Amends ADR-0005 item 3 ("no transcript reading") for one event.
 
