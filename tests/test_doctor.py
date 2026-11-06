@@ -29,14 +29,14 @@ class DoctorTests(StatusBase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("Codex\n  hooks: not installed\n  fix: whatsnext install-hooks --user", r.stdout)
         self.assertIn("PreCompact text: Claude Code yes, Codex no (ignored;", r.stdout)
-        self.assertIn("  hooks: all 8 events are in the plugin's hooks/hooks.json", r.stdout)
+        self.assertIn("  hooks: all 9 events are in the plugin's hooks/hooks.json", r.stdout)
         self.assertIn("1 gap found.", r.stdout)
 
     def test_installed_codex_hooks_have_no_gap_and_a_changed_hook_is_named(self):
         self.assertEqual(self.gw(["install-hooks", "--project"]).returncode, 0)
         r = self.doctor()
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("hooks (project, .codex/hooks.json): all 4 events installed", r.stdout)
+        self.assertIn("hooks (project, .codex/hooks.json): all 5 events installed", r.stdout)
         self.assertIn("trust: Codex skips new or changed hooks", r.stdout)
         self.assertIn("No gaps found.", r.stdout)
         path = os.path.join(self.proj, ".codex", "hooks.json")

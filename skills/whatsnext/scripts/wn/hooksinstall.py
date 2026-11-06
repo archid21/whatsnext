@@ -30,6 +30,7 @@ EVENTS = (
     ("SessionStart", "session-start", "startup|resume|clear|compact", 10, 5000),
     ("Stop", "stop", None, 10, None),
     ("PreCompact", "pre-compact", None, 10, None),
+    ("PreToolUse", "pre-edit", "apply_patch|Edit|Write", 10, None),  # warns on a hand-ticked PLAN.md item (P-7)
     ("UserPromptSubmit", "prompt-submit", None, 10, None),  # prints the resume note once after a compact (P-22)
 )
 AGENT = "codex"

@@ -169,6 +169,15 @@ class CodexStopTests(HookBase):
         self.hook("stop", {"transcript_path": self.p("missing.jsonl"), "turn_id": "t3"}, agent="codex")
         self.assertIn("cannot read the transcript", json.loads(self.get(fact))["reason"])
 
+    def test_capture_unreadable_never_writes_through_a_link(self):
+        self.task()
+        outside = os.path.join(self.tmp.name, "outside.json")
+        os.makedirs(self.p(".whatsnext/sessions"), exist_ok=True)
+        os.symlink(outside, self.p(".whatsnext/sessions/capture.unreadable.json"))
+        self.put("garbage.jsonl", "nope\n")
+        self.hook("stop", {"transcript_path": self.p("garbage.jsonl"), "turn_id": "t1"}, agent="codex")
+        self.assertFalse(os.path.exists(outside))
+
     def test_parser_approval_looks_back_past_plan_mode_turns_without_a_plan(self):
         path = self.p("r.jsonl")
         self.put("r.jsonl", rollout(("t1", "plan", "x"), ("t2", "plan", None), ("t3", "default", None)))
@@ -215,7 +224,7 @@ class InstallHooksTests(HookBase):
         self.assertIn("trust the whatsnext hooks", r.stdout)
         data = self.hooks_file()
         self.assertEqual(data["x"], 1)
-        self.assertEqual(sorted(data["hooks"]), ["PreCompact", "SessionStart", "Stop", "UserPromptSubmit"])
+        self.assertEqual(sorted(data["hooks"]), ["PreCompact", "PreToolUse", "SessionStart", "Stop", "UserPromptSubmit"])
         self.assertEqual(data["hooks"]["Stop"][0], {"hooks": [other]})
         command = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         self.assertRegex(command, r'^python3 ".*whatsnext\.py" hook session-start --agent codex$')
@@ -661,6 +670,56 @@ class PreCompactTests(HookBase):
         self.assertEqual(self.hook("pre-compact", raw="not json"), "")
 
 
+PLAN_FILE = "docs/project/PLAN.md"
+TICK_PLAN = "# Plan\n\n## Now\n\n- [ ] P-13 Add login · done means: x\n- [ ] P-14 Other · done means: y\n"
+
+
+class TickGuardTests(HookBase):
+    def setUp(self):
+        super().setUp()
+        self.cfg()
+        self.put(PLAN_FILE, TICK_PLAN)
+
+    def guard(self, tool, tool_input, agent="claude-code", cfg=None):
+        if cfg:
+            self.cfg(plan={"tickGuard": cfg})
+        out = self.hook("pre-edit", {"tool_name": tool, "tool_input": tool_input, "cwd": self.proj}, agent=agent)
+        return json.loads(out)["hookSpecificOutput"] if out else None
+
+    def test_plan_tick_guard_warns_on_an_edit_that_ticks_an_item(self):
+        out = self.guard("Edit", {"file_path": self.p(PLAN_FILE), "old_string": "- [ ] P-13 Add login", "new_string": "- [x] P-13 Add login"})
+        self.assertEqual(out["hookEventName"], "PreToolUse")
+        self.assertIn("Use `plan done P-13 --verify", out["additionalContext"])
+        self.assertIn("plan done P-13 --verify", out["additionalContext"])
+        self.assertNotIn("permissionDecision", out)
+
+    def test_plan_tick_guard_write_multiedit_and_codex_patch(self):
+        out = self.guard("Write", {"file_path": self.p(PLAN_FILE), "content": TICK_PLAN.replace("[ ] P-14", "[x] P-14")})
+        self.assertIn("plan done P-14 --verify", out["additionalContext"])
+        out = self.guard("MultiEdit", {"file_path": self.p(PLAN_FILE), "edits": [
+            {"old_string": "- [ ] P-13", "new_string": "- [x] P-13"}]})
+        self.assertIn("P-13", out["additionalContext"])
+        patch = "*** Begin Patch\n*** Update File: docs/project/PLAN.md\n@@\n-- [ ] P-13 Add login\n+- [x] P-13 Add login\n*** End Patch\n"
+        out = self.guard("apply_patch", {"command": patch}, agent="codex")
+        self.assertIn("plan done P-13 --verify", out["additionalContext"])
+
+    def test_plan_tick_guard_other_edits_stay_quiet(self):
+        plan = self.p(PLAN_FILE)
+        self.assertIsNone(self.guard("Edit", {"file_path": plan, "old_string": "Add login", "new_string": "Add sign-in"}))
+        self.assertIsNone(self.guard("Edit", {"file_path": self.p("src/a.py"), "old_string": "- [ ] P-13", "new_string": "- [x] P-13"}))
+        self.assertIsNone(self.guard("Write", {"file_path": plan, "content": TICK_PLAN}))  # nothing ticked
+        self.assertIsNone(self.guard("Edit", {"file_path": plan, "old_string": "- [x] P-13", "new_string": "- [ ] P-13"}))  # un-ticking
+        self.assertIsNone(self.guard("apply_patch", {"command": "*** Update File: src/a.py\n-- [ ] P-1\n+- [x] P-1\n"}, agent="codex"))
+        self.assertEqual(self.hook("pre-edit", {"tool_name": "Edit", "tool_input": "bad"}), "")
+
+    def test_plan_tick_guard_deny_and_off_by_setting(self):
+        tick = {"file_path": self.p(PLAN_FILE), "old_string": "- [ ] P-13", "new_string": "- [x] P-13"}
+        out = self.guard("Edit", tick, cfg="deny")
+        self.assertEqual(out["permissionDecision"], "deny")
+        self.assertIn("plan done P-13 --verify", out["permissionDecisionReason"])
+        self.assertIsNone(self.guard("Edit", tick, cfg="off"))
+
+
 class ClaudeCodeConfigTests(unittest.TestCase):
     def test_hooks_json_calls_known_events(self):
         with open(os.path.join(str(ROOT), "hooks", "hooks.json"), encoding="utf-8") as f:
@@ -670,7 +729,7 @@ class ClaudeCodeConfigTests(unittest.TestCase):
         for name, event in (("PreCompact", "pre-compact"), ("PostCompact", "post-compact"), ("SessionEnd", "session-end"), ("Stop", "stop")):
             self.assertEqual(len(data[name]), 1)
             self.assertIn(" hook %s --agent claude-code" % event, data[name][0]["hooks"][0]["command"])
-        self.assertEqual(data["PreToolUse"][0]["matcher"], "ExitPlanMode")
+        self.assertEqual([g["matcher"] for g in data["PreToolUse"]], ["ExitPlanMode", "Edit|Write|MultiEdit"])
         self.assertEqual(data["PostToolUse"][0]["matcher"], "ExitPlanMode")
         for groups in data.values():
             for handler in groups[0]["hooks"]:

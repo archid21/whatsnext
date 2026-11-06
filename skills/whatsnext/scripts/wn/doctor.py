@@ -18,7 +18,7 @@ from . import sessions as gwsessions
 
 CLAUDE_COMMAND = re.compile(r"whatsnext\.py[\"']?\s+hook\s+(\S+)\s+--agent\s+claude-code\b")
 CLAUDE_EVENTS = ("session-start", "plan-shown", "plan-approved", "prompt-submit", "stop", "pre-compact",
-                 "post-compact", "session-end")
+                 "post-compact", "pre-edit", "session-end")
 PLUGIN_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), *([os.pardir] * 4)))  # wn -> scripts -> whatsnext -> skills -> plugin
 
 

@@ -13,6 +13,7 @@ every event does nothing.
 - stop: Codex reads its plan from `transcript_path` (item 5).
 - stop: also records a wrap-up that was requested in this session and wrote the handoff (ADR-0008).
 - pre-compact: Claude Code prints plain text (the compact instructions, capped; P-20); every agent records a compact with no fresh handoff (P-4).
+- pre-edit: Claude Code and Codex PreToolUse on Edit, Write and apply_patch; warns or denies a hand-ticked plan item (P-7).
 - post-compact: Claude Code's PostCompact; keeps `compact_summary` in git-ignored session state (P-21).
 - stop / pre-compact / session-end: also write the facts (journal line and progress header, ADR-0005).
 """
@@ -22,6 +23,7 @@ import contextlib
 import io
 import json
 import os
+import re
 
 from . import capture as gwcapture
 from . import config as gwconfig
@@ -30,10 +32,11 @@ from . import packet as gwpacket
 from . import redact as gwredact
 from . import sessions as gwsessions
 from . import status as gwstatus
+from . import util as gwutil
 from . import wrapup as gwwrapup
 
 EVENTS = ("session-start", "plan-shown", "plan-approved", "prompt-submit", "stop", "pre-compact", "post-compact",
-          "session-end")
+          "pre-edit", "session-end")
 PRECOMPACT_CAP = 3000  # characters printed at PreCompact (P-20)
 OPEN_WORK_CAP = 500  # characters for the subagents and todo line (P-25)
 REQUEST_CAP = 2000  # characters of the user's latest request kept verbatim (P-6)
@@ -142,6 +145,8 @@ def note_capture_health(root, ok, reason=None):
     """P-19: one `capture.unreadable` fact while Codex's plan cannot be read; removed when it can. `doctor` shows it.
     The first reason and time are kept; later turns add to `count`."""
     path = unreadable_path(root)
+    if os.path.islink(path) or os.path.islink(os.path.dirname(path)):  # never write or remove through a link
+        return
     if ok:
         if os.path.isfile(path):
             os.remove(path)
@@ -155,10 +160,7 @@ def note_capture_health(root, ok, reason=None):
     except (OSError, ValueError):
         pass
     state["count"] = int(state.get("count") or 0) + 1
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
-        f.write("\n")
+    gwutil.write_atomic(path, json.dumps(state, indent=2) + "\n", newline=None)
 
 
 def codex_stop(root, effective, data):
@@ -268,6 +270,63 @@ def precompact(root, effective, data, agent=None):
     return (body + "\n\n" if body else "") + gwwrapup.clip_to(tail, PRECOMPACT_CAP) + "\n"
 
 
+TICK_OLD_RE = re.compile(r"^\s*- \[ \] (P-\d+)\b", re.MULTILINE)
+TICK_NEW_RE = re.compile(r"^\s*- \[[xX]\] (P-\d+)\b", re.MULTILINE)
+PATCH_OLD_RE = re.compile(r"^-\s*- \[ \] (P-\d+)\b", re.MULTILINE)
+PATCH_NEW_RE = re.compile(r"^\+\s*- \[[xX]\] (P-\d+)\b", re.MULTILINE)
+
+
+def ticked_ids(root, effective, data):
+    """The plan item ids an Edit, Write, MultiEdit or Codex `apply_patch` call turns from `- [ ]` into `- [x]` in the
+    plan file, sorted. [] when the call is not about the plan file or ticks nothing."""
+    tool_input = data.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return []
+    plan_rel = effective.get("paths.plan")
+    plan_path = os.path.realpath(os.path.join(root, plan_rel))
+    patch = tool_input.get("command") if data.get("tool_name") == "apply_patch" else None
+    if isinstance(patch, str):  # Codex: `*** Update File: <path>` then `-- [ ] P-1` / `+- [x] P-1` lines
+        if plan_rel not in patch and os.path.basename(plan_rel) not in patch:
+            return []
+        return sorted(set(PATCH_OLD_RE.findall(patch)) & set(PATCH_NEW_RE.findall(patch)))
+    target = tool_input.get("file_path")
+    if not isinstance(target, str) or os.path.realpath(os.path.join(root, target)) != plan_path:
+        return []
+    ids = set()
+    if isinstance(tool_input.get("content"), str):  # Write: compare with the file as it is now
+        try:
+            with open(plan_path, encoding="utf-8", errors="replace") as f:
+                before = set(TICK_OLD_RE.findall(f.read()))
+        except OSError:
+            before = set()
+        ids = before & set(TICK_NEW_RE.findall(tool_input["content"]))
+    edits = tool_input.get("edits") if isinstance(tool_input.get("edits"), list) else [tool_input]
+    for edit in edits:
+        if isinstance(edit, dict) and isinstance(edit.get("old_string"), str) and isinstance(edit.get("new_string"), str):
+            ids |= set(TICK_OLD_RE.findall(edit["old_string"])) & set(TICK_NEW_RE.findall(edit["new_string"]))
+    return sorted(ids)
+
+
+def plan_tick_guard(root, effective, data):
+    """PreToolUse (P-7): JSON for the agent when it ticks a plan item by hand, else "". `plan.tickGuard` picks warn
+    (the default), off or deny. Claude Code reads `additionalContext` and `permissionDecision` from this shape; Codex's
+    PreToolUse takes the same `permissionDecision` (docs only: not run against Codex)."""
+    mode = effective.get("plan.tickGuard")
+    if mode == "off" or not effective.module_on("plan"):
+        return ""
+    ids = ticked_ids(root, effective, data)
+    if not ids:
+        return ""
+    first = ids[0]
+    message = ("whatsnext: %s is being ticked in PLAN.md by hand. Use `plan done %s --verify \"<command>\"` instead, so a "
+               "passing command is the proof (ADR-0003)." % (", ".join(ids), first))
+    if mode == "deny":
+        out = {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": message}
+    else:
+        out = {"hookEventName": "PreToolUse", "additionalContext": message}
+    return json.dumps({"hookSpecificOutput": out}) + "\n"
+
+
 def handle(event, data, agent=None):
     """The text to print for one event ("" for nothing)."""
     if not isinstance(data, dict):
@@ -302,6 +361,11 @@ def handle(event, data, agent=None):
         try:
             out = precompact(root, effective, data, agent)
         except Exception:  # PreCompact output is a help, never a failure
+            out = ""
+    elif event == "pre-edit":
+        try:
+            out = plan_tick_guard(root, effective, data)
+        except Exception:  # a guard must never break an edit
             out = ""
     elif event == "post-compact":
         try:  # keep the summary and say how much of the plan it kept (P-21); never break the session

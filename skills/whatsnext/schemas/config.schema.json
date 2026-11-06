@@ -48,6 +48,11 @@
           "default": "ask",
           "description": "What Start does about the git branch (ADR-0002): ask each time, always create a new branch, always stay on the current branch, or always create a worktree."
         },
+        "tickGuard": {
+          "enum": ["warn", "off", "deny"],
+          "default": "warn",
+          "description": "What happens when an agent ticks `- [ ] P-N` in PLAN.md by hand instead of running `plan done --verify` (ADR-0003): warn it (the default), say nothing, or deny the edit."
+        },
         "staleAfter": {
           "type": "string",
           "pattern": "^[1-9][0-9]*[mh]$",
