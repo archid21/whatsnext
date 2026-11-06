@@ -15,7 +15,7 @@ import sys
 from . import backend as gwbackend
 from . import config as gwconfig
 from . import redact as gwredact
-from .util import now_utc
+from .util import now_utc, write_atomic
 
 PLACEHOLDER = "(to fill in)"
 FIELD_RE = re.compile(r"^- \*\*([^:*]+):\*\*[ \t]*(.*?)\s*$")
@@ -408,9 +408,7 @@ def set_note(folder, task_id, mark, when=None):
 def write_text(path, text, warn=True):
     """Write a progress file: private text removed first, a secret-looking text warned about (ADR-0002)."""
     text = gwredact.clean(text, os.path.basename(path), quiet=not warn)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        f.write(text)
+    write_atomic(path, text)
 
 
 def emit(effective, task_id, rel, action):

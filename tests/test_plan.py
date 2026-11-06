@@ -794,6 +794,53 @@ JOURNAL = "%s/journal/P-13.md" % STATUS
 PRINT_30 = "i=1; while [ $i -le 30 ]; do echo line$i; i=$((i+1)); done; echo oops >&2; exit 3"
 
 
+class AtomicWriteTests(PlanBase):
+    """P-29: PLAN.md and progress files are swapped in whole."""
+
+    def leftovers(self, rel):
+        folder = os.path.dirname(self.p(rel))
+        return [n for n in os.listdir(folder) if n.endswith(".tmp")]
+
+    def test_atomic_write_plan_and_progress_files_leave_no_temp_file(self):
+        from wn import status
+        self.assertTrue(plan.rewrite_item(self.p(PLAN_PATH), "P-13", lambda line: line.replace("[ ]", "[x]")))
+        self.assertIn("- [x] P-13", self.get(PLAN_PATH))
+        self.assertEqual(self.leftovers(PLAN_PATH), [])
+        status.write_text(self.p(STATUS + "/P-13.md"), "# P-13: x\n", warn=False)
+        self.assertEqual(self.get(STATUS + "/P-13.md"), "# P-13: x\n")
+        self.assertEqual(self.leftovers(STATUS + "/P-13.md"), [])
+
+    def test_atomic_write_a_failed_write_leaves_the_old_file_whole(self):
+        from unittest import mock
+        from wn import util
+        before = self.get(PLAN_PATH)
+        with mock.patch.object(util.os, "replace", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                plan.rewrite_item(self.p(PLAN_PATH), "P-13", lambda line: line.replace("[ ]", "[x]"))
+        self.assertEqual(self.get(PLAN_PATH), before)
+        self.assertEqual(self.leftovers(PLAN_PATH), [])
+        with mock.patch.object(util.os, "fsync", side_effect=OSError("io error")):
+            with self.assertRaises(OSError):
+                util.write_atomic(self.p(PLAN_PATH), "half")
+        self.assertEqual(self.get(PLAN_PATH), before)
+        self.assertEqual(self.leftovers(PLAN_PATH), [])
+
+    def test_atomic_write_keeps_a_symlink_the_mode_and_crlf(self):
+        from wn import util
+        real = self.p("docs/real-plan.md")
+        os.makedirs(os.path.dirname(real), exist_ok=True)
+        with open(real, "w", encoding="utf-8", newline="") as f:
+            f.write("a\r\nb\r\n")
+        os.chmod(real, 0o640)
+        link = self.p("docs/link-plan.md")
+        os.symlink(real, link)
+        util.write_atomic(link, "x\r\ny\r\n")
+        self.assertTrue(os.path.islink(link))
+        with open(real, encoding="utf-8", newline="") as f:
+            self.assertEqual(f.read(), "x\r\ny\r\n")
+        self.assertEqual(os.stat(real).st_mode & 0o777, 0o640)
+
+
 class OutputTailTests(unittest.TestCase):
     def test_tail_strips_colors_blank_ends_and_clips(self):
         self.assertEqual(plan.output_tail(b"a\n\x1b[31mred\x1b[0m\n\n"), ["a", "red"])

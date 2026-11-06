@@ -25,7 +25,7 @@ from . import journal as gwjournal
 from . import redact as gwredact
 from . import status as gwstatus
 from .ask import NEEDS_ANSWER, ask, option
-from .util import now_utc
+from .util import now_utc, write_atomic
 
 SECTIONS = ("Now", "Next", "Later")
 OTHER = "Other"
@@ -143,8 +143,7 @@ def rewrite_item(path, item_id, transform):
     raw = lines[item.index]
     tail = "\r" if raw.endswith("\r") else ""
     lines[item.index] = transform(raw[:len(raw) - len(tail)]) + tail
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        f.write("\n".join(lines))
+    write_atomic(path, "\n".join(lines))
     return True
 
 
@@ -814,10 +813,7 @@ def save_always(ctx, choice):
     if not isinstance(plan, dict):
         plan = data["plan"] = {}
     plan["branchOnStart"] = choice
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
+    write_atomic(path, json.dumps(data, indent=2) + "\n", newline=None)
     return True
 
 
