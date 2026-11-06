@@ -877,6 +877,50 @@ class DriftTests(PlanBase):
         self.assertNotIn("ticked by hand", out)
 
 
+class SuggestFieldTests(PlanBase):
+    PLAN = """# Plan
+
+## Now
+
+- [ ] P-1 After done means · done means: a · suggest: sonnet/high
+- [ ] P-2 Before done means · suggest: haiku/low · done means: b
+- [ ] P-3 No hint · done means: c
+- [ ] P-4 Odd value · done means: d · suggest:   opus \x1b[31m/  max
+"""
+
+    def setUp(self):
+        super().setUp()
+        self.put(PLAN_PATH, self.PLAN)
+        self.commit("suggest plan")
+
+    def test_suggest_field_is_kept_as_written_before_or_after_done_means(self):
+        _lines, items = plan.parse_text(self.PLAN)
+        by_id = {i.id: i for i in items}
+        self.assertEqual(by_id["P-1"].suggest, "sonnet/high")
+        self.assertEqual(by_id["P-2"].suggest, "haiku/low")
+        self.assertEqual(by_id["P-3"].suggest, "")
+        self.assertEqual((by_id["P-1"].done_means, by_id["P-2"].done_means), ("a", "b"))
+        self.assertEqual((by_id["P-1"].title, by_id["P-2"].title), ("After done means", "Before done means"))
+        self.assertEqual(by_id["P-4"].suggest, "opus [31m/ max".replace("\x1b", ""))  # tidied, never executed
+
+    def test_suggest_field_shows_in_next_list_and_start(self):
+        r, data = self.jplan("next", "--limit", "10")
+        self.assertEqual({c["id"]: c["suggest"] for c in data["candidates"]},
+                         {"P-1": "sonnet/high", "P-2": "haiku/low", "P-3": "", "P-4": "opus [31m/ max"})
+        r, data = self.jplan("list")
+        self.assertIn('"suggest": "sonnet/high"', self.plan("list", "--json").stdout)
+        r, started = self.jplan("start", "P-1", "--branch", "stay")
+        self.assertEqual(started["suggest"], "sonnet/high")
+        out = self.plan("start", "P-2", "--branch", "stay", "--current", "keep").stdout
+        self.assertIn("Suggest: haiku/low", out)
+
+    def test_suggest_field_a_line_without_it_is_unchanged(self):
+        out = self.plan("start", "P-3", "--branch", "stay").stdout
+        self.assertNotIn("Suggest:", out)
+        self.assertIn("Done means: c", out)
+        self.assertEqual(self.get(PLAN_PATH), self.PLAN)  # reading never rewrites the plan
+
+
 class BlockedByTests(PlanBase):
     PLAN = """# Plan
 

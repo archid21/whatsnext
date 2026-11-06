@@ -65,6 +65,7 @@ class Item(object):
         self.section = section
         self.index = index  # line number (0-based) in the file
         self.blocked_by = []  # ids named by a `blocked by: P-3, P-5` field (P-13)
+        self.suggest = ""  # the `suggest: <model>/<effort>` hint as written (ADR-0012)
 
 
 def strip_comments(line, in_comment):
@@ -107,6 +108,19 @@ def parse_rest(rest):
 
 
 BLOCKED_RE = re.compile(r"^blocked by\s*:\s*(.*)$", re.I)
+SUGGEST_RE = re.compile(r"^suggest\s*:\s*(.*)$", re.I)
+SUGGEST_MAX = 60
+CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def parse_suggest(rest):
+    """The `suggest:` hint of the text after the item id, as written (white space and control characters tidied,
+    clipped to SUGGEST_MAX), or "". whatsnext never checks it against a list of models (ADR-0012)."""
+    for part in FIELD_SPLIT_RE.split(rest.strip()):
+        m = SUGGEST_RE.match(part.strip())
+        if m:
+            return CONTROL_RE.sub("", " ".join(m.group(1).split()))[:SUGGEST_MAX]
+    return ""
 
 
 def parse_blocked_by(rest):
@@ -139,6 +153,7 @@ def parse_text(text):
             title, done_means, evidence = parse_rest(m.group(5))
             item = Item(m.group(4), title, m.group(2) in "xX", done_means, evidence, section, i)
             item.blocked_by = parse_blocked_by(m.group(5))
+            item.suggest = parse_suggest(m.group(5))
             items.append(item)
     return lines, items
 
@@ -267,6 +282,7 @@ class Ctx(object):
         open_ids = {it.id for it in self.items() if not it.checked}
         out = [self.view(it, tasks.get(it.id), claim_map.get(it.id)) for it in items]
         for view, it in zip(out, items):  # P-13: the ids this item waits for that are still open
+            view["suggest"] = it.suggest
             view["blocked_by"] = list(it.blocked_by)
             view["blocked_on"] = [i for i in it.blocked_by if i in open_ids and i != it.id]
         return out
@@ -999,7 +1015,7 @@ def cmd_start(ctx, args):
         gwstatus.stamp_file(ctx.root, ctx.folder, ctx.effective, item.id, state="active")
     overlaps = file_overlaps(ctx, item.id)
     info = {"started": True, "id": item.id, "title": item.title, "done_means": done_means, "agent": agent,
-            "file_overlap": [{"id": o, "files": f} for o, f in overlaps],
+            "file_overlap": [{"id": o, "files": f} for o, f in overlaps], "suggest": item.suggest,
             "progress_file": result["progress_file"], "branch": result["branch"], "branch_action": result["action"],
             "worktree": result["worktree"], "earlier_work": earlier, "next_step": NEXT_STEP}
     if as_json:
@@ -1007,6 +1023,8 @@ def cmd_start(ctx, args):
         return 0
     print("Started %s: %s" % (item.id, item.title))
     print("Done means: " + done_means)
+    if item.suggest:
+        print("Suggest: " + item.suggest)
     print("Progress file: " + info["progress_file"])
     if earlier:
         print("Earlier work: %s. Read the progress file before changing anything." % earlier)
