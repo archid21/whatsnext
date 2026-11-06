@@ -269,6 +269,35 @@ def summary_line(root, session_id):
     return None
 
 
+def resume_marker_path(root, session_id):
+    name = gwjournal.safe_session_id(session_id)
+    return os.path.join(root, gwjournal.SESSIONS_DIR, name + ".resume.json") if name else None
+
+
+def set_resume_marker(root, session_id):
+    """Codex: a compact is coming and SessionStart may not say so. The next prompt prints the resume note once."""
+    path = resume_marker_path(root, session_id)
+    if path is None:
+        return None
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"session_id": session_id, "set": gwstatus.stamp_time()}, f)
+        f.write("\n")
+    return path
+
+
+def take_resume_marker(root, session_id):
+    """True once after `set_resume_marker`: the marker is removed as it is read."""
+    path = resume_marker_path(root, session_id) if session_id else None
+    if path is None or not os.path.isfile(path):
+        return False
+    try:
+        os.remove(path)
+    except OSError:
+        return False
+    return True
+
+
 def compacted_without_wrapup(root, session_id):
     """The UTC text of the last compact with no fresh handoff in this session, or None."""
     path = compact_marker_path(root, session_id) if session_id else None

@@ -30,6 +30,7 @@ EVENTS = (
     ("SessionStart", "session-start", "startup|resume|clear|compact", 10, 5000),
     ("Stop", "stop", None, 10, None),
     ("PreCompact", "pre-compact", None, 10, None),
+    ("UserPromptSubmit", "prompt-submit", None, 10, None),  # prints the resume note once after a compact (P-22)
 )
 AGENT = "codex"
 OWN_COMMAND = re.compile(r"whatsnext\.py[\"']?\s+hook\s+\S+\s+--agent\s+codex\b")

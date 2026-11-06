@@ -136,6 +136,8 @@ def command_line():
 
 
 def session_start(root, effective, data, agent=None):
+    if data.get("source") == "compact":
+        gwwrapup.take_resume_marker(root, data.get("session_id"))  # SessionStart said it: the prompt need not
     result = gwpacket.build(root, effective, compacted=(data.get("source") == "compact"),
                             session_id=data.get("session_id"))
     text = result["text"] if result else None
@@ -176,6 +178,7 @@ def precompact(root, effective, data, agent=None):
     when = gwstatus.stamp_time() if state["stale"] else None
     gwwrapup.mark_compacted(root, session_id, when)
     if agent == "codex":
+        gwwrapup.set_resume_marker(root, session_id)  # Codex may not pass source=compact; the next prompt shows the note
         return ""
     from . import compact as gwcompact  # imported here: compact imports this module
     lines = ["whatsnext facts:", gwcompact.facts_text(root, effective, task)]
@@ -211,6 +214,10 @@ def handle(event, data, agent=None):
     elif event == "plan-approved":
         capture(root, effective, "approved", agent or "claude-code")
     elif event == "prompt-submit":
+        if agent == "codex":  # Codex: only the once-after-compact resume note (P-22)
+            if gwwrapup.take_resume_marker(root, data.get("session_id")):
+                return session_start(root, effective, dict(data, source="compact"), agent)
+            return ""
         mode = data.get("permission_mode")
         if agent != "codex" and isinstance(mode, str) and mode != "plan" and \
                 plan_status(root, effective) == gwcapture.STATUS_TEXT["shown"]:

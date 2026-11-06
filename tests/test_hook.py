@@ -194,7 +194,7 @@ class InstallHooksTests(HookBase):
         self.assertIn("trust the whatsnext hooks", r.stdout)
         data = self.hooks_file()
         self.assertEqual(data["x"], 1)
-        self.assertEqual(sorted(data["hooks"]), ["PreCompact", "SessionStart", "Stop"])
+        self.assertEqual(sorted(data["hooks"]), ["PreCompact", "SessionStart", "Stop", "UserPromptSubmit"])
         self.assertEqual(data["hooks"]["Stop"][0], {"hooks": [other]})
         command = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         self.assertRegex(command, r'^python3 ".*whatsnext\.py" hook session-start --agent codex$')
@@ -604,6 +604,30 @@ class PreCompactTests(HookBase):
         self.assertIn("do not trust", self.hook("session-start", {"source": "compact", "session_id": "s1"}))
         self.assertEqual(self.hook("post-compact", {"compact_summary": "x"}), "")  # no session id: nothing written
         self.assertEqual(self.hook("post-compact", raw="not json"), "")
+
+    def test_compact_marker_once(self):
+        self.task()
+        self.assertEqual(self.hook("pre-compact", {"session_id": "s1"}, agent="codex"), "")
+        marker = ".whatsnext/sessions/s1.resume.json"
+        self.assertTrue(self.has(marker))
+        first = self.hook("prompt-submit", {"session_id": "s1", "prompt": "go on"}, agent="codex")
+        self.assertIn("Context was compacted", first)
+        self.assertIn("whatsnext command:", first)  # the Codex form of the note
+        self.assertFalse(self.has(marker))
+        self.assertEqual(self.hook("prompt-submit", {"session_id": "s1", "prompt": "next"}, agent="codex"), "")
+
+    def test_compact_marker_is_dropped_when_session_start_already_said_so(self):
+        self.task()
+        self.hook("pre-compact", {"session_id": "s1"}, agent="codex")
+        self.assertIn("Context was compacted", self.hook("session-start", {"source": "compact", "session_id": "s1"}, agent="codex"))
+        self.assertFalse(self.has(".whatsnext/sessions/s1.resume.json"))
+        self.assertEqual(self.hook("prompt-submit", {"session_id": "s1", "prompt": "go"}, agent="codex"), "")
+
+    def test_compact_marker_claude_code_keeps_its_own_prompt_behavior(self):
+        self.task()
+        self.hook("pre-compact", {"session_id": "s1"})  # Claude Code: SessionStart passes source=compact; no marker
+        self.assertFalse(self.has(".whatsnext/sessions/s1.resume.json"))
+        self.assertEqual(self.hook("prompt-submit", {"session_id": "s1", "prompt": "go"}), "")
 
     def test_codex_gets_no_text_but_the_fact_and_the_note(self):
         self.task()
