@@ -116,6 +116,16 @@ def tail_entries(path, size=TAIL_BYTES):
             yield item
 
 
+def request_text(item):
+    """The user's own words in a prompt entry: each text block is checked on its own, and blocks that are
+    slash-command or injected (NOT_A_REQUEST) are dropped before the rest are joined."""
+    content = (item.get("message") or {}).get("content")
+    blocks = [content] if isinstance(content, str) else \
+        [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"] if isinstance(content, list) else []
+    kept = [b.strip() for b in blocks if isinstance(b, str) and b.strip() and not b.strip().startswith(NOT_A_REQUEST)]
+    return "\n".join(kept)
+
+
 def latest_request(path, skip_prompt=None):
     """The text of the user's latest real request in a transcript, or None. Tool results, meta, sidechain and
     compact-summary entries, slash-command and injected entries, and the prompt `skip_prompt` are not requests."""
@@ -123,11 +133,10 @@ def latest_request(path, skip_prompt=None):
     for item in tail_entries(path):
         if item.get("isCompactSummary"):
             continue
-        text = prompt_text(item)
-        if text is None:
+        if prompt_text(item) is None:
             continue
-        text = text.strip()
-        if not text or text.startswith(NOT_A_REQUEST) or (skip_prompt is not None and text == skip_prompt):
+        text = request_text(item)
+        if not text or (skip_prompt is not None and text == skip_prompt):
             continue
         found = text
     return found

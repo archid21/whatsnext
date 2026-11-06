@@ -103,13 +103,20 @@ def clean(text, where, quiet=False):
     return text
 
 
+KEY_BLOCK_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)", re.DOTALL)
+ASSIGN_RE = re.compile(r"(api[_-]?key|secret|token|password|passwd|pwd|credential|authorization|private[_-]?key)"
+                       r"\s*[:=]\s*\S{6,}", re.IGNORECASE)
+BEARER_RE = re.compile(r"\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}", re.IGNORECASE)
+
+
 def mask_secrets(text):
     """`text` with private spans removed and anything that looks like a secret replaced by `[redacted]`.
-    For text that is printed or stored without a human looking first (a hook's output)."""
+    For text that is printed without a human looking first (a hook's output). A private key block is masked
+    whole, to its END line or to the end of the text; the patterns here cover whole secrets, not just headers."""
     text = strip_private(text or "")
+    text = KEY_BLOCK_RE.sub("[redacted]", text)
     for kind, pattern in SECRET_PATTERNS:
-        if kind == "key, password or token assignment":
-            text = pattern.sub(lambda m: re.split(r"[:=]", m.group(0), 1)[0] + "= [redacted]", text)
-        else:
+        if kind not in ("key, password or token assignment", "private key block"):
             text = pattern.sub("[redacted]", text)
-    return text
+    text = BEARER_RE.sub(lambda m: m.group(1) + " [redacted]", text)  # first: "Authorization: Bearer <token>"
+    return ASSIGN_RE.sub(lambda m: re.split(r"[:=]", m.group(0), 1)[0] + "= [redacted]", text)

@@ -546,6 +546,22 @@ class PreCompactTests(HookBase):
         self.assertNotIn(key, out)
         self.assertNotIn("secret plan", out)
 
+    def test_latest_request_masks_whole_key_blocks_and_filters_per_block(self):
+        self.task()
+        pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEPEMBODY\n-----END RSA PRIVATE KEY-----"
+        mixed = {"type": "user", "message": {"role": "user", "content": [
+            {"type": "text", "text": "<system-reminder>INJECTED</system-reminder>"},
+            {"type": "text", "text": "fix it. Authorization: Bearer abcdef123456 and passwd=hunter2hunter2\n" + pem},
+            {"type": "text", "text": "<command-name>/x</command-name>"}]}}
+        path = self.transcript([mixed])
+        out = self.hook("pre-compact", {"session_id": "s1", "transcript_path": path})
+        self.assertIn("fix it.", out)
+        out2 = self.hook("pre-compact", {"session_id": "s1", "transcript_path": self.transcript(
+            [self.user("a -----BEGIN PRIVATE KEY-----\nUNTERMINATEDBODY")])})
+        self.assertNotIn("UNTERMINATEDBODY", out2)
+        for leaked in ("MIIEPEMBODY", "abcdef123456", "hunter2hunter2", "INJECTED", "<command-name>"):
+            self.assertNotIn(leaked, out)
+
     def test_latest_request_missing_or_unreadable_is_silent(self):
         self.task()
         for path in (None, os.path.join(self.tmp.name, "absent.jsonl"), self.transcript([{"type": "system"}])):
