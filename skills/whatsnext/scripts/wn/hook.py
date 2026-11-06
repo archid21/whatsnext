@@ -12,6 +12,9 @@ every event does nothing.
   prints the instructions that write the handoff note (ADR-0008).
 - stop: Codex reads its plan from `transcript_path` (item 5).
 - stop: also records a wrap-up that was requested in this session and wrote the handoff (ADR-0008).
+- pre-compact: Claude Code prints plain text (the compact instructions, capped; P-20); every agent records a compact with no fresh handoff (P-4).
+- pre-edit: Claude Code and Codex PreToolUse on Edit, Write and apply_patch; warns or denies a hand-ticked plan item (P-7).
+- post-compact: Claude Code's PostCompact; keeps `compact_summary` in git-ignored session state (P-21).
 - stop / pre-compact / session-end: also write the facts (journal line and progress header, ADR-0005).
 """
 
@@ -20,15 +23,23 @@ import contextlib
 import io
 import json
 import os
+import re
 
 from . import capture as gwcapture
 from . import config as gwconfig
 from . import journal as gwjournal
 from . import packet as gwpacket
+from . import redact as gwredact
+from . import sessions as gwsessions
 from . import status as gwstatus
+from . import util as gwutil
 from . import wrapup as gwwrapup
 
-EVENTS = ("session-start", "plan-shown", "plan-approved", "prompt-submit", "stop", "pre-compact", "session-end")
+EVENTS = ("session-start", "plan-shown", "plan-approved", "prompt-submit", "stop", "pre-compact", "post-compact",
+          "pre-edit", "session-end")
+PRECOMPACT_CAP = 3000  # characters printed at PreCompact (P-20)
+OPEN_WORK_CAP = 500  # characters for the subagents and todo line (P-25)
+REQUEST_CAP = 2000  # characters of the user's latest request kept verbatim (P-6)
 FACT_EVENTS = ("stop", "pre-compact", "session-end")  # these write the facts layer
 AGENTS = ("claude-code", "codex")
 
@@ -109,13 +120,62 @@ def codex_plan(path, turn_id):
     return None
 
 
+def codex_format_known(path):
+    """True when the Codex transcript has the records `codex_plan` reads (a `task_started` event)."""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            payload = record.get("payload") if isinstance(record, dict) else None
+            if isinstance(payload, dict) and record.get("type") == "event_msg" and payload.get("type") == "task_started":
+                return True
+    return False
+
+
+UNREADABLE = "capture.unreadable"
+
+
+def unreadable_path(root):
+    return os.path.join(root, gwjournal.SESSIONS_DIR, UNREADABLE + ".json")
+
+
+def note_capture_health(root, ok, reason=None):
+    """P-19: one `capture.unreadable` fact while Codex's plan cannot be read; removed when it can. `doctor` shows it.
+    The first reason and time are kept; later turns add to `count`."""
+    path = unreadable_path(root)
+    if os.path.islink(path) or os.path.islink(os.path.dirname(path)):  # never write or remove through a link
+        return
+    if ok:
+        if os.path.isfile(path):
+            os.remove(path)
+        return
+    state = {"fact": UNREADABLE, "reason": reason, "since": gwstatus.stamp_time(), "count": 0}
+    try:
+        with open(path, encoding="utf-8") as f:
+            old = json.load(f)
+        if isinstance(old, dict) and old.get("fact") == UNREADABLE:
+            state = old
+    except (OSError, ValueError):
+        pass
+    state["count"] = int(state.get("count") or 0) + 1
+    gwutil.write_atomic(path, json.dumps(state, indent=2) + "\n", newline=None)
+
+
 def codex_stop(root, effective, data):
     path, turn_id = data.get("transcript_path"), data.get("turn_id")
-    if not isinstance(path, str) or not isinstance(turn_id, str) or not os.path.isfile(path):
+    if not isinstance(path, str) or not isinstance(turn_id, str):
         return
-    found = codex_plan(path, turn_id)
+    try:
+        found = codex_plan(path, turn_id)
+        known = True if found else codex_format_known(path)
+    except OSError as e:
+        note_capture_health(root, False, "cannot read the transcript (%s)" % (e.strerror or "error"))
+        return
     if found:
         capture(root, effective, found[0], "codex", found[1])
+    note_capture_health(root, known, None if known else "the transcript has no task_started records (format changed?)")
 
 
 # ---- events ----------------------------------------------------------------
@@ -129,6 +189,8 @@ def command_line():
 
 
 def session_start(root, effective, data, agent=None):
+    if data.get("source") == "compact":
+        gwwrapup.take_resume_marker(root, data.get("session_id"))  # SessionStart said it: the prompt need not
     result = gwpacket.build(root, effective, compacted=(data.get("source") == "compact"),
                             session_id=data.get("session_id"))
     text = result["text"] if result else None
@@ -139,6 +201,132 @@ def session_start(root, effective, data, agent=None):
     return text + "\n"
 
 
+def latest_request(transcript, facts):
+    """The "Keep verbatim" block for the user's latest request, or "". It is redacted, clipped to REQUEST_CAP
+    characters, and short enough that it and the facts block fit the PreCompact cap. Any error gives ""."""
+    if not transcript or not os.path.isfile(transcript):
+        return ""
+    try:
+        text = gwsessions.latest_request(transcript, gwwrapup.PROMPT)
+    except (OSError, ValueError):
+        return ""
+    if not text:
+        return ""
+    head = "Keep verbatim (the user's latest request):\n"
+    room = min(REQUEST_CAP, PRECOMPACT_CAP - len(facts) - len(head) - 4)
+    return head + gwwrapup.clip_to(gwredact.mask_secrets(text), room) if room > 0 else ""
+
+
+def open_work_text(transcript):
+    """One short line naming the subagents launched this session and the agent's in-progress todo, or "".
+    Plain facts from the transcript tail; any error gives ""."""
+    if not transcript or not os.path.isfile(transcript):
+        return ""
+    try:
+        work = gwsessions.open_work(transcript)
+    except (OSError, ValueError):
+        return ""
+    parts = []
+    if work["agents"]:
+        parts.append("Subagents launched: " + "; ".join("%s (%s, %s)" % (
+            gwwrapup.clip_to(" ".join(d.split()), 60), gwwrapup.clip_to(t, 30), "running" if running else "finished")
+            for d, t, running in work["agents"]) + ".")
+    if work["todo"]:
+        parts.append("In-progress todo: " + "; ".join(gwwrapup.clip_to(" ".join(t.split()), 80) for t in work["todo"][:3]) + ".")
+    return gwwrapup.clip_to(gwredact.mask_secrets(" ".join(parts)), OPEN_WORK_CAP) if parts else ""
+
+
+def precompact(root, effective, data, agent=None):
+    """PreCompact (P-4, P-20, P-26). Records "compacted without wrap-up" when this session has no fresh handoff
+    note (the resume note shows it after the compact). Claude Code: returns plain text, at most PRECOMPACT_CAP
+    characters: the compact instructions and a facts block, or the facts block alone when the user typed
+    `/compact <text>`. Codex ignores PreCompact output, so it gets no text."""
+    task = branch_task(root, effective)
+    if task is None:  # no active task on this branch: nothing to carry, nothing written
+        return ""
+    session_id = data.get("session_id") if isinstance(data.get("session_id"), str) else None
+    transcript = data.get("transcript_path") if isinstance(data.get("transcript_path"), str) else None
+    state = gwwrapup.handoff_state(gwwrapup.handoff_path(root, effective), transcript, session_id, root)
+    when = gwstatus.stamp_time() if state["stale"] else None
+    gwwrapup.mark_compacted(root, session_id, when)
+    if agent == "codex":
+        gwwrapup.set_resume_marker(root, session_id)  # Codex may not pass source=compact; the next prompt shows the note
+        return ""
+    from . import compact as gwcompact  # imported here: compact imports this module
+    lines = ["whatsnext facts:", gwcompact.facts_text(root, effective, task)]
+    if when:
+        lines.append("Compacted without wrap-up at %s." % when)
+    open_work = open_work_text(transcript)
+    if open_work:
+        lines.append(open_work)
+    facts = " ".join(lines)
+    request = latest_request(transcript, facts)
+    custom = data.get("custom_instructions")
+    if isinstance(custom, str) and custom.strip():  # the user wrote their own compact text: add only the facts
+        return gwwrapup.clip_to(request + "\n\n" + facts if request else facts, PRECOMPACT_CAP) + "\n"
+    tail = (request + "\n\n" if request else "") + facts
+    room = PRECOMPACT_CAP - len(tail) - 3  # the blank line (2) and the final newline (1)
+    body = gwwrapup.clip_to(gwwrapup.compact_instructions(root, effective, session_id).strip(), max(room, 0))
+    return (body + "\n\n" if body else "") + gwwrapup.clip_to(tail, PRECOMPACT_CAP) + "\n"
+
+
+TICK_OLD_RE = re.compile(r"^\s*- \[ \] (P-\d+)\b", re.MULTILINE)
+TICK_NEW_RE = re.compile(r"^\s*- \[[xX]\] (P-\d+)\b", re.MULTILINE)
+PATCH_OLD_RE = re.compile(r"^-\s*- \[ \] (P-\d+)\b", re.MULTILINE)
+PATCH_NEW_RE = re.compile(r"^\+\s*- \[[xX]\] (P-\d+)\b", re.MULTILINE)
+
+
+def ticked_ids(root, effective, data):
+    """The plan item ids an Edit, Write, MultiEdit or Codex `apply_patch` call turns from `- [ ]` into `- [x]` in the
+    plan file, sorted. [] when the call is not about the plan file or ticks nothing."""
+    tool_input = data.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return []
+    plan_rel = effective.get("paths.plan")
+    plan_path = os.path.realpath(os.path.join(root, plan_rel))
+    patch = tool_input.get("command") if data.get("tool_name") == "apply_patch" else None
+    if isinstance(patch, str):  # Codex: `*** Update File: <path>` then `-- [ ] P-1` / `+- [x] P-1` lines
+        if plan_rel not in patch and os.path.basename(plan_rel) not in patch:
+            return []
+        return sorted(set(PATCH_OLD_RE.findall(patch)) & set(PATCH_NEW_RE.findall(patch)))
+    target = tool_input.get("file_path")
+    if not isinstance(target, str) or os.path.realpath(os.path.join(root, target)) != plan_path:
+        return []
+    ids = set()
+    if isinstance(tool_input.get("content"), str):  # Write: compare with the file as it is now
+        try:
+            with open(plan_path, encoding="utf-8", errors="replace") as f:
+                before = set(TICK_OLD_RE.findall(f.read()))
+        except OSError:
+            before = set()
+        ids = before & set(TICK_NEW_RE.findall(tool_input["content"]))
+    edits = tool_input.get("edits") if isinstance(tool_input.get("edits"), list) else [tool_input]
+    for edit in edits:
+        if isinstance(edit, dict) and isinstance(edit.get("old_string"), str) and isinstance(edit.get("new_string"), str):
+            ids |= set(TICK_OLD_RE.findall(edit["old_string"])) & set(TICK_NEW_RE.findall(edit["new_string"]))
+    return sorted(ids)
+
+
+def plan_tick_guard(root, effective, data):
+    """PreToolUse (P-7): JSON for the agent when it ticks a plan item by hand, else "". `plan.tickGuard` picks warn
+    (the default), off or deny. Claude Code reads `additionalContext` and `permissionDecision` from this shape; Codex's
+    PreToolUse takes the same `permissionDecision` (docs only: not run against Codex)."""
+    mode = effective.get("plan.tickGuard")
+    if mode == "off" or not effective.module_on("plan"):
+        return ""
+    ids = ticked_ids(root, effective, data)
+    if not ids:
+        return ""
+    first = ids[0]
+    message = ("whatsnext: %s is being ticked in PLAN.md by hand. Use `plan done %s --verify \"<command>\"` instead, so a "
+               "passing command is the proof (ADR-0003)." % (", ".join(ids), first))
+    if mode == "deny":
+        out = {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": message}
+    else:
+        out = {"hookEventName": "PreToolUse", "additionalContext": message}
+    return json.dumps({"hookSpecificOutput": out}) + "\n"
+
+
 def handle(event, data, agent=None):
     """The text to print for one event ("" for nothing)."""
     if not isinstance(data, dict):
@@ -147,6 +335,7 @@ def handle(event, data, agent=None):
     if found is None:
         return ""
     root, effective = found
+    out = ""
     if event == "session-start":
         return session_start(root, effective, data, agent)
     if event == "plan-shown":
@@ -157,6 +346,10 @@ def handle(event, data, agent=None):
     elif event == "plan-approved":
         capture(root, effective, "approved", agent or "claude-code")
     elif event == "prompt-submit":
+        if agent == "codex":  # Codex: only the once-after-compact resume note (P-22)
+            if gwwrapup.take_resume_marker(root, data.get("session_id")):
+                return session_start(root, effective, dict(data, source="compact"), agent)
+            return ""
         mode = data.get("permission_mode")
         if agent != "codex" and isinstance(mode, str) and mode != "plan" and \
                 plan_status(root, effective) == gwcapture.STATUS_TEXT["shown"]:
@@ -164,6 +357,21 @@ def handle(event, data, agent=None):
         prompt = data.get("prompt")
         if isinstance(prompt, str) and prompt.strip() == gwwrapup.PROMPT:
             return gwwrapup.begin(root, effective, data)
+    elif event == "pre-compact":
+        try:
+            out = precompact(root, effective, data, agent)
+        except Exception:  # PreCompact output is a help, never a failure
+            out = ""
+    elif event == "pre-edit":
+        try:
+            out = plan_tick_guard(root, effective, data)
+        except Exception:  # a guard must never break an edit
+            out = ""
+    elif event == "post-compact":
+        try:  # keep the summary and say how much of the plan it kept (P-21); never break the session
+            gwwrapup.save_summary(root, data.get("session_id"), data.get("compact_summary"), branch_task(root, effective))
+        except Exception:
+            pass
     elif event == "stop":
         if agent == "codex":
             codex_stop(root, effective, data)
@@ -176,7 +384,7 @@ def handle(event, data, agent=None):
             gwjournal.record(root, effective, event, data)
         except Exception:  # the facts must never break the agent's session (the caller hides stderr anyway)
             pass
-    return ""
+    return out
 
 
 def read_input(stream):

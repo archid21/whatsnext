@@ -190,16 +190,16 @@ class ProjectAndStateTests(CompactBase):
 class ResumeNoteTests(HandoffBase):
     def test_own_session_note_says_read_it_first(self):
         self.wrap_up("s1", note(session="s1", task="none"))
-        self.assertIn("Handoff: %s (read it first)" % HANDOFF, self.start("s1"))
+        self.assertRegex(self.start("s1"), r"Handoff: %s, wrapped up \d{4}-\d\d-\d\dT\d\d:\d\dZ \(read it first\)" % HANDOFF)
 
     def test_the_active_tasks_note_says_read_it_first_in_a_new_session(self):
         self.wrap_up("s1", note(session="s1", task="P-13"))
-        self.assertIn("Handoff: %s (read it first)" % HANDOFF, self.start("after-clear"))
+        self.assertRegex(self.start("after-clear"), r"Handoff: %s, wrapped up \d{4}-.*\(read it first\)" % HANDOFF)
 
     def test_another_sessions_note_is_pointed_to(self):
         self.put(HANDOFF, note(session="s2", task="P-99"))
         out = self.start("s1")
-        self.assertIn("Handoff: %s (another session's note)" % HANDOFF, out)
+        self.assertRegex(out, r"Handoff: %s, wrapped up \d{4}-.*\(another session's note\)" % HANDOFF)
         self.assertNotIn("read it first", out)
 
     def test_an_old_note_without_a_header_is_another_sessions(self):
@@ -207,7 +207,7 @@ class ResumeNoteTests(HandoffBase):
         self.assertIn("(another session's note)", self.start("s1"))
 
     def test_no_note_no_line(self):
-        self.assertNotIn("Handoff:", self.start("s1"))
+        self.assertIn("Handoff: none, facts only.", self.start("s1"))
 
     def test_the_note_stays_within_its_cap(self):
         self.task(next_action="word " * 200, note="confirmed (2026-10-27T14:05Z)")
@@ -278,7 +278,7 @@ class CompactLineTests(unittest.TestCase):
 
     def test_next_and_constraints_are_cut_only_at_their_own_caps(self):
         line = wnwrapup.compact_line(note(next_action="n" * 1000, constraints="c" * 2000))
-        self.assertIn("n" * 299 + "\u2026", line)
+        self.assertIn("Next: " + "n" * 399 + "\u2026", line)
         self.assertIn("c" * 599 + "\u2026", line)
         self.assertLessEqual(len(line), wnwrapup.MAX_LINE_CHARS)
 
@@ -311,7 +311,7 @@ class CompactLineTests(unittest.TestCase):
             out = wnwrapup.instructions(tmp, effective, session_id="abc")
         self.assertIn("/compact Keep:", out)
         self.assertIn("Goal: <goal, at most 200 characters>", out)
-        self.assertIn("Next: <next action, at most 300 characters>", out)
+        self.assertIn("Next: <next action, at most 400 characters>", out)
         self.assertIn("Constraints: <constraints, at most 600 characters>", out)
         self.assertIn("Decisions: <decisions, at most 400 characters>", out)
         self.assertIn("Blockers: <open questions and blockers, at most 300 characters>", out)

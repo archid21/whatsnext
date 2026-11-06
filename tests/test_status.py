@@ -327,7 +327,8 @@ class PacketTests(StatusBase):
         self.assertTrue(lines[0].startswith("continue P-13 Title"))
         self.assertTrue(self.line("Next:", lines).startswith("Next: word word"))
         self.assertIn("full: %s/P-13.md" % STATUS, self.line("Next:", lines))
-        self.assertEqual(lines[-1], "Note: auto, 10 min old")
+        self.assertEqual(lines[-2], "Note: auto, 10 min old")  # a trimmed note ends with the cut line (P-16)
+        self.assertTrue(lines[-1].startswith("cut: "))
 
     def test_cap_trims_done_before_commits(self):
         self.task(done="- " + "d" * 150 + "\n- " + "e" * 150, next_action="n" * 380, note="auto (%s)" % minute_ts(1))
@@ -339,7 +340,9 @@ class PacketTests(StatusBase):
         lines = self.packet()["text"].rstrip("\n").split("\n")
         self.assertLessEqual(len("\n".join(lines)), 1199)
         self.assertNotIn("e" * 20, "\n".join(lines))  # the second Done entry went first
-        self.assertEqual(len([l for l in lines if l.startswith("  ") and "commit number" in l]), 3)
+        commit_lines = len([l for l in lines if l.startswith("  ") and "commit number" in l])
+        self.assertGreaterEqual(commit_lines, 2)  # the cut line takes room; commits still go after Done
+        self.assertTrue(lines[-1].startswith("cut: Done +"))
 
     def test_json_fields(self):
         self.task()
@@ -497,7 +500,8 @@ class ResumeNoteHardeningTests(StatusBase):
         data = self.packet()
         lines = data["text"].rstrip("\n").split("\n")
         self.assertLessEqual(len(data["text"]), 1200)
-        self.assertEqual(lines[-1], "Note: auto, 10 min old")
+        self.assertEqual(lines[-2], "Note: auto, 10 min old")
+        self.assertTrue(lines[-1].startswith("cut: "))
         self.assertTrue(any(l.startswith("Next: word") for l in lines))
 
 
