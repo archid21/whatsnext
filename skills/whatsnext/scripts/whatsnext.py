@@ -25,6 +25,7 @@ COMMANDS = {
     "config": "show the effective settings (config show) or set one in the user layer (config set --user <key> <value>)",
     "init": "adopt whatsnext in a git repository (--dry-run, --undo)",
     "install-hooks": "install the whatsnext hooks for Codex (hooks.json)",
+    "handoff": "run the handoff note's `Verify:` line and archive the note when it passes (handoff verify)",
     "doctor": "check that the hooks are in place for Claude Code and Codex, and when one last fired",
     "compact-instructions": "print the text for `/compact` in an open session (ADR-0009)",
 }
@@ -146,6 +147,10 @@ def main(argv=None):
         from wn import compact as wncompact
 
         return wncompact.cmd_instructions(args.args)
+    if args.command == "handoff":
+        from wn import handoffverify as wnhandoffverify
+
+        return wnhandoffverify.run(args.args)
     if args.command == "doctor":
         from wn import doctor as wndoctor
 
