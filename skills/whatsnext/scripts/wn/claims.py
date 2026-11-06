@@ -113,8 +113,58 @@ def read(root, item_id):
     return data if isinstance(data, dict) and data.get("id") == item_id else None
 
 
-def read_all(root):
+MAX_CLAIM_BYTES = 65536
+ITEM_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def sibling_roots(root):
+    """The other worktrees of this repository, from `git worktree list --porcelain` (this one left out)."""
+    code, out = gwstatus.git(root, "worktree", "list", "--porcelain")
+    if code != 0:
+        return []
+    mine = worktree_root(root)
+    found = []
+    for line in out.splitlines():
+        if line.startswith("worktree "):
+            path = os.path.realpath(line[len("worktree "):].strip())
+            if path != mine and os.path.isdir(path):
+                found.append(path)
+    return found
+
+
+def read_siblings(root):
+    """Claims in the `.whatsnext/claims/` folder of each other worktree (P-10), read only. A Codex sandbox cannot write
+    the git folder, so its claim lands in its own worktree. Only plain files of a sane size and name are read, and a
+    claim whose `id` is not its file name is ignored. Each claim gets `sibling_worktree`."""
     out = {}
+    for sibling in sibling_roots(root):
+        folder = os.path.join(sibling, ".whatsnext", "claims")
+        if os.path.islink(folder) or os.path.islink(os.path.join(sibling, ".whatsnext")):
+            continue
+        try:
+            names = sorted(os.listdir(folder))
+        except OSError:
+            continue
+        for name in names:
+            path = os.path.join(folder, name)
+            item_id = name[:-5]
+            if (not name.endswith(".json") or not ITEM_ID_RE.match(item_id) or os.path.islink(path)
+                    or not os.path.isfile(path) or os.path.getsize(path) > MAX_CLAIM_BYTES):
+                continue
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+            except (OSError, ValueError):
+                continue
+            if isinstance(data, dict) and data.get("id") == item_id and item_id not in out:
+                out[item_id] = dict(data, sibling_worktree=sibling)
+    return out
+
+
+def read_all(root, siblings=False):
+    """Every claim this worktree and the git folder hold. With `siblings`, also those other worktrees keep in their own
+    `.whatsnext/claims/` folder (a claim here wins over one there)."""
+    out = dict(read_siblings(root)) if siblings else {}
     for folder in (fallback_dir(root), claims_dir(root)):  # the git folder is read last, so it wins
         try:
             names = sorted(os.listdir(folder))

@@ -245,7 +245,7 @@ class Ctx(object):
 
     def views(self, items=None):
         items = self.items() if items is None else items
-        tasks, claim_map = self.tasks(), gwclaims.read_all(self.root)
+        tasks, claim_map = self.tasks(), gwclaims.read_all(self.root, siblings=True)
         return [self.view(it, tasks.get(it.id), claim_map.get(it.id)) for it in items]
 
     def view(self, item, task, claim):
