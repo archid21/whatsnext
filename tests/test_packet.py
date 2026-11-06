@@ -56,6 +56,35 @@ class DeadEndsTests(unittest.TestCase):
         self.assertIn("Run the form tests.", tight)  # Next action stays whatever is cut
 
 
+class WrapupStatusTests(HookBase):
+    def setUp(self):
+        super().setUp()
+        self.cfg()
+        self.task()
+        self.commit("task")
+
+    def test_wrapup_status_no_handoff_says_facts_only(self):
+        out = self.hook("session-start", {"source": "startup", "session_id": "s1"})
+        self.assertIn("Handoff: none, facts only.", out)
+        self.assertLessEqual(len(out), 1200)
+
+    def test_wrapup_status_a_handoff_says_when_it_was_wrapped_up(self):
+        path = os.path.join(self.proj, "docs", "project", "HANDOFF.md")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(note(session="s1", written="2026-11-05T05:03Z"))
+        out = self.hook("session-start", {"source": "startup", "session_id": "s1"})
+        self.assertIn("Handoff: docs/project/HANDOFF.md, wrapped up 2026-11-05T05:03Z (read it first)", out)
+        self.assertNotIn("facts only", out)
+        self.assertLessEqual(len(out), 1200)
+
+    def test_wrapup_status_is_dropped_before_the_cap_cuts_next(self):
+        self.task(next_action="n" * 380, title="t" * 200)
+        out = self.hook("session-start", {"source": "startup", "session_id": "s1"})
+        self.assertLessEqual(len(out), 1200)
+        self.assertIn("Next:", out)
+
+
 class DeadEndsPromptTests(HookBase):
     def test_dead_ends_the_wrap_up_prompt_asks_for_the_section(self):
         self.cfg()

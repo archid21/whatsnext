@@ -321,7 +321,12 @@ def handoff_info(root, effective, task, session_id):
 
 
 def handoff_line(info):
-    return "Handoff: %s (%s)" % (info["rel"], "read it first" if info["related"] else "another session's note")
+    """The Handoff line: the file, when it was wrapped up (UTC), and whether this task's session wrote it."""
+    return "Handoff: %s, wrapped up %s (%s)" % (info["rel"], utc_text(info["written"]),
+                                               "read it first" if info["related"] else "another session's note")
+
+
+NO_HANDOFF = "Handoff: none, facts only."
 
 
 def utc_text(when):
@@ -405,8 +410,8 @@ def build(root, effective, compacted=False, session_id=None):
         if done:
             sections["done"] = [done]
         sections["next"] = [next_line(task, state["next"], info)]
-        if info and state["handoff"]:
-            sections["handoff"] = [handoff_line(info)]
+        if state["handoff"]:
+            sections["handoff"] = [handoff_line(info) if info else NO_HANDOFF]
         if command:
             sections["run"] = ["Run (from %s): %s" % (source, clip(command, MAX_RUN))]
         since = since_lines(facts, state["commits"], state["files"])
