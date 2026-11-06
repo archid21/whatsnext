@@ -841,6 +841,42 @@ class AtomicWriteTests(PlanBase):
         self.assertEqual(os.stat(real).st_mode & 0o777, 0o640)
 
 
+class DriftTests(PlanBase):
+    def started(self):
+        r = self.start("P-13", "--branch", "stay")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def check(self):
+        return self.plan("check").stdout
+
+    def test_orphan_claim_a_deleted_item_leaves_a_claim_and_a_progress_file(self):
+        self.started()
+        self.assertNotIn("not in plan", self.check())
+        self.put(PLAN_PATH, "\n".join(l for l in self.get(PLAN_PATH).split("\n") if "P-13" not in l))
+        out = self.check()
+        self.assertIn("warning: claim for P-13, not in plan", out)
+        self.assertIn("warning: progress file for P-13, not in plan", out)
+
+    def test_orphan_claim_a_hand_tick_still_claimed(self):
+        self.started()
+        self.put(PLAN_PATH, self.get(PLAN_PATH).replace("- [ ] P-13", "- [x] P-13"))
+        self.assertIn("P-13 ticked by hand but still claimed", self.check())
+
+    def test_orphan_claim_title_changed_since_start_and_the_note_reads_plan_live(self):
+        self.started()
+        self.put(PLAN_PATH, self.get(PLAN_PATH).replace("P-13 Add login", "P-13 Add single sign-on"))
+        self.assertIn('P-13 title changed since start: plan says "Add single sign-on", progress file says "Add login"', self.check())
+        note = self.gw(["progress", "resume-note"]).stdout
+        self.assertIn("continue P-13 Add single sign-on", note)
+
+    def test_orphan_claim_a_quiet_plan_has_no_drift_warning(self):
+        self.started()
+        out = self.check()
+        self.assertNotIn("not in plan", out)
+        self.assertNotIn("changed since start", out)
+        self.assertNotIn("ticked by hand", out)
+
+
 class OutputTailTests(unittest.TestCase):
     def test_tail_strips_colors_blank_ends_and_clips(self):
         self.assertEqual(plan.output_tail(b"a\n\x1b[31mred\x1b[0m\n\n"), ["a", "red"])

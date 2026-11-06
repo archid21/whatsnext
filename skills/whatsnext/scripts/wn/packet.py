@@ -321,6 +321,17 @@ def done_line(task, level):
 DONE_TAKE = (2, 1, 1, 0)  # Done entries shown at trim level 0 to 3 (see done_line)
 
 
+def live_title(root, effective, task):
+    """The item's title in PLAN.md now, or None (no plan, or no such item). The progress file's copy can be old."""
+    try:
+        path = os.path.join(root, effective.get("paths.plan"))
+        _lines, items = gwplan.parse_text(gwplan.read_plan(path))
+    except (OSError, ValueError):
+        return None
+    item = next((it for it in items if it.id == task.id), None)
+    return item.title if item is not None and item.title else None
+
+
 def cut_line(task, facts, state):
     """The last line when the cap trimmed Done or the commit list: what the reader did not see and where the rest is.
     None when nothing was trimmed. Level 0 of Done and 3 commits are the untrimmed note."""
@@ -416,6 +427,9 @@ def build(root, effective, compacted=False, session_id=None):
         return {"text": "\n".join(lines)[:cap], "included": ["first"], "pointed": []}
 
     now = now_utc()
+    live = live_title(root, effective, task) if effective.module_on("plan") else None
+    if live:
+        task.title = live  # P-27: PLAN.md is the truth for the title; the progress file's copy may be old
     compacted_line = compacted_text(root, session_id) if compacted else None
     info = handoff_info(root, effective, task, session_id)
     command, source = run_command(root, effective, task)

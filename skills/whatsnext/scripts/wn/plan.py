@@ -401,7 +401,31 @@ def check(ctx):
             warnings.append("%s was %s. Run its verify again." % (it.id, drift))
         if not it.checked and not it.done_means:
             warnings.append("%s has no \"done means\"." % it.id)
+    warnings.extend(drift_warnings(ctx, items))
     return errors, warnings
+
+
+def drift_warnings(ctx, items):
+    """P-27: what the claims and progress files say against what PLAN.md says now."""
+    by_id = {it.id: it for it in items}
+    out = []
+    for item_id, claim in sorted(gwclaims.read_all(ctx.root).items()):
+        item = by_id.get(item_id)
+        if item is None:
+            out.append("claim for %s, not in plan (%s). Run `plan put-back %s` or restore the item." % (item_id, ctx.plan_rel, item_id))
+        elif item.checked:
+            out.append("%s ticked by hand but still claimed. Run `plan done %s --verify \"<cmd>\"` or `plan put-back %s`."
+                       % (item_id, item_id, item_id))
+    for task_id, task in sorted(ctx.tasks().items()):
+        item = by_id.get(task_id)
+        if task.state == "done":
+            continue
+        if item is None:
+            out.append("progress file for %s, not in plan (%s)." % (task_id, ctx.plan_rel))
+        elif clean(task.title) != clean(item.title):
+            out.append("%s title changed since start: plan says \"%s\", progress file says \"%s\"."
+                       % (task_id, clean(item.title), clean(task.title)))
+    return out
 
 
 def cmd_check(ctx, args):
