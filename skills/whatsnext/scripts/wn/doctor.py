@@ -70,6 +70,16 @@ def last_fired(root):
     return best
 
 
+def unreadable_capture(root):
+    """The `capture.unreadable` fact a Codex Stop recorded (P-19), or None."""
+    try:
+        with open(os.path.join(root, gwjournal.SESSIONS_DIR, "capture.unreadable.json"), encoding="utf-8") as f:
+            state = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return state if isinstance(state, dict) and state.get("fact") == "capture.unreadable" else None
+
+
 def codex_gaps(root):
     """[(scope, shown path, events to fix, error)] for the user and project hooks files that hold whatsnext's
     entries. A file with none of them is reported once, as not installed."""
@@ -128,6 +138,12 @@ def report(root):
     lines.append("  trust: Codex skips new or changed hooks until you trust them. Open /hooks in Codex; "
                  "whatsnext cannot check this.")
 
+    bad = unreadable_capture(root)
+    if bad:
+        gaps += 1
+        lines += ["  plan capture: unreadable since %s (%d turn%s): %s" % (bad.get("since"), bad.get("count") or 1,
+                                                                        "" if bad.get("count") == 1 else "s", bad.get("reason")),
+                  "  fix: record the plan by hand with `whatsnext progress capture`; update whatsnext if Codex changed its format"]
     lines.append("PreCompact text: Claude Code yes, Codex no (ignored; Codex gets the journal fact and the resume note)")
     fired = last_fired(root)
     lines.append("Last hook fired (either agent): %s" % ("%s at %s" % fired if fired else "none recorded yet"))

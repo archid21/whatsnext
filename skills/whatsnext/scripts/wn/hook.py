@@ -117,13 +117,63 @@ def codex_plan(path, turn_id):
     return None
 
 
+def codex_format_known(path):
+    """True when the Codex transcript has the records `codex_plan` reads (a `task_started` event)."""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            payload = record.get("payload") if isinstance(record, dict) else None
+            if isinstance(payload, dict) and record.get("type") == "event_msg" and payload.get("type") == "task_started":
+                return True
+    return False
+
+
+UNREADABLE = "capture.unreadable"
+
+
+def unreadable_path(root):
+    return os.path.join(root, gwjournal.SESSIONS_DIR, UNREADABLE + ".json")
+
+
+def note_capture_health(root, ok, reason=None):
+    """P-19: one `capture.unreadable` fact while Codex's plan cannot be read; removed when it can. `doctor` shows it.
+    The first reason and time are kept; later turns add to `count`."""
+    path = unreadable_path(root)
+    if ok:
+        if os.path.isfile(path):
+            os.remove(path)
+        return
+    state = {"fact": UNREADABLE, "reason": reason, "since": gwstatus.stamp_time(), "count": 0}
+    try:
+        with open(path, encoding="utf-8") as f:
+            old = json.load(f)
+        if isinstance(old, dict) and old.get("fact") == UNREADABLE:
+            state = old
+    except (OSError, ValueError):
+        pass
+    state["count"] = int(state.get("count") or 0) + 1
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=2)
+        f.write("\n")
+
+
 def codex_stop(root, effective, data):
     path, turn_id = data.get("transcript_path"), data.get("turn_id")
-    if not isinstance(path, str) or not isinstance(turn_id, str) or not os.path.isfile(path):
+    if not isinstance(path, str) or not isinstance(turn_id, str):
         return
-    found = codex_plan(path, turn_id)
+    try:
+        found = codex_plan(path, turn_id)
+        known = True if found else codex_format_known(path)
+    except OSError as e:
+        note_capture_health(root, False, "cannot read the transcript (%s)" % (e.strerror or "error"))
+        return
     if found:
         capture(root, effective, found[0], "codex", found[1])
+    note_capture_health(root, known, None if known else "the transcript has no task_started records (format changed?)")
 
 
 # ---- events ----------------------------------------------------------------

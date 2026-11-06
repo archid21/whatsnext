@@ -148,6 +148,27 @@ class CodexStopTests(HookBase):
         self.hook("stop", {"transcript_path": self.p("rollout.jsonl"), "turn_id": "t1"})
         self.assertIsNone(self.plan_field())
 
+    def test_capture_unreadable(self):
+        self.task()
+        fact = ".whatsnext/sessions/capture.unreadable.json"
+        self.put("garbage.jsonl", "\x00\x01 nope\n{\"type\": \"other\"}\n")
+        self.hook("stop", {"transcript_path": self.p("garbage.jsonl"), "turn_id": "t1"}, agent="codex")
+        state = json.loads(self.get(fact))
+        self.assertEqual((state["fact"], state["count"]), ("capture.unreadable", 1))
+        self.assertIn("no task_started records", state["reason"])
+        since = state["since"]
+        self.hook("stop", {"transcript_path": self.p("garbage.jsonl"), "turn_id": "t2"}, agent="codex")
+        state = json.loads(self.get(fact))
+        self.assertEqual((state["count"], state["since"]), (2, since))  # one fact: the first reason and time are kept
+        out = self.gw(["doctor"]).stdout
+        self.assertIn("plan capture: unreadable since %s (2 turns)" % since, out)
+        self.assertIn("fix: record the plan by hand with `whatsnext progress capture`", out)
+        self.stop("t1", ("t1", "default", None))  # a readable transcript clears the fact
+        self.assertFalse(self.has(fact))
+        self.assertNotIn("plan capture:", self.gw(["doctor"]).stdout)
+        self.hook("stop", {"transcript_path": self.p("missing.jsonl"), "turn_id": "t3"}, agent="codex")
+        self.assertIn("cannot read the transcript", json.loads(self.get(fact))["reason"])
+
     def test_parser_approval_looks_back_past_plan_mode_turns_without_a_plan(self):
         path = self.p("r.jsonl")
         self.put("r.jsonl", rollout(("t1", "plan", "x"), ("t2", "plan", None), ("t3", "default", None)))
