@@ -26,7 +26,7 @@ One line per item: `- [ ] P-N Title · done means: <how we know it is done>`.
 - [x] P-17 Commit-based stale rule, set in config · done means: `python3 -m unittest tests.test_packet -k stale_commits` passes: N new commits make a note stale, and both limits are read from config · evidence: verified: python3 -m unittest tests.test_packet -k stale_commits passed in 3.3 s (2026-11-06T21:31Z) at 2a02b6b t:f6204048
 - [x] P-15 Handoff-versus-git cross-check · done means: `python3 -m unittest tests.test_wrapup -k cross_check` passes: "named, not changed in git" and "changed, not named" appear in the sidecar and the note · evidence: verified: python3 -m unittest tests.test_wrapup -k cross_check passed in 3.1 s (2026-11-06T21:35Z) at 93da2cf t:01157166
 - [x] P-23 Handoff done-when check · done means: `python3 -m unittest tests.test_handoff_verify` passes: a git-tracked note refuses to run without the flag, and exit 0 archives the note · evidence: verified: python3 -m unittest tests.test_handoff_verify passed in 1.5 s (2026-11-06T21:38Z) at 5afcab7 t:f62d0ab9
-- [ ] P-1 Dirty-set digest · done means: `python3 -m unittest tests.test_journal -k digest` passes: same dirty count but a changed file set reads as "set changed"
+- [x] P-1 Dirty-set digest · done means: `python3 -m unittest tests.test_journal -k digest` passes: same dirty count but a changed file set reads as "set changed" · evidence: verified: python3 -m unittest tests.test_journal -k digest passed in 2.3 s (2026-11-06T21:42Z) at f818415 t:83c63374
 - [ ] P-2 Ancestor check · done means: `python3 -m unittest tests.test_packet -k ancestor` passes: a commit that is not an ancestor of HEAD prints the stale warning and no "N new commits" line
 
 ## Later

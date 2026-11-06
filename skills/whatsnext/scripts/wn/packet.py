@@ -271,6 +271,9 @@ def git_facts(root, effective, task):
     skip = (gwjournal.rel_path(root, prefix, journal), gwjournal.rel_path(root, prefix, task.path),
             gwjournal.rel_path(root, prefix, os.path.join(root, gwjournal.SESSIONS_DIR)) + "/")
     facts["dirty"] = [n for n in (gwjournal.status_paths(root) or []) if not gwjournal.is_bookkeeping(n, skip)]
+    last = gwjournal.last_state(journal)  # P-1: the same count with other files is not the same work
+    facts["set_changed"] = bool(last and last[1] and last[0] == len(facts["dirty"])
+                                and last[1] != gwjournal.dirty_digest(facts["dirty"]))
     return facts
 
 
@@ -291,6 +294,8 @@ def since_lines(facts, max_commits, max_files):
         names = ", ".join(clip(clean(n), MAX_FILE_NAME) for n in dirty[:max_files])
         more = len(dirty) - max_files
         text += " (%s%s)" % (names, ", +%d more" % more if more > 0 else "")
+    if facts.get("set_changed"):
+        text += " - set changed since the last stop"
     parts.append(text)
     lines = [SINCE_MARK + " " + ", ".join(parts) + "."]
     shown = facts["commits"][:max_commits]

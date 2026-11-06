@@ -271,7 +271,7 @@ class InstallSkillLinkTests(HookBase):
 
 
 JOURNAL = STATUS + "/journal/P-13.md"
-LINE = re.compile(r"^- (\d{4}-\d\d-\d\dT\d\d:\d\dZ) (\S+) (\S+) (\S+) dirty=(\d+)(?: files: (.*))?$")
+LINE = re.compile(r"^- (\d{4}-\d\d-\d\dT\d\d:\d\dZ) (\S+) (\S+) (\S+) dirty=(\d+)(?: set=[0-9a-f]{6})?(?: files: (.*))?$")
 
 
 class FactsTests(HookBase):
