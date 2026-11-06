@@ -449,6 +449,8 @@ def check(ctx):
             warnings.append("%s was %s. Run its verify again." % (it.id, drift))
         if not it.checked and not it.done_means:
             warnings.append("%s has no \"done means\"." % it.id)
+        elif not it.checked and not re.search(r"`[^`\n]+`", it.done_means):  # P-31
+            warnings.append("%s: done means has no command in backticks, so `plan done %s --verify` has nothing to run." % (it.id, it.id))
     known = {it.id for it in items}
     for it in items:
         for other in it.blocked_by:

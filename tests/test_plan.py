@@ -184,7 +184,7 @@ class ListNextTests(PlanBase):
         self.assertIn("warning: P-20 is checked without evidence", r.stdout)
         _r, data = self.jplan("check")
         self.assertEqual(data["errors"], ["P-13 appears 2 times."])
-        self.put(PLAN_PATH, "## Now\n- [ ] P-1 A · done means: x\n")
+        self.put(PLAN_PATH, "## Now\n- [ ] P-1 A · done means: `true` passes\n")
         self.assertEqual(self.plan("check").stdout.strip(), "%s is fine." % PLAN_PATH)
 
 
@@ -875,6 +875,23 @@ class DriftTests(PlanBase):
         self.assertNotIn("not in plan", out)
         self.assertNotIn("changed since start", out)
         self.assertNotIn("ticked by hand", out)
+
+
+class DoneMeansCommandTests(PlanBase):
+    def test_done_means_command_warns_on_an_open_item_without_a_backticked_command(self):
+        self.put(PLAN_PATH, "# Plan\n\n## Now\n\n- [ ] P-1 A · done means: it works\n- [ ] P-2 B · done means: `python3 -m unittest` passes\n"
+                            "- [x] P-3 C · done means: done already · evidence: verified: true passed in 1 s (t)\n- [ ] P-4 D\n")
+        out = self.plan("check").stdout
+        self.assertIn("warning: P-1: done means has no command in backticks, so `plan done P-1 --verify` has nothing to run.", out)
+        self.assertNotIn("P-2:", out)  # has a command
+        self.assertNotIn("P-3:", out)  # already done
+        self.assertIn('P-4 has no "done means".', out)  # the older warning stays, with no second one for P-4
+        self.assertNotIn("P-4: done means", out)
+        self.assertEqual(self.plan("check").returncode, 0)  # a warning, never an error
+
+    def test_done_means_command_empty_backticks_do_not_count(self):
+        self.put(PLAN_PATH, "# Plan\n\n## Now\n\n- [ ] P-1 A · done means: run `` and see\n")
+        self.assertIn("P-1: done means has no command in backticks", self.plan("check").stdout)
 
 
 class SuggestFieldTests(PlanBase):
