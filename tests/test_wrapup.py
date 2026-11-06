@@ -120,6 +120,27 @@ class WrapUpHookTests(HookBase):
         self.task()
         self.commit("task")
 
+    def test_template_exact(self):
+        out = self.prompt("wrap up")
+        self.assertIn("file paths, ids, versions, URLs, commands and error text as they appear", out)
+        self.assertIn("for a decision with no ADR, give the reason", out)
+        self.assertIn("the user's corrections to you in their own words", out)
+        self.assertIn("then a line `If it fails: <what to check or try next>`", out)
+        self.assertIn("work the user asked for that is not done", out)
+        self.assertIn("At most 400 characters in all.", out)
+        self.assertLess(out.index("`Verify:"), out.index("`If it fails:"))
+        self.assertIn("Next: <next action, at most 400 characters>", out)
+
+    def test_template_exact_the_longest_line_still_fits_and_next_is_not_cut(self):
+        from wn import wrapup as wnwrapup
+        body = ("# Handoff\n\n## Goal\n" + "g" * 200 + "\n\n## Next action\n" + "n" * 400 + "\n\n## Constraints\n" + "c" * 600
+                + "\n\n## Decisions\n" + "d" * 400 + "\n\n## Dead ends\n" + "x" * 300 + "\n\n## Open questions and blockers\n" + "b" * 300 + "\n")
+        line = wnwrapup.compact_line(body)
+        self.assertLessEqual(len(line), wnwrapup.MAX_LINE_CHARS)
+        self.assertIn("n" * 400, line)
+        self.assertIn("c" * 600, line)
+        self.assertEqual(wnwrapup.MAX_NEXT_CHARS, 400)
+
     def test_exact_prompt_prints_the_instructions(self):
         out = self.prompt("wrap up")
         self.assertIn("docs/project/HANDOFF.md", out)

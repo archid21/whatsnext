@@ -278,7 +278,7 @@ class CompactLineTests(unittest.TestCase):
 
     def test_next_and_constraints_are_cut_only_at_their_own_caps(self):
         line = wnwrapup.compact_line(note(next_action="n" * 1000, constraints="c" * 2000))
-        self.assertIn("n" * 299 + "\u2026", line)
+        self.assertIn("Next: " + "n" * 399 + "\u2026", line)
         self.assertIn("c" * 599 + "\u2026", line)
         self.assertLessEqual(len(line), wnwrapup.MAX_LINE_CHARS)
 
@@ -311,7 +311,7 @@ class CompactLineTests(unittest.TestCase):
             out = wnwrapup.instructions(tmp, effective, session_id="abc")
         self.assertIn("/compact Keep:", out)
         self.assertIn("Goal: <goal, at most 200 characters>", out)
-        self.assertIn("Next: <next action, at most 300 characters>", out)
+        self.assertIn("Next: <next action, at most 400 characters>", out)
         self.assertIn("Constraints: <constraints, at most 600 characters>", out)
         self.assertIn("Decisions: <decisions, at most 400 characters>", out)
         self.assertIn("Blockers: <open questions and blockers, at most 300 characters>", out)

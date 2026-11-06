@@ -29,7 +29,7 @@ PROMPT = "wrap up"
 DEFAULT_HANDOFF = "docs/project/HANDOFF.md"
 TIMEZONE = "America/Los_Angeles"
 MAX_HANDOFF_CHARS = 3000
-MAX_NEXT_CHARS = 300
+MAX_NEXT_CHARS = 400
 MAX_LINE_CHARS = 1800  # the one-line `/compact <text>` the agent ends its wrap-up reply with
 # (label in the line, section names in the note, cap in characters). Next and Constraints are never cut to make
 # the line fit; Blockers, Decisions and Goal give way first, in that order.
@@ -347,14 +347,15 @@ def instructions(root, effective, now=None, session_id=None):
         "Written: %s" % utc,
         "",
         "1. `## Goal`: what the work is for, one or two lines (at most 200 characters).",
-        "2. `## Next action`: the exact next step, one or two lines, with the command to run. Then a line `Verify: <the command or check that proves it worked>`. Write paths relative to the repository root; never an absolute path, a home folder or the plugin's script path, because this file is committed and shared. At most 300 characters in all.",
+        "2. `## Next action`: the exact next step, one or two lines, with the command to run. Then a line `Verify: <the command or check that proves it worked>`, then a line `If it fails: <what to check or try next>`. Write paths relative to the repository root; never an absolute path, a home folder or the plugin's script path, because this file is committed and shared. At most 400 characters in all.",
         "3. `## State`: begin with `State on %s (Pacific): ` then where the work stands and what was last checked, with its result." % local,
         "4. `## What changed`: files and commits since the last handoff, one line each (at most 5 lines).",
-        "5. `## Decisions`: what was decided and where it is recorded (ADR path); `none` when nothing was. At most 400 characters.",
-        "6. `## Constraints`: what the next session must keep: scope limits, files not to touch, the user's rules for this work; `none` when nothing. At most 600 characters.",
-        "7. `## Open questions and blockers`: what the user still has to answer and what blocks the work; `none` when nothing. At most 300 characters.",
+        "5. `## Decisions`: what was decided and where it is recorded (ADR path); for a decision with no ADR, give the reason in a few words; `none` when nothing was. At most 400 characters.",
+        "6. `## Constraints`: what the next session must keep: scope limits, files not to touch, the user's rules for this work, and the user's corrections to you in their own words; `none` when nothing. At most 600 characters.",
+        "7. `## Open questions and blockers`: what the user still has to answer, what blocks the work, and work the user asked for that is not done; `none` when nothing. At most 300 characters.",
         "8. `## Dead ends`: approaches tried and dropped, one line each with the reason it was dropped; `none` when nothing. At most 300 characters.",
         "",
+        "Write exact values, not descriptions of them: file paths, ids, versions, URLs, commands and error text as they appear. "
         "Use only facts from this session and the repository; mark a guess as a guess. Never write secrets. Do not commit.",
     ]
     if task is not None:
