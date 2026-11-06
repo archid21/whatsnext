@@ -38,24 +38,25 @@ LINE_SECTIONS = (
     ("Next", ("Next action",), MAX_NEXT_CHARS),
     ("Constraints", ("Constraints",), 600),
     ("Decisions", ("Decisions",), 400),
+    ("Dead ends", ("Dead ends",), 300),
     ("Blockers", ("Open questions and blockers", "Open questions"), 300),
 )
-LINE_SHRINK = ("Blockers", "Decisions", "Goal")
+LINE_SHRINK = ("Dead ends", "Blockers", "Decisions", "Goal")
 LINE_MIN_SLOT = 20
-BODY_ORDER = ("Next action", "Constraints", "Goal", "Decisions", "Open questions and blockers", "Open questions",
-              "State", "What changed")
+BODY_ORDER = ("Next action", "Constraints", "Goal", "Decisions", "Dead ends", "Open questions and blockers",
+              "Open questions", "State", "What changed")
 HEADER_LINES = 12
 SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "whatsnext.py")
 # A line in AGENTS.md such as `Handoff: docs/handoff.md` or `- Handoff file: `notes/HANDOFF.md``.
 AGENTS_RE = re.compile(r"^[\s>*-]*handoff(?:\s+(?:file|note))?\s*:\s*`?([^\s`]+)`?\s*$", re.I | re.M)
 
 LINE_BASE = ("Keep: the task goal, the decisions and why, the constraints, the file paths and commands that matter, "
-             "and the next steps. Drop: tool output, file dumps and dead ends.")
+             "and the next steps. Drop: tool output and file dumps. Keep dead ends (approaches tried and dropped) with the reason.")
 
 COMPACT_BASE = (
     "Keep: the current task and its goal, the decisions made and why, the open questions, the file paths and "
-    "commands that matter, and the next steps. Drop: tool output, file dumps and dead ends (approaches tried "
-    "and abandoned), unless the reason one failed still matters."
+    "commands that matter, and the next steps. Drop: tool output and file dumps. Keep dead ends (approaches tried "
+    "and abandoned) with the reason each failed, so they are not tried again."
 )
 
 
@@ -247,7 +248,7 @@ def instructions(root, effective, now=None, session_id=None):
                      "fold those lines into the note, then delete that section from the progress file." % (task.id, task.rel))
     lines += [
         "",
-        "Write the file as a `# Handoff` title, then these three header lines exactly as shown, then these seven `##` sections, in this order. Short lines, plain words, no filler:",
+        "Write the file as a `# Handoff` title, then these three header lines exactly as shown, then these eight `##` sections, in this order. Short lines, plain words, no filler:",
         "Session: %s" % (session_id if isinstance(session_id, str) and session_id.strip() else "unknown"),
         "Task: %s" % (task.id if task is not None else "none"),
         "Written: %s" % utc,
@@ -259,6 +260,7 @@ def instructions(root, effective, now=None, session_id=None):
         "5. `## Decisions`: what was decided and where it is recorded (ADR path); `none` when nothing was. At most 400 characters.",
         "6. `## Constraints`: what the next session must keep: scope limits, files not to touch, the user's rules for this work; `none` when nothing. At most 600 characters.",
         "7. `## Open questions and blockers`: what the user still has to answer and what blocks the work; `none` when nothing. At most 300 characters.",
+        "8. `## Dead ends`: approaches tried and dropped, one line each with the reason it was dropped; `none` when nothing. At most 300 characters.",
         "",
         "Use only facts from this session and the repository; mark a guess as a guess. Never write secrets. Do not commit.",
     ]

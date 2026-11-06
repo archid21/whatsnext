@@ -185,7 +185,7 @@ def precompact(root, effective, data, agent=None):
     if isinstance(custom, str) and custom.strip():  # the user wrote their own compact text: add only the facts
         return gwwrapup.clip_to(request + "\n\n" + facts if request else facts, PRECOMPACT_CAP) + "\n"
     tail = (request + "\n\n" if request else "") + facts
-    room = PRECOMPACT_CAP - len(tail) - 2
+    room = PRECOMPACT_CAP - len(tail) - 3  # the blank line (2) and the final newline (1)
     body = gwwrapup.clip_to(gwwrapup.compact_instructions(root, effective, session_id).strip(), max(room, 0))
     return (body + "\n\n" if body else "") + gwwrapup.clip_to(tail, PRECOMPACT_CAP) + "\n"
 
