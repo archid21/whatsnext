@@ -120,6 +120,41 @@ class WrapUpHookTests(HookBase):
         self.task()
         self.commit("task")
 
+    def archive_dir(self):
+        folder = self.p("docs/project/handoffs")
+        return sorted(os.listdir(folder)) if os.path.isdir(folder) else []
+
+    def put_note(self, task="P-13", written="2026-11-05T05:03Z", extra=""):
+        self.put("docs/project/HANDOFF.md", "# Handoff\n\nSession: s0\nTask: %s\nWritten: %s\n\n## Goal\nold %s\n" % (task, written, extra))
+
+    def test_archive_saves_the_old_note_before_the_wrap_up(self):
+        self.assertEqual(self.archive_dir(), [])
+        self.prompt("wrap up")  # no old note: nothing to save
+        self.assertEqual(self.archive_dir(), [])
+        self.put_note()
+        out = self.prompt("wrap up")
+        self.assertIn("docs/project/HANDOFF.md", out)  # the prompt is unchanged
+        self.assertEqual(self.archive_dir(), ["20261105T0503Z-P-13.md"])
+        self.assertIn("old ", self.get("docs/project/handoffs/20261105T0503Z-P-13.md"))
+        self.prompt("wrap up")  # the same note again: not saved twice
+        self.assertEqual(len(self.archive_dir()), 1)
+
+    def test_archive_keeps_only_the_last_n(self):
+        from wn import wrapup as wnwrapup
+        for i in range(wnwrapup.ARCHIVE_KEEP + 3):
+            self.put_note(written="2026-11-%02dT10:00Z" % (i + 1), extra=str(i))
+            self.prompt("wrap up")
+        names = self.archive_dir()
+        self.assertEqual(len(names), wnwrapup.ARCHIVE_KEEP)
+        self.assertEqual(names[0], "20261104T1000Z-P-13.md")  # the three oldest are gone
+        self.assertEqual(names[-1], "20261113T1000Z-P-13.md")
+
+    def test_archive_failure_does_not_stop_the_wrap_up(self):
+        self.put_note()
+        self.put("docs/project/handoffs", "a file where the folder should be\n")
+        out = self.prompt("wrap up")
+        self.assertIn("docs/project/HANDOFF.md", out)
+
     def test_template_exact(self):
         out = self.prompt("wrap up")
         self.assertIn("file paths, ids, versions, URLs, commands and error text as they appear", out)

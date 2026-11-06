@@ -19,11 +19,12 @@ import re
 import sys
 
 from . import backend as gwbackend
+from . import claims as gwclaims
 from . import config as gwconfig
 from . import journal as gwjournal
 from . import sessions as gwsessions
 from . import status as gwstatus
-from .util import now_utc
+from .util import now_utc, write_atomic
 
 PROMPT = "wrap up"
 DEFAULT_HANDOFF = "docs/project/HANDOFF.md"
@@ -372,8 +373,59 @@ def instructions(root, effective, now=None, session_id=None):
     return "\n".join(lines) + "\n"
 
 
+ARCHIVE_DIR = "handoffs"  # next to the handoff note: docs/project/handoffs/
+ARCHIVE_KEEP = 10  # archived notes kept; the oldest go first
+
+
+def archive_handoff(root, effective, keep=ARCHIVE_KEEP):
+    """Before `wrap up` overwrites the note, save the old one as `<folder>/handoffs/<Written, UTC>-<task>.md`.
+    A note that is already saved (same content) is not saved twice. Only the newest `keep` are kept.
+    Returns the saved path, or None when there was nothing to save."""
+    handoff = handoff_path(root, effective)
+    try:
+        with open(handoff, encoding="utf-8", errors="replace") as f:
+            body = f.read()
+    except OSError:
+        return None
+    if not body.strip():
+        return None
+    header = parse_header(body)
+    written = gwclaims.to_dt(header["written"]) if header["written"] else None
+    when = (written or datetime.datetime.fromtimestamp(os.path.getmtime(handoff), datetime.timezone.utc)
+            ).astimezone(datetime.timezone.utc).strftime("%Y%m%dT%H%MZ")
+    label = re.sub(r"[^A-Za-z0-9._-]+", "-", header["task"] or header["session"] or "note").strip("-")[:40] or "note"
+    folder = os.path.join(os.path.dirname(handoff), ARCHIVE_DIR)
+    os.makedirs(folder, exist_ok=True)
+    digest = hashlib.sha256(body.encode("utf-8", "replace")).hexdigest()
+    for name in os.listdir(folder):
+        if name.endswith(".md"):
+            try:
+                with open(os.path.join(folder, name), encoding="utf-8", errors="replace") as f:
+                    if hashlib.sha256(f.read().encode("utf-8", "replace")).hexdigest() == digest:
+                        return None
+            except OSError:
+                continue
+    path = os.path.join(folder, "%s-%s.md" % (when, label))
+    n = 1
+    while os.path.exists(path):
+        n += 1
+        path = os.path.join(folder, "%s-%s-%d.md" % (when, label, n))
+    write_atomic(path, body)
+    names = sorted(n for n in os.listdir(folder) if n.endswith(".md"))
+    for old in names[:max(len(names) - keep, 0)]:
+        try:
+            os.remove(os.path.join(folder, old))
+        except OSError:
+            pass
+    return path
+
+
 def begin(root, effective, data):
-    """Remember the request, and return the instructions to print."""
+    """Remember the request, save the old note, and return the instructions to print."""
+    try:
+        archive_handoff(root, effective)
+    except Exception:  # an archive that fails must not stop the wrap-up
+        pass
     path = marker_path(root, data.get("session_id"))
     if path:
         try:
