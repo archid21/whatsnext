@@ -148,6 +148,36 @@ class CodexStopTests(HookBase):
         self.hook("stop", {"transcript_path": self.p("rollout.jsonl"), "turn_id": "t1"})
         self.assertIsNone(self.plan_field())
 
+    def test_capture_unreadable(self):
+        self.task()
+        fact = ".whatsnext/sessions/capture.unreadable.json"
+        self.put("garbage.jsonl", "\x00\x01 nope\n{\"type\": \"other\"}\n")
+        self.hook("stop", {"transcript_path": self.p("garbage.jsonl"), "turn_id": "t1"}, agent="codex")
+        state = json.loads(self.get(fact))
+        self.assertEqual((state["fact"], state["count"]), ("capture.unreadable", 1))
+        self.assertIn("no task_started records", state["reason"])
+        since = state["since"]
+        self.hook("stop", {"transcript_path": self.p("garbage.jsonl"), "turn_id": "t2"}, agent="codex")
+        state = json.loads(self.get(fact))
+        self.assertEqual((state["count"], state["since"]), (2, since))  # one fact: the first reason and time are kept
+        out = self.gw(["doctor"]).stdout
+        self.assertIn("plan capture: unreadable since %s (2 turns)" % since, out)
+        self.assertIn("fix: record the plan by hand with `whatsnext progress capture`", out)
+        self.stop("t1", ("t1", "default", None))  # a readable transcript clears the fact
+        self.assertFalse(self.has(fact))
+        self.assertNotIn("plan capture:", self.gw(["doctor"]).stdout)
+        self.hook("stop", {"transcript_path": self.p("missing.jsonl"), "turn_id": "t3"}, agent="codex")
+        self.assertIn("cannot read the transcript", json.loads(self.get(fact))["reason"])
+
+    def test_capture_unreadable_never_writes_through_a_link(self):
+        self.task()
+        outside = os.path.join(self.tmp.name, "outside.json")
+        os.makedirs(self.p(".whatsnext/sessions"), exist_ok=True)
+        os.symlink(outside, self.p(".whatsnext/sessions/capture.unreadable.json"))
+        self.put("garbage.jsonl", "nope\n")
+        self.hook("stop", {"transcript_path": self.p("garbage.jsonl"), "turn_id": "t1"}, agent="codex")
+        self.assertFalse(os.path.exists(outside))
+
     def test_parser_approval_looks_back_past_plan_mode_turns_without_a_plan(self):
         path = self.p("r.jsonl")
         self.put("r.jsonl", rollout(("t1", "plan", "x"), ("t2", "plan", None), ("t3", "default", None)))
@@ -194,7 +224,7 @@ class InstallHooksTests(HookBase):
         self.assertIn("trust the whatsnext hooks", r.stdout)
         data = self.hooks_file()
         self.assertEqual(data["x"], 1)
-        self.assertEqual(sorted(data["hooks"]), ["PreCompact", "SessionStart", "Stop"])
+        self.assertEqual(sorted(data["hooks"]), ["PreCompact", "PreToolUse", "SessionStart", "Stop", "UserPromptSubmit"])
         self.assertEqual(data["hooks"]["Stop"][0], {"hooks": [other]})
         command = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         self.assertRegex(command, r'^python3 ".*whatsnext\.py" hook session-start --agent codex$')
@@ -271,7 +301,7 @@ class InstallSkillLinkTests(HookBase):
 
 
 JOURNAL = STATUS + "/journal/P-13.md"
-LINE = re.compile(r"^- (\d{4}-\d\d-\d\dT\d\d:\d\dZ) (\S+) (\S+) (\S+) dirty=(\d+)(?: files: (.*))?$")
+LINE = re.compile(r"^- (\d{4}-\d\d-\d\dT\d\d:\d\dZ) (\S+) (\S+) (\S+) dirty=(\d+)(?: set=[0-9a-f]{6})?(?: files: (.*))?$")
 
 
 class FactsTests(HookBase):
@@ -453,16 +483,253 @@ class FactsTests(HookBase):
             self.assertIn(".whatsnext/sessions/", f.read().splitlines())
 
 
+class PreCompactTests(HookBase):
+    """P-4, P-20, P-26: the auto-compact safety net."""
+
+    def handoff(self, session="s1"):
+        """A fresh handoff note this session wrote (header and sidecar)."""
+        from wn import config as wnconfig
+        from wn import wrapup as wnwrapup
+        path = wnwrapup.handoff_path(self.proj, wnconfig.load(self.proj))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("# Handoff\n\nSession: %s\nTask: P-13\nWritten: 2026-11-06T18:08Z\n\n## Next action\n\nRun it.\n" % session)
+        wnwrapup.write_sidecar(self.proj, session, path)
+
+    def test_compacted_without_wrapup(self):
+        self.task()
+        out = self.hook("pre-compact", {"session_id": "s1"})
+        self.assertRegex(out, r"Compacted without wrap-up at \d{4}-\d\d-\d\dT\d\d:\d\dZ\.")
+        note = self.hook("session-start", {"source": "compact", "session_id": "s1"})
+        self.assertRegex(note, r"Context was compacted without wrap-up at \d{4}-")
+        plain = self.hook("session-start", {"source": "startup", "session_id": "s1"})
+        self.assertNotIn("without wrap-up", plain)
+
+    def test_a_fresh_handoff_records_no_fact_and_clears_an_old_one(self):
+        self.task()
+        self.hook("pre-compact", {"session_id": "s1"})
+        self.handoff()
+        out = self.hook("pre-compact", {"session_id": "s1"})
+        self.assertNotIn("without wrap-up", out)
+        self.assertNotIn("without wrap-up", self.hook("session-start", {"source": "compact", "session_id": "s1"}))
+
+    def test_precompact_cap(self):
+        self.task()
+        self.handoff()
+        from wn import config as wnconfig
+        from wn import wrapup as wnwrapup
+        path = wnwrapup.handoff_path(self.proj, wnconfig.load(self.proj))
+        with open(path, "a", encoding="utf-8") as f:
+            f.write("\n## Goal\n\n" + "long text. " * 1000 + "\n")
+        wnwrapup.write_sidecar(self.proj, "s1", path)
+        out = self.hook("pre-compact", {"session_id": "s1"})
+        self.assertLessEqual(len(out), 3000)
+        self.assertIn("whatsnext facts:", out)
+        self.assertIn("Run it", out)
+        custom = self.hook("pre-compact", {"session_id": "s1", "custom_instructions": "keep the login bug"})
+        self.assertTrue(custom.startswith("whatsnext facts:"))
+        self.assertNotIn("long text", custom)
+        self.assertNotIn("handoff note", custom)
+        self.assertLessEqual(len(custom), 3000)
+
+    def transcript(self, entries):
+        path = os.path.join(self.tmp.name, "t.jsonl")
+        with open(path, "w", encoding="utf-8") as f:
+            for e in entries:
+                f.write(json.dumps(e) + "\n")
+        return path
+
+    @staticmethod
+    def user(text, **extra):
+        return dict({"type": "user", "message": {"role": "user", "content": text}}, **extra)
+
+    def test_latest_request(self):
+        self.task()
+        long_text = "Please do the login work. " + "x" * 3000
+        path = self.transcript([
+            self.user("older request"),
+            self.user(long_text),
+            {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "content": "TOOLRESULT-1"}]}},
+            self.user("meta note", isMeta=True),
+            self.user("sidechain note", isSidechain=True),
+            self.user("wrap up"),
+            self.user("<command-name>/compact</command-name>"),
+            self.user("summary text", isCompactSummary=True),
+            {"type": "assistant", "message": {"role": "assistant", "content": "an answer"}},
+        ])
+        out = self.hook("pre-compact", {"session_id": "s1", "transcript_path": path})
+        self.assertIn("Keep verbatim (the user's latest request):\nPlease do the login work.", out)
+        block = out.split("Keep verbatim (the user's latest request):\n")[1].split("\n\n")[0]
+        self.assertLessEqual(len(block), 2000)
+        self.assertTrue(block.endswith("\u2026"))
+        for skipped in ("older request", "TOOLRESULT-1", "meta note", "sidechain note", "summary text", "<command-name>"):
+            self.assertNotIn(skipped, out)
+        self.assertLessEqual(len(out), 3000)
+        self.assertIn("whatsnext facts:", out)
+
+    def test_latest_request_is_redacted_and_kept_with_custom_instructions(self):
+        self.task()
+        key = "sk-ant-" + "a" * 30
+        path = self.transcript([self.user("use key %s and <private>my secret plan</private> now" % key)])
+        out = self.hook("pre-compact", {"session_id": "s1", "transcript_path": path, "custom_instructions": "mine"})
+        self.assertIn("use key [redacted] and now", out)
+        self.assertNotIn(key, out)
+        self.assertNotIn("secret plan", out)
+
+    def test_latest_request_masks_whole_key_blocks_and_filters_per_block(self):
+        self.task()
+        pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEPEMBODY\n-----END RSA PRIVATE KEY-----"
+        mixed = {"type": "user", "message": {"role": "user", "content": [
+            {"type": "text", "text": "<system-reminder>INJECTED</system-reminder>"},
+            {"type": "text", "text": "fix it. Authorization: Bearer abcdef123456 and passwd=hunter2hunter2\n" + pem},
+            {"type": "text", "text": "<command-name>/x</command-name>"}]}}
+        path = self.transcript([mixed])
+        out = self.hook("pre-compact", {"session_id": "s1", "transcript_path": path})
+        self.assertIn("fix it.", out)
+        out2 = self.hook("pre-compact", {"session_id": "s1", "transcript_path": self.transcript(
+            [self.user("a -----BEGIN PRIVATE KEY-----\nUNTERMINATEDBODY")])})
+        self.assertNotIn("UNTERMINATEDBODY", out2)
+        for leaked in ("MIIEPEMBODY", "abcdef123456", "hunter2hunter2", "INJECTED", "<command-name>"):
+            self.assertNotIn(leaked, out)
+
+    def test_latest_request_missing_or_unreadable_is_silent(self):
+        self.task()
+        for path in (None, os.path.join(self.tmp.name, "absent.jsonl"), self.transcript([{"type": "system"}])):
+            out = self.hook("pre-compact", {"session_id": "s1", "transcript_path": path})
+            self.assertNotIn("Keep verbatim", out)
+            self.assertIn("whatsnext facts:", out)
+
+    def test_output_contract(self):
+        self.task()
+        out = self.hook("pre-compact", {"session_id": "s1"})
+        self.assertTrue(out.strip())
+        self.assertFalse(out.lstrip().startswith(("{", "[")))  # plain text, never JSON
+        self.assertNotIn("hookSpecificOutput", out)
+        for event in ("stop", "session-end", "plan-shown", "plan-approved", "prompt-submit"):
+            self.assertEqual(self.hook(event, {"session_id": "s1"}), "")
+        start = self.hook("session-start", {"source": "startup"})
+        self.assertFalse(start.lstrip().startswith("{"))
+
+    def test_postcompact_bak(self):
+        self.task(steps=["- [x] Write the form", "- [ ] Add the tests", "- [ ] Ship it"])
+        first = "Summary: we wrote the form and will add the tests. key=sk-ant-" + "b" * 30
+        self.assertEqual(self.hook("post-compact", {"session_id": "s1", "compact_summary": first}), "")
+        path = ".whatsnext/sessions/s1.summary.md"
+        self.assertIn("we wrote the form", self.get(path))
+        self.assertNotIn("sk-ant-", self.get(path))
+        self.assertFalse(self.has(path + ".bak"))
+        second = "Second summary: nothing about the steps."
+        self.hook("post-compact", {"session_id": "s1", "compact_summary": second})
+        self.assertIn("Second summary", self.get(path))
+        self.assertIn("we wrote the form", self.get(path + ".bak"))  # the previous one is kept
+        note = self.hook("session-start", {"source": "compact", "session_id": "s1"})
+        self.assertIn("Summary kept 0 of 3 plan steps.", note)
+        self.hook("post-compact", {"session_id": "s1", "compact_summary": "Write the form. Add the tests."})
+        self.assertIn("Summary kept 2 of 3 plan steps.", self.hook("session-start", {"source": "compact", "session_id": "s1"}))
+        self.assertNotIn("Summary kept", self.hook("session-start", {"source": "startup", "session_id": "s1"}))
+
+    def test_postcompact_empty_summary_says_do_not_trust_and_bad_input_is_silent(self):
+        self.task()
+        self.hook("post-compact", {"session_id": "s1", "compact_summary": "  "})
+        self.assertIn("do not trust", self.hook("session-start", {"source": "compact", "session_id": "s1"}))
+        self.assertEqual(self.hook("post-compact", {"compact_summary": "x"}), "")  # no session id: nothing written
+        self.assertEqual(self.hook("post-compact", raw="not json"), "")
+
+    def test_compact_marker_once(self):
+        self.task()
+        self.assertEqual(self.hook("pre-compact", {"session_id": "s1"}, agent="codex"), "")
+        marker = ".whatsnext/sessions/s1.resume.json"
+        self.assertTrue(self.has(marker))
+        first = self.hook("prompt-submit", {"session_id": "s1", "prompt": "go on"}, agent="codex")
+        self.assertIn("Context was compacted", first)
+        self.assertIn("whatsnext command:", first)  # the Codex form of the note
+        self.assertFalse(self.has(marker))
+        self.assertEqual(self.hook("prompt-submit", {"session_id": "s1", "prompt": "next"}, agent="codex"), "")
+
+    def test_compact_marker_is_dropped_when_session_start_already_said_so(self):
+        self.task()
+        self.hook("pre-compact", {"session_id": "s1"}, agent="codex")
+        self.assertIn("Context was compacted", self.hook("session-start", {"source": "compact", "session_id": "s1"}, agent="codex"))
+        self.assertFalse(self.has(".whatsnext/sessions/s1.resume.json"))
+        self.assertEqual(self.hook("prompt-submit", {"session_id": "s1", "prompt": "go"}, agent="codex"), "")
+
+    def test_compact_marker_claude_code_keeps_its_own_prompt_behavior(self):
+        self.task()
+        self.hook("pre-compact", {"session_id": "s1"})  # Claude Code: SessionStart passes source=compact; no marker
+        self.assertFalse(self.has(".whatsnext/sessions/s1.resume.json"))
+        self.assertEqual(self.hook("prompt-submit", {"session_id": "s1", "prompt": "go"}), "")
+
+    def test_codex_gets_no_text_but_the_fact_and_the_note(self):
+        self.task()
+        self.assertEqual(self.hook("pre-compact", {"session_id": "s1"}, agent="codex"), "")
+        self.assertIn("without wrap-up", self.hook("session-start", {"source": "compact", "session_id": "s1"}, agent="codex"))
+
+    def test_outside_a_project_and_without_a_task_stay_quiet_and_safe(self):
+        self.assertEqual(self.hook("pre-compact", {"session_id": "s1"}), "")  # no active task: nothing printed or written
+        self.assertFalse(self.has(".whatsnext/sessions"))
+        self.assertEqual(self.hook("pre-compact", raw="not json"), "")
+
+
+PLAN_FILE = "docs/project/PLAN.md"
+TICK_PLAN = "# Plan\n\n## Now\n\n- [ ] P-13 Add login · done means: x\n- [ ] P-14 Other · done means: y\n"
+
+
+class TickGuardTests(HookBase):
+    def setUp(self):
+        super().setUp()
+        self.cfg()
+        self.put(PLAN_FILE, TICK_PLAN)
+
+    def guard(self, tool, tool_input, agent="claude-code", cfg=None):
+        if cfg:
+            self.cfg(plan={"tickGuard": cfg})
+        out = self.hook("pre-edit", {"tool_name": tool, "tool_input": tool_input, "cwd": self.proj}, agent=agent)
+        return json.loads(out)["hookSpecificOutput"] if out else None
+
+    def test_plan_tick_guard_warns_on_an_edit_that_ticks_an_item(self):
+        out = self.guard("Edit", {"file_path": self.p(PLAN_FILE), "old_string": "- [ ] P-13 Add login", "new_string": "- [x] P-13 Add login"})
+        self.assertEqual(out["hookEventName"], "PreToolUse")
+        self.assertIn("Use `plan done P-13 --verify", out["additionalContext"])
+        self.assertIn("plan done P-13 --verify", out["additionalContext"])
+        self.assertNotIn("permissionDecision", out)
+
+    def test_plan_tick_guard_write_multiedit_and_codex_patch(self):
+        out = self.guard("Write", {"file_path": self.p(PLAN_FILE), "content": TICK_PLAN.replace("[ ] P-14", "[x] P-14")})
+        self.assertIn("plan done P-14 --verify", out["additionalContext"])
+        out = self.guard("MultiEdit", {"file_path": self.p(PLAN_FILE), "edits": [
+            {"old_string": "- [ ] P-13", "new_string": "- [x] P-13"}]})
+        self.assertIn("P-13", out["additionalContext"])
+        patch = "*** Begin Patch\n*** Update File: docs/project/PLAN.md\n@@\n-- [ ] P-13 Add login\n+- [x] P-13 Add login\n*** End Patch\n"
+        out = self.guard("apply_patch", {"command": patch}, agent="codex")
+        self.assertIn("plan done P-13 --verify", out["additionalContext"])
+
+    def test_plan_tick_guard_other_edits_stay_quiet(self):
+        plan = self.p(PLAN_FILE)
+        self.assertIsNone(self.guard("Edit", {"file_path": plan, "old_string": "Add login", "new_string": "Add sign-in"}))
+        self.assertIsNone(self.guard("Edit", {"file_path": self.p("src/a.py"), "old_string": "- [ ] P-13", "new_string": "- [x] P-13"}))
+        self.assertIsNone(self.guard("Write", {"file_path": plan, "content": TICK_PLAN}))  # nothing ticked
+        self.assertIsNone(self.guard("Edit", {"file_path": plan, "old_string": "- [x] P-13", "new_string": "- [ ] P-13"}))  # un-ticking
+        self.assertIsNone(self.guard("apply_patch", {"command": "*** Update File: src/a.py\n-- [ ] P-1\n+- [x] P-1\n"}, agent="codex"))
+        self.assertEqual(self.hook("pre-edit", {"tool_name": "Edit", "tool_input": "bad"}), "")
+
+    def test_plan_tick_guard_deny_and_off_by_setting(self):
+        tick = {"file_path": self.p(PLAN_FILE), "old_string": "- [ ] P-13", "new_string": "- [x] P-13"}
+        out = self.guard("Edit", tick, cfg="deny")
+        self.assertEqual(out["permissionDecision"], "deny")
+        self.assertIn("plan done P-13 --verify", out["permissionDecisionReason"])
+        self.assertIsNone(self.guard("Edit", tick, cfg="off"))
+
+
 class ClaudeCodeConfigTests(unittest.TestCase):
     def test_hooks_json_calls_known_events(self):
         with open(os.path.join(str(ROOT), "hooks", "hooks.json"), encoding="utf-8") as f:
             data = json.load(f)["hooks"]
-        self.assertEqual(sorted(data), ["PostToolUse", "PreCompact", "PreToolUse", "SessionEnd", "SessionStart",
-                                        "Stop", "UserPromptSubmit"])
-        for name, event in (("PreCompact", "pre-compact"), ("SessionEnd", "session-end"), ("Stop", "stop")):
+        self.assertEqual(sorted(data), ["PostCompact", "PostToolUse", "PreCompact", "PreToolUse", "SessionEnd",
+                                        "SessionStart", "Stop", "UserPromptSubmit"])
+        for name, event in (("PreCompact", "pre-compact"), ("PostCompact", "post-compact"), ("SessionEnd", "session-end"), ("Stop", "stop")):
             self.assertEqual(len(data[name]), 1)
             self.assertIn(" hook %s --agent claude-code" % event, data[name][0]["hooks"][0]["command"])
-        self.assertEqual(data["PreToolUse"][0]["matcher"], "ExitPlanMode")
+        self.assertEqual([g["matcher"] for g in data["PreToolUse"]], ["ExitPlanMode", "Edit|Write|MultiEdit"])
         self.assertEqual(data["PostToolUse"][0]["matcher"], "ExitPlanMode")
         for groups in data.values():
             for handler in groups[0]["hooks"]:

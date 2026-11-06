@@ -15,6 +15,7 @@ import datetime
 import json
 import os
 import re
+import stat
 import uuid
 
 from . import status as gwstatus
@@ -113,8 +114,95 @@ def read(root, item_id):
     return data if isinstance(data, dict) and data.get("id") == item_id else None
 
 
-def read_all(root):
+MAX_CLAIM_BYTES = 65536
+ITEM_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def sibling_roots(root):
+    """The other worktrees of this repository, from `git worktree list --porcelain` (this one left out)."""
+    code, out = gwstatus.git(root, "worktree", "list", "--porcelain")
+    if code != 0:
+        return []
+    mine = worktree_root(root)
+    found = []
+    for line in out.splitlines():
+        if line.startswith("worktree "):
+            path = os.path.realpath(line[len("worktree "):].strip())
+            if path != mine and os.path.isdir(path):
+                found.append(path)
+    return found
+
+
+SIBLING_FIELDS = ("agent", "session", "branch", "worktree", "since", "updated", "asked_at", "token")
+CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+
+
+def safe_text(value, limit=80):
+    """`value` as short plain text: control characters (escape sequences, new lines) removed, clipped."""
+    return CONTROL_RE.sub("", str(value))[:limit]
+
+
+def read_sibling_file(path):
+    """One sibling claim as a dict of plain, short strings, or None. The file is opened without following a link and
+    judged by the open descriptor (a plain file, not over MAX_CLAIM_BYTES), so nothing can change between the
+    check and the read. Only the known claim fields are kept."""
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_CLAIM_BYTES:
+            return None
+        with os.fdopen(fd, "rb", closefd=False) as f:
+            raw = f.read(MAX_CLAIM_BYTES + 1)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    if len(raw) > MAX_CLAIM_BYTES:
+        return None
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("id"), str):
+        return None
+    clean = {"id": data["id"]}
+    for key in SIBLING_FIELDS:
+        if data.get(key) is not None:
+            clean[key] = safe_text(data[key])
+    return clean
+
+
+def read_siblings(root):
+    """Claims in the `.whatsnext/claims/` folder of each other worktree (P-10), read only. A Codex sandbox cannot write
+    the git folder, so its claim lands in its own worktree. Only plain files of a sane size and name are read, and a
+    claim whose `id` is not its file name is ignored. Each claim gets `sibling_worktree`."""
     out = {}
+    for sibling in sibling_roots(root):
+        folder = os.path.join(sibling, ".whatsnext", "claims")
+        if os.path.islink(folder) or os.path.islink(os.path.join(sibling, ".whatsnext")):
+            continue
+        try:
+            names = sorted(os.listdir(folder))
+        except OSError:
+            continue
+        for name in names:
+            path = os.path.join(folder, name)
+            item_id = name[:-5]
+            if not name.endswith(".json") or not ITEM_ID_RE.match(item_id):
+                continue
+            data = read_sibling_file(path)
+            if data is not None and data.get("id") == item_id and item_id not in out:
+                out[item_id] = dict(data, id=item_id, sibling_worktree=safe_text(sibling))
+    return out
+
+
+def read_all(root, siblings=False):
+    """Every claim this worktree and the git folder hold. With `siblings`, also those other worktrees keep in their own
+    `.whatsnext/claims/` folder (a claim here wins over one there)."""
+    out = dict(read_siblings(root)) if siblings else {}
     for folder in (fallback_dir(root), claims_dir(root)):  # the git folder is read last, so it wins
         try:
             names = sorted(os.listdir(folder))
@@ -180,6 +268,10 @@ def claim(root, item_id, agent, session=None, branch=None, takeover=False):
     mine = {"id": item_id, "agent": agent, "session": session, "branch": branch,
             "worktree": worktree_root(root), "since": now, "updated": now,
             "token": uuid.uuid4().hex, "asked_at": None}
+    if existing is None and not takeover:
+        rival = read_siblings(root).get(item_id)  # P-12: a claim another worktree keeps in its own folder
+        if rival:
+            return None, rival
     if existing is None:
         if os.path.exists(path):  # unreadable file: treat as a claim of unknown owner
             if not takeover:
@@ -197,8 +289,26 @@ def claim(root, item_id, agent, session=None, branch=None, takeover=False):
         return None, existing
     check = read(root, item_id)  # read it back: only the last writer keeps it
     if check and check.get("token") == mine["token"]:
+        rival = None if (existing is not None or takeover) else read_siblings(root).get(item_id)
+        if rival and rival.get("token") != mine["token"] and \
+                (str(rival.get("since") or ""), str(rival.get("token") or "")) < (str(mine["since"]), mine["token"]):
+            _drop_mine(root, item_id, mine["token"])  # both wrote at once: the earlier claim wins, on both sides
+            return None, rival
         return check, None
     return None, check or {"id": item_id, "agent": "unknown"}
+
+
+def _drop_mine(root, item_id, token):
+    """Remove this claim from both folders, but only a file that still holds `token`."""
+    for folder in (claims_dir(root), fallback_dir(root)):
+        path = os.path.join(folder, item_id + ".json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                if json.load(f).get("token") != token:
+                    continue
+            os.remove(path)
+        except (OSError, ValueError, AttributeError):
+            pass
 
 
 def update(root, item_id, **fields):

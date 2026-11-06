@@ -184,7 +184,7 @@ class ListNextTests(PlanBase):
         self.assertIn("warning: P-20 is checked without evidence", r.stdout)
         _r, data = self.jplan("check")
         self.assertEqual(data["errors"], ["P-13 appears 2 times."])
-        self.put(PLAN_PATH, "## Now\n- [ ] P-1 A · done means: x\n")
+        self.put(PLAN_PATH, "## Now\n- [ ] P-1 A · done means: `true` passes\n")
         self.assertEqual(self.plan("check").stdout.strip(), "%s is fine." % PLAN_PATH)
 
 
@@ -794,6 +794,238 @@ JOURNAL = "%s/journal/P-13.md" % STATUS
 PRINT_30 = "i=1; while [ $i -le 30 ]; do echo line$i; i=$((i+1)); done; echo oops >&2; exit 3"
 
 
+class AtomicWriteTests(PlanBase):
+    """P-29: PLAN.md and progress files are swapped in whole."""
+
+    def leftovers(self, rel):
+        folder = os.path.dirname(self.p(rel))
+        return [n for n in os.listdir(folder) if n.endswith(".tmp")]
+
+    def test_atomic_write_plan_and_progress_files_leave_no_temp_file(self):
+        from wn import status
+        self.assertTrue(plan.rewrite_item(self.p(PLAN_PATH), "P-13", lambda line: line.replace("[ ]", "[x]")))
+        self.assertIn("- [x] P-13", self.get(PLAN_PATH))
+        self.assertEqual(self.leftovers(PLAN_PATH), [])
+        status.write_text(self.p(STATUS + "/P-13.md"), "# P-13: x\n", warn=False)
+        self.assertEqual(self.get(STATUS + "/P-13.md"), "# P-13: x\n")
+        self.assertEqual(self.leftovers(STATUS + "/P-13.md"), [])
+
+    def test_atomic_write_a_failed_write_leaves_the_old_file_whole(self):
+        from unittest import mock
+        from wn import util
+        before = self.get(PLAN_PATH)
+        with mock.patch.object(util.os, "replace", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                plan.rewrite_item(self.p(PLAN_PATH), "P-13", lambda line: line.replace("[ ]", "[x]"))
+        self.assertEqual(self.get(PLAN_PATH), before)
+        self.assertEqual(self.leftovers(PLAN_PATH), [])
+        with mock.patch.object(util.os, "fsync", side_effect=OSError("io error")):
+            with self.assertRaises(OSError):
+                util.write_atomic(self.p(PLAN_PATH), "half")
+        self.assertEqual(self.get(PLAN_PATH), before)
+        self.assertEqual(self.leftovers(PLAN_PATH), [])
+
+    def test_atomic_write_keeps_a_symlink_the_mode_and_crlf(self):
+        from wn import util
+        real = self.p("docs/real-plan.md")
+        os.makedirs(os.path.dirname(real), exist_ok=True)
+        with open(real, "w", encoding="utf-8", newline="") as f:
+            f.write("a\r\nb\r\n")
+        os.chmod(real, 0o640)
+        link = self.p("docs/link-plan.md")
+        os.symlink(real, link)
+        util.write_atomic(link, "x\r\ny\r\n")
+        self.assertTrue(os.path.islink(link))
+        with open(real, encoding="utf-8", newline="") as f:
+            self.assertEqual(f.read(), "x\r\ny\r\n")
+        self.assertEqual(os.stat(real).st_mode & 0o777, 0o640)
+
+
+class DriftTests(PlanBase):
+    def started(self):
+        r = self.start("P-13", "--branch", "stay")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def check(self):
+        return self.plan("check").stdout
+
+    def test_orphan_claim_a_deleted_item_leaves_a_claim_and_a_progress_file(self):
+        self.started()
+        self.assertNotIn("not in plan", self.check())
+        self.put(PLAN_PATH, "\n".join(l for l in self.get(PLAN_PATH).split("\n") if "P-13" not in l))
+        out = self.check()
+        self.assertIn("warning: claim for P-13, not in plan", out)
+        self.assertIn("warning: progress file for P-13, not in plan", out)
+
+    def test_orphan_claim_a_hand_tick_still_claimed(self):
+        self.started()
+        self.put(PLAN_PATH, self.get(PLAN_PATH).replace("- [ ] P-13", "- [x] P-13"))
+        self.assertIn("P-13 ticked by hand but still claimed", self.check())
+
+    def test_orphan_claim_title_changed_since_start_and_the_note_reads_plan_live(self):
+        self.started()
+        self.put(PLAN_PATH, self.get(PLAN_PATH).replace("P-13 Add login", "P-13 Add single sign-on"))
+        self.assertIn('P-13 title changed since start: plan says "Add single sign-on", progress file says "Add login"', self.check())
+        note = self.gw(["progress", "resume-note"]).stdout
+        self.assertIn("continue P-13 Add single sign-on", note)
+
+    def test_orphan_claim_a_quiet_plan_has_no_drift_warning(self):
+        self.started()
+        out = self.check()
+        self.assertNotIn("not in plan", out)
+        self.assertNotIn("changed since start", out)
+        self.assertNotIn("ticked by hand", out)
+
+
+class DoneMeansCommandTests(PlanBase):
+    def test_done_means_command_warns_on_an_open_item_without_a_backticked_command(self):
+        self.put(PLAN_PATH, "# Plan\n\n## Now\n\n- [ ] P-1 A · done means: it works\n- [ ] P-2 B · done means: `python3 -m unittest` passes\n"
+                            "- [x] P-3 C · done means: done already · evidence: verified: true passed in 1 s (t)\n- [ ] P-4 D\n")
+        out = self.plan("check").stdout
+        self.assertIn("warning: P-1: done means has no command in backticks, so `plan done P-1 --verify` has nothing to run.", out)
+        self.assertNotIn("P-2:", out)  # has a command
+        self.assertNotIn("P-3:", out)  # already done
+        self.assertIn('P-4 has no "done means".', out)  # the older warning stays, with no second one for P-4
+        self.assertNotIn("P-4: done means", out)
+        self.assertEqual(self.plan("check").returncode, 0)  # a warning, never an error
+
+    def test_done_means_command_empty_backticks_do_not_count(self):
+        self.put(PLAN_PATH, "# Plan\n\n## Now\n\n- [ ] P-1 A · done means: run `` and see\n")
+        self.assertIn("P-1: done means has no command in backticks", self.plan("check").stdout)
+
+
+class SuggestFieldTests(PlanBase):
+    PLAN = """# Plan
+
+## Now
+
+- [ ] P-1 After done means · done means: a · suggest: sonnet/high
+- [ ] P-2 Before done means · suggest: haiku/low · done means: b
+- [ ] P-3 No hint · done means: c
+- [ ] P-4 Odd value · done means: d · suggest:   opus \x1b[31m/  max
+"""
+
+    def setUp(self):
+        super().setUp()
+        self.put(PLAN_PATH, self.PLAN)
+        self.commit("suggest plan")
+
+    def test_suggest_field_is_kept_as_written_before_or_after_done_means(self):
+        _lines, items = plan.parse_text(self.PLAN)
+        by_id = {i.id: i for i in items}
+        self.assertEqual(by_id["P-1"].suggest, "sonnet/high")
+        self.assertEqual(by_id["P-2"].suggest, "haiku/low")
+        self.assertEqual(by_id["P-3"].suggest, "")
+        self.assertEqual((by_id["P-1"].done_means, by_id["P-2"].done_means), ("a", "b"))
+        self.assertEqual((by_id["P-1"].title, by_id["P-2"].title), ("After done means", "Before done means"))
+        self.assertEqual(by_id["P-4"].suggest, "opus [31m/ max".replace("\x1b", ""))  # tidied, never executed
+
+    def test_suggest_field_shows_in_next_list_and_start(self):
+        r, data = self.jplan("next", "--limit", "10")
+        self.assertEqual({c["id"]: c["suggest"] for c in data["candidates"]},
+                         {"P-1": "sonnet/high", "P-2": "haiku/low", "P-3": "", "P-4": "opus [31m/ max"})
+        r, data = self.jplan("list")
+        self.assertIn('"suggest": "sonnet/high"', self.plan("list", "--json").stdout)
+        r, started = self.jplan("start", "P-1", "--branch", "stay")
+        self.assertEqual(started["suggest"], "sonnet/high")
+        out = self.plan("start", "P-2", "--branch", "stay", "--current", "keep").stdout
+        self.assertIn("Suggest: haiku/low", out)
+
+    def test_suggest_field_a_line_without_it_is_unchanged(self):
+        out = self.plan("start", "P-3", "--branch", "stay").stdout
+        self.assertNotIn("Suggest:", out)
+        self.assertIn("Done means: c", out)
+        self.assertEqual(self.get(PLAN_PATH), self.PLAN)  # reading never rewrites the plan
+
+
+class BlockedByTests(PlanBase):
+    PLAN = """# Plan
+
+## Now
+
+- [ ] P-1 First job · done means: a
+- [ ] P-2 Second job · done means: b · blocked by: P-1
+- [ ] P-3 Third job · blocked by: P-1, P-2 · done means: c
+- [ ] P-4 Free job · done means: d
+
+## Next
+
+- [ ] P-5 Later job · done means: e · blocked by: P-9
+"""
+
+    def setUp(self):
+        super().setUp()
+        self.put(PLAN_PATH, self.PLAN)
+        self.commit("blocked plan")
+
+    def ids(self):
+        r, data = self.jplan("next", "--limit", "10")
+        return [c["id"] for c in data["candidates"]]
+
+    def test_blocked_by_parses_in_either_position(self):
+        _lines, items = plan.parse_text(self.PLAN)
+        by_id = {i.id: i for i in items}
+        self.assertEqual(by_id["P-1"].blocked_by, [])
+        self.assertEqual(by_id["P-2"].blocked_by, ["P-1"])
+        self.assertEqual(by_id["P-3"].blocked_by, ["P-1", "P-2"])
+        self.assertEqual(by_id["P-3"].done_means, "c")  # the field does not leak into done means
+        self.assertEqual(by_id["P-2"].title, "Second job")
+
+    def test_blocked_by_next_skips_an_item_whose_blocker_is_open(self):
+        self.assertEqual(self.ids(), ["P-1", "P-4"])  # P-2 and P-3 wait; P-5 is in Next and Now has candidates
+        r = self.plan("done", "P-1", "--unverified")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.ids(), ["P-2", "P-4"])  # P-3 still waits for P-2
+        self.plan("done", "P-2", "--unverified")
+        self.assertEqual(self.ids(), ["P-3", "P-4"])
+
+    def test_blocked_by_says_so_when_everything_waits_and_list_json_has_the_fields(self):
+        self.put(PLAN_PATH, "# Plan\n\n## Now\n\n- [ ] P-1 A · blocked by: P-2\n- [ ] P-2 B · blocked by: P-1\n")
+        r = self.plan("next")
+        self.assertIn("Nothing ready in Now or Next: P-1, P-2 wait for open items", r.stdout)
+        self.assertIn('"blocked_on"', self.plan("list", "--json").stdout)
+
+    def test_blocked_by_check_reports_an_id_that_is_not_in_the_plan(self):
+        out = self.plan("check").stdout
+        self.assertIn("warning: P-5 is blocked by P-9, which is not in the plan.", out)
+        self.assertNotIn("P-2 is blocked by", out)
+        self.put(PLAN_PATH, self.PLAN.replace("blocked by: P-1\n", "blocked by: P-2\n"))
+        self.assertIn("P-2 is blocked by itself.", self.plan("check").stdout)
+
+
+class FileOverlapTests(PlanBase):
+    def setUp(self):
+        super().setUp()
+        self.put(PLAN_PATH, PLAN.replace("- [ ] P-16 Audit log", "- [ ] P-16 Audit log · done means: it logs"))
+        self.commit("plan")
+
+    def test_file_overlap_start_warns_when_another_in_progress_item_lists_the_same_files(self):
+        self.assertEqual(self.start("P-13", "--branch", "stay").returncode, 0)
+        self.task("P-13", branch=self.branch(), files="src/a.py, src/b.py")
+        self.put("%s/P-16.md" % STATUS, task_text("P-16", title="Audit log", state="parked", branch=self.branch(),
+                                                  files="src/b.py, src/c.py"))
+        r = self.plan("start", "P-16", "--agent", "codex", "--branch", "stay", "--current", "keep")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("warning: P-16 lists files that P-13 (in progress) also lists: src/b.py.", r.stderr)
+        self.assertIn("Started P-16", r.stdout)  # advice only: the start still happens
+
+    def test_file_overlap_json_and_the_resume_note(self):
+        self.start("P-13", "--branch", "stay")
+        self.task("P-13", branch=self.branch(), files="src/a.py")
+        self.put("%s/P-16.md" % STATUS, task_text("P-16", title="Audit log", state="parked", branch=self.branch(), files="src/a.py"))
+        r, data = self.jplan("start", "P-16", "--agent", "codex", "--branch", "stay", "--current", "keep")
+        self.assertEqual(data["file_overlap"], [{"id": "P-13", "files": ["src/a.py"]}])
+        note = self.gw(["progress", "resume-note"]).stdout
+        self.assertIn("Overlap: P-16 lists files that P-13 (in progress) also lists: src/a.py.", note)
+
+    def test_file_overlap_no_shared_file_no_warning(self):
+        self.start("P-13", "--branch", "stay")
+        self.task("P-13", branch=self.branch(), files="src/a.py")
+        self.put("%s/P-16.md" % STATUS, task_text("P-16", title="Audit log", state="parked", branch=self.branch(), files="src/z.py"))
+        r = self.plan("start", "P-16", "--agent", "codex", "--branch", "stay", "--current", "keep")
+        self.assertNotIn("also lists", r.stderr)
+
+
 class OutputTailTests(unittest.TestCase):
     def test_tail_strips_colors_blank_ends_and_clips(self):
         self.assertEqual(plan.output_tail(b"a\n\x1b[31mred\x1b[0m\n\n"), ["a", "red"])
@@ -805,11 +1037,47 @@ class OutputTailTests(unittest.TestCase):
 class VerifyTests(PlanBase):
     """`plan done <id> --verify "<cmd>"` (ADR-0003)."""
 
+    def test_pipe_warning(self):
+        self.assertTrue(plan.pipe_without_pipefail("python3 -m unittest 2>&1 | tail -3"))
+        self.assertTrue(plan.pipe_without_pipefail("make test | head"))
+        self.assertFalse(plan.pipe_without_pipefail("set -o pipefail; make test | tail"))
+        self.assertFalse(plan.pipe_without_pipefail("make test"))
+        self.assertFalse(plan.pipe_without_pipefail("a || b"))
+        self.assertFalse(plan.pipe_without_pipefail("grep 'a|b' file"))
+        self.assertFalse(plan.pipe_without_pipefail('echo "x | y"'))
+        self.assertFalse(plan.pipe_without_pipefail(""))
+        r = self.plan("done", "P-13", "--verify", "true | cat")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)  # a warning, not a refusal
+        self.assertIn("has a pipe and no `pipefail`", r.stderr)
+        r = self.plan("done", "P-16", "--verify", "test -f README.md")
+        self.assertNotIn("pipefail", r.stderr)
+
+    def test_verify_records_state(self):
+        r = self.plan("done", "P-13", "--verify", "test -f README.md")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        head = self.head()
+        self.assertRegex(self.get(PLAN_PATH), r"\(%s\) at %s t:[0-9a-f]{8}\n" % (STAMP, head))
+        self.assertNotIn("changed since", self.plan("check").stdout)  # right after verify: nothing changed
+        self.commit("record the verify")  # PLAN.md and progress files only: still the same code
+        self.assertNotIn("changed since", self.plan("check").stdout)
+        self.put("src/new.py", "x = 1\n")  # an edit
+        out = self.plan("check").stdout
+        self.assertIn("warning: P-13 was verified at %s, and the code has changed since. Run its verify again." % head, out)
+        self.commit("feat: new")
+        out = self.plan("check").stdout
+        self.assertIn("verified at %s, and the code has changed since (1 commit)." % head, out)
+        self.assertIn("verified_stale", self.plan("list", "--json").stdout)
+
+    def test_evidence_without_a_state_is_never_flagged(self):
+        self.put(PLAN_PATH, PLAN.replace("- [ ] P-16 Audit log", "- [x] P-16 Audit log · done means: x · evidence: verified: true passed in 1 s (t)"))
+        self.put("src/new.py", "x = 1\n")
+        self.assertNotIn("changed since", self.plan("check").stdout)
+
     def test_pass_ticks_the_item_with_verified_evidence_and_list_shows_plain_done(self):
         r = self.plan("done", "P-13", "--verify", "test -f README.md")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertRegex(self.get(PLAN_PATH),
-                         r"- \[x\] P-13 Add login · done means: login tests pass · evidence: verified: test -f README.md passed in \d+(\.\d)? s \(%s\)\n" % STAMP)
+                         r"- \[x\] P-13 Add login · done means: login tests pass · evidence: verified: test -f README.md passed in \d+(\.\d)? s \(%s\)( at [0-9a-f]{7,} t:[0-9a-f]{8})?\n" % STAMP)
         self.assertEqual(self.get(PLAN_PATH).count("[x]"), 1)
         out = self.plan("list").stdout
         self.assertIn("P-13  Add login  [done]", out)

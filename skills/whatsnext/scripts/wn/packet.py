@@ -45,6 +45,7 @@ MAX_TITLE = 80
 MAX_BRANCH = 60
 MAX_NEXT = 400
 MAX_RUN = 120
+MAX_CHECK = 160
 MAX_SUBJECT = 60
 MAX_FILE_NAME = 60
 STALE_DAYS = 7
@@ -222,13 +223,20 @@ def last_line(task, now):
     return "Note: %s, %s old" % (mark, age_text(then, now)) if then else "Note: %s, age unknown" % mark
 
 
-def old_warning(task, now):
-    """A warning when Updated (else the Note time) is more than STALE_DAYS old, else None."""
+def old_warning(task, now, days=STALE_DAYS, new_commits=None, commit_limit=None):
+    """A warning when Updated (else the Note time) is more than `days` old, or when `new_commits` reaches
+    `commit_limit` (both limits are settings, `note.staleDays` and `note.staleCommits`); else None."""
     then = gwclaims.to_dt(task.field("updated")) or note_time(task)
-    if then is None or now - then <= datetime.timedelta(days=STALE_DAYS):
+    old = then is not None and now - then > datetime.timedelta(days=days)
+    busy = bool(commit_limit) and new_commits is not None and new_commits >= commit_limit
+    if not old and not busy:
         return None
-    return "Warning: the note is %s old (updated %s). Check git log and the code before you trust it." % (
-        age_text(then, now), task.field("updated") or "unknown")
+    reasons = []
+    if old:
+        reasons.append("%s old (updated %s)" % (age_text(then, now), task.field("updated") or "unknown"))
+    if busy:
+        reasons.append("%d new commits since it" % new_commits)
+    return "Warning: the note is %s. Check git log and the code before you trust it." % " and ".join(reasons)
 
 
 def git_facts(root, effective, task):
@@ -238,7 +246,7 @@ def git_facts(root, effective, task):
     files left out, as the facts journal does), `problem` a short phrase or None."""
     if not gwstatus.in_git(root):
         return None
-    facts = {"new": None, "commits": [], "dirty": [], "problem": None}
+    facts = {"new": None, "commits": [], "dirty": [], "problem": None, "not_ancestor": None}
     recorded = task.field("branch")
     branch = gwstatus.current_branch(root)
     if recorded and recorded.lower() != gwstatus.NONE and branch != recorded:
@@ -257,12 +265,16 @@ def git_facts(root, effective, task):
         else:
             facts["problem"] = (facts["problem"] + "; " if facts["problem"] else "") + \
                 "recorded commit %s is not in this history" % commit
+            facts["not_ancestor"] = commit
     code, out = gwstatus.git(root, "rev-parse", "--show-prefix")
     prefix = out.strip() if code == 0 else ""
     journal = os.path.join(gwstatus.status_folder(root, effective), "journal", task.id + ".md")
     skip = (gwjournal.rel_path(root, prefix, journal), gwjournal.rel_path(root, prefix, task.path),
             gwjournal.rel_path(root, prefix, os.path.join(root, gwjournal.SESSIONS_DIR)) + "/")
     facts["dirty"] = [n for n in (gwjournal.status_paths(root) or []) if not gwjournal.is_bookkeeping(n, skip)]
+    last = gwjournal.last_state(journal)  # P-1: the same count with other files is not the same work
+    facts["set_changed"] = bool(last and last[1] and last[0] == len(facts["dirty"])
+                                and last[1] != gwjournal.dirty_digest(facts["dirty"]))
     return facts
 
 
@@ -283,6 +295,8 @@ def since_lines(facts, max_commits, max_files):
         names = ", ".join(clip(clean(n), MAX_FILE_NAME) for n in dirty[:max_files])
         more = len(dirty) - max_files
         text += " (%s%s)" % (names, ", +%d more" % more if more > 0 else "")
+    if facts.get("set_changed"):
+        text += " - set changed since the last stop"
     parts.append(text)
     lines = [SINCE_MARK + " " + ", ".join(parts) + "."]
     shown = facts["commits"][:max_commits]
@@ -304,6 +318,35 @@ def done_line(task, level):
     return "Done: " + "; ".join(shown) + (" (+%d earlier)" % more if more > 0 else "")
 
 
+DONE_TAKE = (2, 1, 1, 0)  # Done entries shown at trim level 0 to 3 (see done_line)
+
+
+def live_title(root, effective, task):
+    """The item's title in PLAN.md now, or None (no plan, or no such item). The progress file's copy can be old."""
+    try:
+        path = os.path.join(root, effective.get("paths.plan"))
+        _lines, items = gwplan.parse_text(gwplan.read_plan(path))
+    except (OSError, ValueError):
+        return None
+    item = next((it for it in items if it.id == task.id), None)
+    return item.title if item is not None and item.title else None
+
+
+def cut_line(task, facts, state):
+    """The last line when the cap trimmed Done or the commit list: what the reader did not see and where the rest is.
+    None when nothing was trimmed. Level 0 of Done and 3 commits are the untrimmed note."""
+    parts = []
+    if state["done"] > 0:
+        hidden = len(entries(task.section("Done"))) - DONE_TAKE[min(state["done"], 3)]
+        if hidden > 0:
+            parts.append("Done +%d" % hidden)
+    if state["commits"] < 3 and facts is not None and facts["new"]:
+        hidden = facts["new"] - min(state["commits"], len(facts["commits"]))
+        if hidden > 0:
+            parts.append("%d commit%s" % (hidden, "" if hidden == 1 else "s"))
+    return "cut: %s. Full: progress show" % ", ".join(parts) if parts else None
+
+
 def handoff_info(root, effective, task, session_id):
     """The handoff note as {"rel", "related", "next", "written"}, or None when there is no file.
     `related`: its `Session:` is this session, or its `Task:` is the active task. `written`: the `Written:` time
@@ -321,7 +364,12 @@ def handoff_info(root, effective, task, session_id):
 
 
 def handoff_line(info):
-    return "Handoff: %s (%s)" % (info["rel"], "read it first" if info["related"] else "another session's note")
+    """The Handoff line: the file, when it was wrapped up (UTC), and whether this task's session wrote it."""
+    return "Handoff: %s, wrapped up %s (%s)" % (info["rel"], utc_text(info["written"]),
+                                               "read it first" if info["related"] else "another session's note")
+
+
+NO_HANDOFF = "Handoff: none, facts only."
 
 
 def utc_text(when):
@@ -350,6 +398,14 @@ def next_line(task, limit, handoff=None):
 # ---- the note --------------------------------------------------------------
 
 
+def compacted_text(root, session_id):
+    when = gwwrapup.compacted_without_wrapup(root, session_id)
+    text = ("Context was compacted without wrap-up at %s; this restates the task." % when if when
+            else "Context was compacted; this restates the task.")
+    kept = gwwrapup.summary_line(root, session_id)
+    return text + " " + kept if kept else text
+
+
 def build(root, effective, compacted=False, session_id=None):
     """The note as {"text", "included", "pointed"}, or None when it must stay silent.
     `included` names the sections in the text; `pointed` the ones the cap left out. `session_id` is the
@@ -363,7 +419,7 @@ def build(root, effective, compacted=False, session_id=None):
     if task is None:
         lines = ["whatsnext: where we left off."]
         if compacted:
-            lines.append("Context was compacted; this restates the task.")
+            lines.append(compacted_text(root, session_id))
         lines.append(NO_TASK)
         info = handoff_info(root, effective, None, session_id)
         if info:
@@ -371,10 +427,31 @@ def build(root, effective, compacted=False, session_id=None):
         return {"text": "\n".join(lines)[:cap], "included": ["first"], "pointed": []}
 
     now = now_utc()
+    live = live_title(root, effective, task) if effective.module_on("plan") else None
+    if live:
+        task.title = live  # P-27: PLAN.md is the truth for the title; the progress file's copy may be old
+    compacted_line = compacted_text(root, session_id) if compacted else None
     info = handoff_info(root, effective, task, session_id)
     command, source = run_command(root, effective, task)
+    from . import crosscheck as gwcrosscheck
+    side = gwwrapup.read_sidecar(root, session_id) if session_id else None
+    check_line = gwcrosscheck.note_line((side or {}).get("cross_check")) if info else None
+    check_line = clip(check_line, MAX_CHECK) if check_line else None
     facts = git_facts(root, effective, task)
-    warning = old_warning(task, now)
+    warning = old_warning(task, now, effective.get("note.staleDays"), facts["new"] if facts else None,
+                          effective.get("note.staleCommits"))
+    if facts and facts.get("not_ancestor"):  # a rebase, reset or force-push: the commit count would mislead
+        gone = "Warning: the recorded commit %s is not in this history (rebase, reset or force-push). " \
+               "Check git log and the code before you trust the note." % facts["not_ancestor"]
+        warning = warning + "\n" + gone if warning else gone
+    if effective.module_on("plan"):  # P-11: another in-progress item lists the same files
+        try:
+            overlaps = gwplan.file_overlaps(gwplan.Ctx(root, effective), task.id)
+        except Exception:
+            overlaps = []
+        if overlaps:
+            line = "Overlap: " + gwplan.overlap_text(task.id, overlaps)
+            warning = warning + "\n" + line if warning else line
     last = last_line(task, now)
     stale = gwclaims.stale_in_worktree(root, effective) if effective.module_on("plan") else []
     stale_text = ("Stale checkouts: %s. Run: whatsnext plan list" % ", ".join(c["id"] for c, _idle in stale)
@@ -391,13 +468,15 @@ def build(root, effective, compacted=False, session_id=None):
     def assemble():
         sections = {"first": [first_line(task, state["title"])]}
         if compacted and state["extras"]:
-            sections["compacted"] = ["Context was compacted; this restates the task."]
+            sections["compacted"] = [compacted_line]
         done = done_line(task, state["done"])
         if done:
             sections["done"] = [done]
         sections["next"] = [next_line(task, state["next"], info)]
-        if info and state["handoff"]:
-            sections["handoff"] = [handoff_line(info)]
+        if state["handoff"]:
+            sections["handoff"] = [handoff_line(info) if info else NO_HANDOFF]
+            if info and info["related"] and check_line:
+                sections["handoff"].append(check_line)
         if command:
             sections["run"] = ["Run (from %s): %s" % (source, clip(command, MAX_RUN))]
         since = since_lines(facts, state["commits"], state["files"])
@@ -408,6 +487,9 @@ def build(root, effective, compacted=False, session_id=None):
         if warning:
             sections["warning"] = [warning]
         sections["note"] = [last]
+        cut = cut_line(task, facts, state)
+        if cut:
+            sections["cut"] = [cut]
         return sections
 
     def text_of(sections):
@@ -425,7 +507,7 @@ def build(root, effective, compacted=False, session_id=None):
     text = text_of(sections)
     if len(text) > cap:
         text = text[:cap].rstrip()
-    wanted = ["first", "done", "next", "handoff", "run", "since", "warning", "note"]
+    wanted = ["first", "done", "next", "handoff", "run", "since", "warning", "note", "cut"]
     return {
         "text": text,
         "included": [k for k in wanted if k in sections],

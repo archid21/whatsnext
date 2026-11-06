@@ -91,3 +91,89 @@ def last_turn_time(path, skip_prompt=None):
         if when is not None and (last is None or when > last):
             last = when
     return last
+
+
+TAIL_BYTES = 1000000  # how much of the transcript's end `latest_request` reads
+NOT_A_REQUEST = ("<command-", "<local-command", "/compact", "<system-reminder", "<task-notification")
+
+
+def tail_entries(path, size=TAIL_BYTES):
+    """The JSON objects in the last `size` bytes of a transcript (a cut first line is dropped)."""
+    with open(path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        end = f.tell()
+        f.seek(max(end - size, 0))
+        raw = f.read()
+    lines = raw.decode("utf-8", errors="replace").split("\n")
+    if end > size:
+        lines = lines[1:]
+    for line in lines:
+        try:
+            item = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(item, dict):
+            yield item
+
+
+def request_text(item):
+    """The user's own words in a prompt entry: each text block is checked on its own, and blocks that are
+    slash-command or injected (NOT_A_REQUEST) are dropped before the rest are joined."""
+    content = (item.get("message") or {}).get("content")
+    blocks = [content] if isinstance(content, str) else \
+        [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"] if isinstance(content, list) else []
+    kept = [b.strip() for b in blocks if isinstance(b, str) and b.strip() and not b.strip().startswith(NOT_A_REQUEST)]
+    return "\n".join(kept)
+
+
+def latest_request(path, skip_prompt=None):
+    """The text of the user's latest real request in a transcript, or None. Tool results, meta, sidechain and
+    compact-summary entries, slash-command and injected entries, and the prompt `skip_prompt` are not requests."""
+    found = None
+    for item in tail_entries(path):
+        if item.get("isCompactSummary"):
+            continue
+        if prompt_text(item) is None:
+            continue
+        text = request_text(item)
+        if not text or (skip_prompt is not None and text == skip_prompt):
+            continue
+        found = text
+    return found
+
+
+AGENT_TOOLS = ("Agent", "Task")  # the subagent tool's name has changed between Claude Code versions
+
+
+def open_work(path, max_agents=5):
+    """What was still open at the end of a transcript, from its tail: {"agents": [(description, type, running)],
+    "todo": [text]}. An agent is running while its tool_use has no tool_result; the todo is every task the
+    agent marked `in_progress` with TodoWrite, or with TaskCreate and TaskUpdate (ids are 1, 2, 3 in order)."""
+    agents, results, todo, tasks, created = {}, set(), [], {}, 0
+    for item in tail_entries(path):
+        if item.get("isSidechain"):
+            continue
+        content = (item.get("message") or {}).get("content")
+        for block in content if isinstance(content, list) else []:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_result" and isinstance(block.get("tool_use_id"), str):
+                results.add(block["tool_use_id"])
+            if block.get("type") != "tool_use" or not isinstance(block.get("input"), dict):
+                continue
+            name, data = block.get("name"), block["input"]
+            if name in AGENT_TOOLS:
+                agents[block.get("id")] = (str(data.get("description") or data.get("subagent_type") or "agent"),
+                                           str(data.get("subagent_type") or "agent"))
+            elif name == "TodoWrite" and isinstance(data.get("todos"), list):
+                todo = [str(t.get("content", "")) for t in data["todos"]
+                        if isinstance(t, dict) and t.get("status") == "in_progress" and t.get("content")]
+            elif name == "TaskCreate":
+                created += 1
+                tasks[str(created)] = [str(data.get("subject") or data.get("description") or ""), "pending"]
+            elif name == "TaskUpdate" and str(data.get("taskId")) in tasks and isinstance(data.get("status"), str):
+                tasks[str(data["taskId"])][1] = data["status"]
+    if tasks:
+        todo = [text for text, status in tasks.values() if status == "in_progress" and text]
+    shown = [(d, t, i not in results) for i, (d, t) in agents.items()][-max_agents:]
+    return {"agents": shown, "todo": todo}

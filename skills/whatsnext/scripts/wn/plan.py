@@ -8,6 +8,7 @@ again with the answer flag. Exit codes: 0 done, 1 error, 3 module off,
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -24,7 +25,7 @@ from . import journal as gwjournal
 from . import redact as gwredact
 from . import status as gwstatus
 from .ask import NEEDS_ANSWER, ask, option
-from .util import now_utc
+from .util import now_utc, write_atomic
 
 SECTIONS = ("Now", "Next", "Later")
 OTHER = "Other"
@@ -37,6 +38,7 @@ UNVERIFIED = "checked by a person, not verified"
 UNVERIFIED_MARK = "*"  # `plan list` shows "done*" and one footnote instead of UNVERIFIED on each row
 VERIFIED_PREFIX = "verified:"  # evidence that `plan done --verify` wrote after a passing command (ADR-0003)
 VERIFY_TIMEOUT_RE = re.compile(r"^([1-9][0-9]*)([smh])$")
+STATE_RE = re.compile(r"\) at ([0-9a-f]{7,40}) t:([0-9a-f]{8})\s*$")  # the code state `plan done --verify` appends (P-8)
 VERIFY_TIMEOUT_DEFAULT = 30 * 60  # seconds, when plan.verifyTimeout cannot be read
 VERIFY_TAIL_LINES = 20  # output lines kept in the journal after a failed verify
 VERIFY_LINE_MAX = 200
@@ -62,6 +64,8 @@ class Item(object):
         self.evidence = evidence
         self.section = section
         self.index = index  # line number (0-based) in the file
+        self.blocked_by = []  # ids named by a `blocked by: P-3, P-5` field (P-13)
+        self.suggest = ""  # the `suggest: <model>/<effort>` hint as written (ADR-0012)
 
 
 def strip_comments(line, in_comment):
@@ -103,6 +107,34 @@ def parse_rest(rest):
     return title or "", done_means, evidence
 
 
+BLOCKED_RE = re.compile(r"^blocked by\s*:\s*(.*)$", re.I)
+SUGGEST_RE = re.compile(r"^suggest\s*:\s*(.*)$", re.I)
+SUGGEST_MAX = 60
+CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def parse_suggest(rest):
+    """The `suggest:` hint of the text after the item id, as written (white space and control characters tidied,
+    clipped to SUGGEST_MAX), or "". whatsnext never checks it against a list of models (ADR-0012)."""
+    for part in FIELD_SPLIT_RE.split(rest.strip()):
+        m = SUGGEST_RE.match(part.strip())
+        if m:
+            return CONTROL_RE.sub("", " ".join(m.group(1).split()))[:SUGGEST_MAX]
+    return ""
+
+
+def parse_blocked_by(rest):
+    """The item ids on a `blocked by:` field of the text after the item id, in order, without repeats."""
+    found = []
+    for part in FIELD_SPLIT_RE.split(rest.strip()):
+        m = BLOCKED_RE.match(part.strip())
+        if m:
+            for item_id in re.findall(ID_PATTERN, m.group(1)):
+                if item_id not in found:
+                    found.append(item_id)
+    return found
+
+
 def parse_text(text):
     """(lines, items). Lines keep their line ends; items are in file order."""
     lines = text.split("\n")
@@ -119,7 +151,10 @@ def parse_text(text):
         m = ITEM_RE.match(visible)
         if m:
             title, done_means, evidence = parse_rest(m.group(5))
-            items.append(Item(m.group(4), title, m.group(2) in "xX", done_means, evidence, section, i))
+            item = Item(m.group(4), title, m.group(2) in "xX", done_means, evidence, section, i)
+            item.blocked_by = parse_blocked_by(m.group(5))
+            item.suggest = parse_suggest(m.group(5))
+            items.append(item)
     return lines, items
 
 
@@ -141,8 +176,7 @@ def rewrite_item(path, item_id, transform):
     raw = lines[item.index]
     tail = "\r" if raw.endswith("\r") else ""
     lines[item.index] = transform(raw[:len(raw) - len(tail)]) + tail
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        f.write("\n".join(lines))
+    write_atomic(path, "\n".join(lines))
     return True
 
 
@@ -181,6 +215,58 @@ class Ctx(object):
         root = gwconfig.find_root(cwd)
         return cls(root, gwconfig.load(root))
 
+    def bookkeeping(self):
+        """Paths whatsnext itself writes (the plan, the progress folder, `.whatsnext/`), as git prints them."""
+        code, out = gwstatus.git(self.root, "rev-parse", "--show-prefix")
+        prefix = out.strip() if code == 0 else ""
+        return (gwjournal.rel_path(self.root, prefix, self.plan_path),
+                gwjournal.rel_path(self.root, prefix, self.folder) + "/",
+                gwjournal.rel_path(self.root, prefix, os.path.join(self.root, gwjournal.SESSIONS_DIR)) + "/")
+
+    def code_state(self):
+        """(short commit, 8-character hash of the code) now, or None outside git. The hash covers the content of
+        every tracked and untracked file except the bookkeeping ones, so a verify followed by a commit of
+        the same content keeps the same hash."""
+        if getattr(self, "_state", False) is not False:
+            return self._state
+        self._state = None
+        commit = gwstatus.current_commit(self.root)
+        if commit is not None:
+            skip = self.bookkeeping()
+            code, out = gwstatus.git(self.root, "-c", "core.quotepath=off", "ls-files", "-s", "-z")
+            files = {}
+            for entry in out.split("\0") if code == 0 else []:
+                meta, _tab, name = entry.partition("\t")
+                if name and not gwjournal.is_bookkeeping(name, skip):
+                    files[name] = meta.split()[1]
+            code, out = gwstatus.git(self.root, "-c", "core.quotepath=off", "ls-files", "-m", "-o",
+                                     "--exclude-standard", "-z")
+            for name in out.split("\0") if code == 0 else []:
+                if not name or gwjournal.is_bookkeeping(name, skip):
+                    continue
+                try:
+                    with open(os.path.join(self.root, name), "rb") as f:
+                        files[name] = hashlib.sha1(f.read()).hexdigest()
+                except OSError:
+                    files.pop(name, None)  # deleted
+            digest = hashlib.sha1("".join("%s\0%s\n" % (n, files[n]) for n in sorted(files)).encode("utf-8", "replace"))
+            self._state = (commit, digest.hexdigest()[:8])
+        return self._state
+
+    def verify_drift(self, evidence):
+        """A short phrase when the code has changed since `plan done --verify` proved an item, else None.
+        Evidence with no recorded state (an older item, or one verified outside git) is never flagged."""
+        m = STATE_RE.search(evidence or "")
+        now = self.code_state() if m and is_verified(evidence) else None
+        if not m or now is None or now[1] == m.group(2):
+            return None
+        skip = self.bookkeeping()
+        code, out = gwstatus.git(self.root, "rev-list", "--count", "--end-of-options", m.group(1) + "..HEAD", "--", ".",
+                                 *[":(exclude)" + s.rstrip("/") for s in skip])
+        n = int(out.strip()) if code == 0 and out.strip().isdigit() else None
+        since = " (%d commit%s)" % (n, "" if n == 1 else "s") if n else ""
+        return "verified at %s, and the code has changed since%s" % (m.group(1), since)
+
     def has_plan(self):
         return os.path.isfile(self.plan_path)
 
@@ -192,8 +278,14 @@ class Ctx(object):
 
     def views(self, items=None):
         items = self.items() if items is None else items
-        tasks, claim_map = self.tasks(), gwclaims.read_all(self.root)
-        return [self.view(it, tasks.get(it.id), claim_map.get(it.id)) for it in items]
+        tasks, claim_map = self.tasks(), gwclaims.read_all(self.root, siblings=True)
+        open_ids = {it.id for it in self.items() if not it.checked}
+        out = [self.view(it, tasks.get(it.id), claim_map.get(it.id)) for it in items]
+        for view, it in zip(out, items):  # P-13: the ids this item waits for that are still open
+            view["suggest"] = it.suggest
+            view["blocked_by"] = list(it.blocked_by)
+            view["blocked_on"] = [i for i in it.blocked_by if i in open_ids and i != it.id]
+        return out
 
     def view(self, item, task, claim):
         stale, idle = False, None
@@ -213,12 +305,14 @@ class Ctx(object):
             since = gwclaims.to_dt(claim.get("since"))
             info = {"agent": claim.get("agent"), "branch": claim.get("branch"), "session": claim.get("session"),
                     "worktree": claim.get("worktree"), "since": claim.get("since"),
+                    "sibling_worktree": claim.get("sibling_worktree"),
                     "since_short": gwclaims.short_time(since, self.now) if since else "unknown",
                     "idle_since": gwclaims.stamp(idle) if idle else None,
                     "idle_short": gwclaims.short_time(idle, self.now) if idle else "unknown", "stale": stale}
         return {"id": item.id, "title": item.title, "section": item.section, "status": status,
                 "done_means": item.done_means, "evidence": item.evidence,
                 "verified": is_verified(item.evidence) if item.checked else None,
+                "verified_stale": self.verify_drift(item.evidence) if item.checked else None,
                 "stale": stale, "claim": info}
 
     def emit(self, event, payload):
@@ -246,6 +340,8 @@ def describe_claim(info):
     if info["branch"]:
         text += " · %s" % info["branch"]
     text += " · since %s" % info["since_short"]
+    if info.get("sibling_worktree"):  # a claim another worktree keeps: shown as such, never taken as ours (P-10)
+        text += " · in worktree %s" % info["sibling_worktree"]
     if info["stale"]:
         text += " · stale, idle since %s" % info["idle_short"]
     return text + ")"
@@ -290,7 +386,9 @@ def cmd_list(ctx, args):
 
 
 def candidates(views, limit):
-    """Open unclaimed items in Now, then stale ones in Now, else open items in Next."""
+    """Open unclaimed items in Now, then stale ones in Now, else open items in Next. An item that waits for an open
+    item (`blocked by:`) is left out (P-13)."""
+    views = [v for v in views if not v.get("blocked_on")]
     out = [dict(v, source="Now") for v in views if v["section"] == "Now" and v["status"] == "open"]
     out += [dict(v, source="Now") for v in views if v["section"] == "Now" and v["status"] == "in progress" and v["stale"]]
     if not out:
@@ -305,13 +403,17 @@ def cmd_next(ctx, args):
         else:
             print(no_plan(ctx))
         return 0
-    found = candidates(ctx.views(), args.limit)
+    views = ctx.views()
+    found = candidates(views, args.limit)
+    waiting = [v["id"] for v in views if v.get("blocked_on") and v["status"] == "open" and v["section"] in ("Now", "Next")]
+    empty = "Nothing open in Now or Next." if not waiting else \
+        "Nothing ready in Now or Next: %s wait%s for open items (`blocked by:`)." % (", ".join(waiting), "s" if len(waiting) == 1 else "")
     if args.json:
         print(json.dumps({"candidates": found, "recommended": found[0]["id"] if found else None,
-                          "message": "" if found else "Nothing open in Now or Next."}, indent=2))
+                          "message": "" if found else empty}, indent=2))
         return 0
     if not found:
-        print("Nothing open in Now or Next.")
+        print(empty)
         return 0
     print("Next up:")
     for n, v in enumerate(found, 1):
@@ -342,9 +444,45 @@ def check(ctx):
     for it in items:
         if it.checked and not it.evidence:
             warnings.append("%s is checked without evidence (%s)." % (it.id, UNVERIFIED))
+        drift = ctx.verify_drift(it.evidence) if it.checked else None
+        if drift:
+            warnings.append("%s was %s. Run its verify again." % (it.id, drift))
         if not it.checked and not it.done_means:
             warnings.append("%s has no \"done means\"." % it.id)
+        elif not it.checked and not re.search(r"`[^`\n]+`", it.done_means):  # P-31
+            warnings.append("%s: done means has no command in backticks, so `plan done %s --verify` has nothing to run." % (it.id, it.id))
+    known = {it.id for it in items}
+    for it in items:
+        for other in it.blocked_by:
+            if other == it.id:
+                warnings.append("%s is blocked by itself." % it.id)
+            elif other not in known:
+                warnings.append("%s is blocked by %s, which is not in the plan." % (it.id, other))
+    warnings.extend(drift_warnings(ctx, items))
     return errors, warnings
+
+
+def drift_warnings(ctx, items):
+    """P-27: what the claims and progress files say against what PLAN.md says now."""
+    by_id = {it.id: it for it in items}
+    out = []
+    for item_id, claim in sorted(gwclaims.read_all(ctx.root).items()):
+        item = by_id.get(item_id)
+        if item is None:
+            out.append("claim for %s, not in plan (%s). Run `plan put-back %s` or restore the item." % (item_id, ctx.plan_rel, item_id))
+        elif item.checked:
+            out.append("%s ticked by hand but still claimed. Run `plan done %s --verify \"<cmd>\"` or `plan put-back %s`."
+                       % (item_id, item_id, item_id))
+    for task_id, task in sorted(ctx.tasks().items()):
+        item = by_id.get(task_id)
+        if task.state == "done":
+            continue
+        if item is None:
+            out.append("progress file for %s, not in plan (%s)." % (task_id, ctx.plan_rel))
+        elif clean(task.title) != clean(item.title):
+            out.append("%s title changed since start: plan says \"%s\", progress file says \"%s\"."
+                       % (task_id, clean(item.title), clean(task.title)))
+    return out
 
 
 def cmd_check(ctx, args):
@@ -378,11 +516,12 @@ def ask_evidence(as_json, item_id, title):
                answer='--evidence "<text>" or --unverified', free_text=True)
 
 
-def mark_done(ctx, item_id, evidence, unverified, strict=True, stamp=None):
+def mark_done(ctx, item_id, evidence, unverified, strict=True, stamp=None, suffix=""):
     """Check the item off with evidence, set its progress file to done, release its claim.
 
     Returns (ok, message). With strict False an item that is already checked is not an error.
-    `stamp` is the time written after the evidence (default: now).
+    `stamp` is the time written after the evidence (default: now). `suffix` is written after the stamp
+    (the code state of a verified item).
     """
     if not ctx.has_plan():
         return False, no_plan(ctx)
@@ -392,7 +531,7 @@ def mark_done(ctx, item_id, evidence, unverified, strict=True, stamp=None):
     if item.checked and strict:
         return False, "%s is already done." % item_id
     if not item.checked:
-        text = evidence_text(evidence, unverified, stamp)
+        text = evidence_text(evidence, unverified, stamp) + suffix
 
         def change(line):
             line = re.sub(r"\[ \]", "[x]", line, count=1)
@@ -593,6 +732,20 @@ def journal_failure(ctx, item_id, command, result, reason, stamp, tail):
     return gwconfig.display_path(path, ctx.root)
 
 
+QUOTED_RE = re.compile("'[^']*'|\"(?:\\\\.|[^\"\\\\])*\"")  # a single- or double-quoted string
+
+
+def pipe_without_pipefail(command):
+    """True when the shell command pipes (`|`, outside quotes, not `||`) and never says `pipefail`: the exit code is
+    then the last command's, so a failing test piped to `tail` still exits 0 (P-9)."""
+    bare = QUOTED_RE.sub("''", command or "")
+    return "pipefail" not in bare and re.search(r"(?<!\|)\|(?!\|)", bare) is not None
+
+
+PIPE_WARNING = ("warning: the verify command has a pipe and no `pipefail`, so it may pass when the first command fails. "
+                "Use `set -o pipefail; <command>` (bash) or run the test command alone.")
+
+
 def done_verified(ctx, args):
     """`plan done <id> --verify "<cmd>"`: run the command; a pass ticks the item as confirmed,
     a fail leaves PLAN.md alone and records the output tail in the journal."""
@@ -604,6 +757,8 @@ def done_verified(ctx, args):
     if item.checked:
         return fail("%s is already done." % args.id)
     command = args.verify
+    if pipe_without_pipefail(command):
+        print(PIPE_WARNING, file=sys.stderr)
     timeout = verify_timeout(ctx)
     result = run_verify(ctx.root, command, timeout)
     stamp = gwstatus.stamp_time()
@@ -611,7 +766,9 @@ def done_verified(ctx, args):
             "seconds": round(result["seconds"], 1), "timed_out": result["timed_out"], "time": stamp}
     if result["passed"]:
         evidence = "%s %s passed in %s" % (VERIFIED_PREFIX, short_command(command), format_seconds(result["seconds"]))
-        ok, message = mark_done(ctx, args.id, evidence, False, stamp=stamp)
+        state = ctx.code_state()  # taken before mark_done writes the plan and progress files
+        ok, message = mark_done(ctx, args.id, evidence, False, stamp=stamp,
+                                suffix=" at %s t:%s" % state if state else "")
         if ok:
             gwstatus.set_note(ctx.folder, args.id, "confirmed", stamp)
             message = "%s Verified: %s passed in %s." % (message, short_command(command), format_seconds(result["seconds"]))
@@ -753,10 +910,7 @@ def save_always(ctx, choice):
     if not isinstance(plan, dict):
         plan = data["plan"] = {}
     plan["branchOnStart"] = choice
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
+    write_atomic(path, json.dumps(data, indent=2) + "\n", newline=None)
     return True
 
 
@@ -861,7 +1015,9 @@ def cmd_start(ctx, args):
         return result
     if earlier and result["action"] != "worktree":
         gwstatus.stamp_file(ctx.root, ctx.folder, ctx.effective, item.id, state="active")
+    overlaps = file_overlaps(ctx, item.id)
     info = {"started": True, "id": item.id, "title": item.title, "done_means": done_means, "agent": agent,
+            "file_overlap": [{"id": o, "files": f} for o, f in overlaps], "suggest": item.suggest,
             "progress_file": result["progress_file"], "branch": result["branch"], "branch_action": result["action"],
             "worktree": result["worktree"], "earlier_work": earlier, "next_step": NEXT_STEP}
     if as_json:
@@ -869,6 +1025,8 @@ def cmd_start(ctx, args):
         return 0
     print("Started %s: %s" % (item.id, item.title))
     print("Done means: " + done_means)
+    if item.suggest:
+        print("Suggest: " + item.suggest)
     print("Progress file: " + info["progress_file"])
     if earlier:
         print("Earlier work: %s. Read the progress file before changing anything." % earlier)
@@ -876,8 +1034,36 @@ def cmd_start(ctx, args):
         print("Worktree: %s (branch %s). Tell the user to open this folder and continue there." % (info["worktree"], info["branch"]))
     elif info["branch"]:
         print("Branch: %s%s" % (info["branch"], " (new)" if info["branch_action"] == "branch" else ""))
+    if overlaps:
+        print("warning: " + overlap_text(item.id, overlaps) + " Two agents may edit the same files; ask the user, or pick other files.",
+              file=sys.stderr)
     print("Next: " + NEXT_STEP)
     return 0
+
+
+def file_overlaps(ctx, item_id):
+    """P-11: [(other item id, shared files)] where another in-progress (claimed) item's progress file lists a file
+    that `item_id`'s progress file lists too. Advice only; there is no lock."""
+    tasks = ctx.tasks()
+    mine = tasks.get(item_id)
+    if mine is None:
+        return []
+    names = set(mine.file_list())
+    out = []
+    for other_id in sorted(gwclaims.read_all(ctx.root)):
+        task = tasks.get(other_id)
+        if other_id == item_id or task is None:
+            continue
+        shared = sorted(names & set(task.file_list()))
+        if shared:
+            out.append((other_id, shared))
+    return out
+
+
+def overlap_text(item_id, overlaps):
+    return "%s lists files that %s." % (item_id, "; ".join(
+        "%s (in progress) also lists: %s" % (other, ", ".join(shared[:5]) + (", +%d more" % (len(shared) - 5) if len(shared) > 5 else ""))
+        for other, shared in overlaps))
 
 
 def earlier_work(ctx, item_id):

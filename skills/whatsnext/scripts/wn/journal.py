@@ -6,9 +6,11 @@ branch, dirty file count, files changed since the last line's commit), keeps per
 no transcript reading. It does nothing outside git or without an active task.
 
 A journal line looks like (one line, at most MAX_LINE characters):
-    - 2026-11-04T21:58Z stop 5367d1d design/x dirty=2 files: a.py, b.py
+    - 2026-11-04T21:58Z stop 5367d1d design/x dirty=2 set=1a2b3c files: a.py, b.py
+(`set=` is a short hash of the dirty file names, left out when none are dirty; P-1)
 """
 
+import hashlib
 import json
 import os
 import re
@@ -17,6 +19,7 @@ from . import status as gwstatus
 
 MAX_LINE = 200
 LINE_RE = re.compile(r"^- \S+ \S+ (?P<commit>[0-9a-fA-F]{4,40}|%s) \S+ dirty=\d+" % gwstatus.NONE)
+STATE_RE = re.compile(r"^- \S+ \S+ \S+ \S+ dirty=(?P<count>\d+)(?: set=(?P<set>[0-9a-f]{6}))?")
 SESSIONS_DIR = os.path.join(".whatsnext", "sessions")
 SESSION_ID_MAX = 100
 
@@ -87,8 +90,29 @@ def last_commit(path):
     return None
 
 
-def format_line(when, event, commit, branch, dirty, files):
+def dirty_digest(names):
+    """A short hash of the dirty file names (not their content), so a changed set shows when the count did not move."""
+    return hashlib.sha1("\n".join(sorted(names)).encode("utf-8", "replace")).hexdigest()[:6] if names else None
+
+
+def last_state(path):
+    """(dirty count, set digest or None) from the journal's last line, or None."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        m = STATE_RE.match(line)
+        if m:
+            return int(m.group("count")), m.group("set")
+    return None
+
+
+def format_line(when, event, commit, branch, dirty, files, digest=None):
     head = "- %s %s %s %s dirty=%d" % (when, event, commit or gwstatus.NONE, branch, dirty)
+    if digest:
+        head += " set=" + digest
     if not files:
         return head
     line = head + " files:"
@@ -152,10 +176,11 @@ def record(root, effective, event, data=None):
     base = last_commit(journal) or gwstatus.recorded_commit(task)
     changed = [n for n in changed_since(root, base) if not is_bookkeeping(n, skip)]
     dirty = status_paths(root)
-    dirty_count = len([n for n in (dirty or []) if not is_bookkeeping(n, skip)])
+    dirty_names = [n for n in (dirty or []) if not is_bookkeeping(n, skip)]
+    dirty_count = len(dirty_names)
     when = gwstatus.stamp_time()
     commit = gwstatus.current_commit(root)
-    append_line(journal, task.id, format_line(when, event, commit, branch, dirty_count, changed))
+    append_line(journal, task.id, format_line(when, event, commit, branch, dirty_count, changed, dirty_digest(dirty_names)))
     session_id = data.get("session_id") if isinstance(data, dict) else None
     write_session_state(root, session_id, event, when, task.id, commit, branch)
     gwstatus.stamp_file(root, folder, effective, task.id)

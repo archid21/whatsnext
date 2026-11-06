@@ -19,17 +19,18 @@ import re
 import sys
 
 from . import backend as gwbackend
+from . import claims as gwclaims
 from . import config as gwconfig
 from . import journal as gwjournal
 from . import sessions as gwsessions
 from . import status as gwstatus
-from .util import now_utc
+from .util import now_utc, write_atomic
 
 PROMPT = "wrap up"
 DEFAULT_HANDOFF = "docs/project/HANDOFF.md"
 TIMEZONE = "America/Los_Angeles"
 MAX_HANDOFF_CHARS = 3000
-MAX_NEXT_CHARS = 300
+MAX_NEXT_CHARS = 400
 MAX_LINE_CHARS = 1800  # the one-line `/compact <text>` the agent ends its wrap-up reply with
 # (label in the line, section names in the note, cap in characters). Next and Constraints are never cut to make
 # the line fit; Blockers, Decisions and Goal give way first, in that order.
@@ -38,24 +39,25 @@ LINE_SECTIONS = (
     ("Next", ("Next action",), MAX_NEXT_CHARS),
     ("Constraints", ("Constraints",), 600),
     ("Decisions", ("Decisions",), 400),
+    ("Dead ends", ("Dead ends",), 300),
     ("Blockers", ("Open questions and blockers", "Open questions"), 300),
 )
-LINE_SHRINK = ("Blockers", "Decisions", "Goal")
+LINE_SHRINK = ("Dead ends", "Blockers", "Decisions", "Goal")
 LINE_MIN_SLOT = 20
-BODY_ORDER = ("Next action", "Constraints", "Goal", "Decisions", "Open questions and blockers", "Open questions",
-              "State", "What changed")
+BODY_ORDER = ("Next action", "Constraints", "Goal", "Decisions", "Dead ends", "Open questions and blockers",
+              "Open questions", "State", "What changed")
 HEADER_LINES = 12
 SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "whatsnext.py")
 # A line in AGENTS.md such as `Handoff: docs/handoff.md` or `- Handoff file: `notes/HANDOFF.md``.
 AGENTS_RE = re.compile(r"^[\s>*-]*handoff(?:\s+(?:file|note))?\s*:\s*`?([^\s`]+)`?\s*$", re.I | re.M)
 
 LINE_BASE = ("Keep: the task goal, the decisions and why, the constraints, the file paths and commands that matter, "
-             "and the next steps. Drop: tool output, file dumps and dead ends.")
+             "and the next steps. Drop: tool output and file dumps. Keep dead ends (approaches tried and dropped) with the reason.")
 
 COMPACT_BASE = (
     "Keep: the current task and its goal, the decisions made and why, the open questions, the file paths and "
-    "commands that matter, and the next steps. Drop: tool output, file dumps and dead ends (approaches tried "
-    "and abandoned), unless the reason one failed still matters."
+    "commands that matter, and the next steps. Drop: tool output and file dumps. Keep dead ends (approaches tried "
+    "and abandoned) with the reason each failed, so they are not tried again."
 )
 
 
@@ -137,13 +139,16 @@ def read_sidecar(root, session_id):
     return data if isinstance(data, dict) else None
 
 
-def write_sidecar(root, session_id, handoff):
-    """Record that this session wrote the file as it is now: {"sha256", "path", "written_epoch"}."""
+def write_sidecar(root, session_id, handoff, check=None):
+    """Record that this session wrote the file as it is now: {"sha256", "path", "written_epoch"}, and `check`
+    (the handoff-versus-git cross-check, P-15) when there is one."""
     path = sidecar_path(root, session_id)
     if not path:
         return None
     data = {"sha256": file_sha256(handoff), "path": gwconfig.display_path(handoff, root),
             "written_epoch": os.path.getmtime(handoff)}
+    if check is not None:
+        data["cross_check"] = check
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -175,6 +180,137 @@ def handoff_state(handoff, transcript=None, session_id=None, root=None):
             foreign = True
     stale = (not exists) or foreign or (last is not None and modified < last)
     return {"exists": exists, "modified": modified, "last_turn": last, "foreign": foreign, "stale": stale}
+
+
+# ---- compacted without a wrap-up (P-4) ---------------------------------------
+
+
+def compact_marker_path(root, session_id):
+    name = gwjournal.safe_session_id(session_id)
+    return os.path.join(root, gwjournal.SESSIONS_DIR, name + ".compact.json") if name else None
+
+
+def mark_compacted(root, session_id, when):
+    """Record that a compact is about to happen with no fresh handoff (`when` = UTC text), or, when `when` is
+    None, clear an older record. Nothing is written without a usable session id."""
+    path = compact_marker_path(root, session_id)
+    if path is None:
+        return None
+    if when is None:
+        if os.path.isfile(path):
+            os.remove(path)
+        return None
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"session_id": session_id, "without_wrapup": when}, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, path)
+    return path
+
+
+def summary_path(root, session_id):
+    name = gwjournal.safe_session_id(session_id)
+    return os.path.join(root, gwjournal.SESSIONS_DIR, name + ".summary.md") if name else None
+
+
+def plan_step_texts(task):
+    """The text of each step in the task's Plan steps section."""
+    from . import capture as gwcapture
+    out = []
+    for line in task.sections.get("plan steps", "").splitlines():
+        m = gwcapture.STEP_RE.match(line.strip())
+        if m:
+            out.append(m.group(2).strip())
+    return out
+
+
+def kept_steps(summary, steps):
+    """How many of `steps` the summary still names (case and spacing ignored)."""
+    flat = " ".join((summary or "").lower().split())
+    return sum(1 for step in steps if " ".join(step.lower().split()) in flat)
+
+
+def save_summary(root, session_id, summary, task=None):
+    """PostCompact: keep Claude Code's summary in git-ignored session state, the previous one as `.bak`, and record
+    how many plan steps it still names. An empty summary writes a marker and no file. Returns the state dict."""
+    path = summary_path(root, session_id)
+    if path is None:
+        return None
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    state = {"session_id": session_id, "saved": gwstatus.stamp_time(), "ok": bool(isinstance(summary, str) and summary.strip())}
+    if os.path.isfile(path):
+        os.replace(path, path + ".bak")
+    if state["ok"]:
+        from . import redact as gwredact
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(gwredact.mask_secrets(summary))
+        os.replace(tmp, path)
+        steps = plan_step_texts(task) if task is not None else []
+        if steps:
+            state["steps_total"], state["steps_kept"] = len(steps), kept_steps(summary, steps)
+    with open(path[:-3] + ".json", "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=2)
+        f.write("\n")
+    return state
+
+
+def summary_line(root, session_id):
+    """The resume-note sentence about the saved summary, or None."""
+    path = summary_path(root, session_id) if session_id else None
+    try:
+        with open(path[:-3] + ".json", encoding="utf-8") as f:
+            state = json.load(f)
+    except (OSError, ValueError, TypeError):
+        return None
+    if not isinstance(state, dict):
+        return None
+    if not state.get("ok"):
+        return "The compact summary was empty: do not trust it; the note below is the record."
+    if isinstance(state.get("steps_total"), int):
+        return "Summary kept %d of %d plan steps." % (state.get("steps_kept", 0), state["steps_total"])
+    return None
+
+
+def resume_marker_path(root, session_id):
+    name = gwjournal.safe_session_id(session_id)
+    return os.path.join(root, gwjournal.SESSIONS_DIR, name + ".resume.json") if name else None
+
+
+def set_resume_marker(root, session_id):
+    """Codex: a compact is coming and SessionStart may not say so. The next prompt prints the resume note once."""
+    path = resume_marker_path(root, session_id)
+    if path is None:
+        return None
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"session_id": session_id, "set": gwstatus.stamp_time()}, f)
+        f.write("\n")
+    return path
+
+
+def take_resume_marker(root, session_id):
+    """True once after `set_resume_marker`: the marker is removed as it is read."""
+    path = resume_marker_path(root, session_id) if session_id else None
+    if path is None or not os.path.isfile(path):
+        return False
+    try:
+        os.remove(path)
+    except OSError:
+        return False
+    return True
+
+
+def compacted_without_wrapup(root, session_id):
+    """The UTC text of the last compact with no fresh handoff in this session, or None."""
+    path = compact_marker_path(root, session_id) if session_id else None
+    try:
+        with open(path, encoding="utf-8") as f:
+            when = json.load(f).get("without_wrapup")
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+    return when if isinstance(when, str) and when else None
 
 
 # ---- wrap up: the hook ------------------------------------------------------
@@ -209,19 +345,21 @@ def instructions(root, effective, now=None, session_id=None):
                      "fold those lines into the note, then delete that section from the progress file." % (task.id, task.rel))
     lines += [
         "",
-        "Write the file as a `# Handoff` title, then these three header lines exactly as shown, then these seven `##` sections, in this order. Short lines, plain words, no filler:",
+        "Write the file as a `# Handoff` title, then these three header lines exactly as shown, then these eight `##` sections, in this order. Short lines, plain words, no filler:",
         "Session: %s" % (session_id if isinstance(session_id, str) and session_id.strip() else "unknown"),
         "Task: %s" % (task.id if task is not None else "none"),
         "Written: %s" % utc,
         "",
         "1. `## Goal`: what the work is for, one or two lines (at most 200 characters).",
-        "2. `## Next action`: the exact next step, one or two lines, with the command to run. Then a line `Verify: <the command or check that proves it worked>`. Write paths relative to the repository root; never an absolute path, a home folder or the plugin's script path, because this file is committed and shared. At most 300 characters in all.",
+        "2. `## Next action`: the exact next step, one or two lines, with the command to run. Then a line `Verify: <the command or check that proves it worked>`, then a line `If it fails: <what to check or try next>`. Write paths relative to the repository root; never an absolute path, a home folder or the plugin's script path, because this file is committed and shared. At most 400 characters in all.",
         "3. `## State`: begin with `State on %s (Pacific): ` then where the work stands and what was last checked, with its result." % local,
         "4. `## What changed`: files and commits since the last handoff, one line each (at most 5 lines).",
-        "5. `## Decisions`: what was decided and where it is recorded (ADR path); `none` when nothing was. At most 400 characters.",
-        "6. `## Constraints`: what the next session must keep: scope limits, files not to touch, the user's rules for this work; `none` when nothing. At most 600 characters.",
-        "7. `## Open questions and blockers`: what the user still has to answer and what blocks the work; `none` when nothing. At most 300 characters.",
+        "5. `## Decisions`: what was decided and where it is recorded (ADR path); for a decision with no ADR, give the reason in a few words; `none` when nothing was. At most 400 characters.",
+        "6. `## Constraints`: what the next session must keep: scope limits, files not to touch, the user's rules for this work, and the user's corrections to you in their own words; `none` when nothing. At most 600 characters.",
+        "7. `## Open questions and blockers`: what the user still has to answer, what blocks the work, and work the user asked for that is not done; `none` when nothing. At most 300 characters.",
+        "8. `## Dead ends`: approaches tried and dropped, one line each with the reason it was dropped; `none` when nothing. At most 300 characters.",
         "",
+        "Write exact values, not descriptions of them: file paths, ids, versions, URLs, commands and error text as they appear. "
         "Use only facts from this session and the repository; mark a guess as a guess. Never write secrets. Do not commit.",
     ]
     if task is not None:
@@ -238,8 +376,67 @@ def instructions(root, effective, now=None, session_id=None):
     return "\n".join(lines) + "\n"
 
 
+ARCHIVE_DIR = "handoffs"  # next to the handoff note: docs/project/handoffs/
+ARCHIVE_KEEP = 10  # archived notes kept; the oldest go first
+ARCHIVE_NAME_RE = re.compile(r"^\d{8}T\d{4}Z-[A-Za-z0-9._-]{1,40}(-\d+)?\.md$")  # only files the archive wrote
+
+
+def archive_handoff(root, effective, keep=ARCHIVE_KEEP):
+    """Before `wrap up` overwrites the note, save the old one as `<folder>/handoffs/<Written, UTC>-<task>.md`.
+    A note that is already saved (same content) is not saved twice. Only the newest `keep` are kept.
+    Returns the saved path, or None when there was nothing to save."""
+    handoff = handoff_path(root, effective)
+    try:
+        with open(handoff, encoding="utf-8", errors="replace") as f:
+            body = f.read()
+    except OSError:
+        return None
+    if not body.strip():
+        return None
+    header = parse_header(body)
+    written = gwclaims.to_dt(header["written"]) if header["written"] else None
+    when = (written or datetime.datetime.fromtimestamp(os.path.getmtime(handoff), datetime.timezone.utc)
+            ).astimezone(datetime.timezone.utc).strftime("%Y%m%dT%H%MZ")
+    label = re.sub(r"[^A-Za-z0-9._-]+", "-", header["task"] or header["session"] or "note").strip("-")[:40] or "note"
+    folder = os.path.join(os.path.dirname(handoff), ARCHIVE_DIR)
+    if os.path.islink(folder):  # the archive folder is a real folder or nothing: a link could point anywhere
+        return None
+    inside = os.path.realpath(root)  # no link on the way (a linked `docs/project`, say) may lead outside the project
+    parent = os.path.realpath(os.path.dirname(folder))
+    if os.path.commonpath([parent, inside]) != inside:
+        return None
+    os.makedirs(folder, exist_ok=True)
+    digest = hashlib.sha256(body.encode("utf-8", "replace")).hexdigest()
+    for name in os.listdir(folder):
+        if ARCHIVE_NAME_RE.match(name) and not os.path.islink(os.path.join(folder, name)):
+            try:
+                with open(os.path.join(folder, name), encoding="utf-8", errors="replace") as f:
+                    if hashlib.sha256(f.read().encode("utf-8", "replace")).hexdigest() == digest:
+                        return None
+            except OSError:
+                continue
+    path = os.path.join(folder, "%s-%s.md" % (when, label))
+    n = 1
+    while os.path.lexists(path):  # lexists: a dangling link is taken too, never written through
+        n += 1
+        path = os.path.join(folder, "%s-%s-%d.md" % (when, label, n))
+    write_atomic(path, body)
+    names = sorted(n for n in os.listdir(folder)
+                   if ARCHIVE_NAME_RE.match(n) and not os.path.islink(os.path.join(folder, n)))
+    for old in names[:max(len(names) - keep, 0)]:
+        try:
+            os.remove(os.path.join(folder, old))
+        except OSError:
+            pass
+    return path
+
+
 def begin(root, effective, data):
-    """Remember the request, and return the instructions to print."""
+    """Remember the request, save the old note, and return the instructions to print."""
+    try:
+        archive_handoff(root, effective)
+    except Exception:  # an archive that fails must not stop the wrap-up
+        pass
     path = marker_path(root, data.get("session_id"))
     if path:
         try:
@@ -280,7 +477,12 @@ def settle(root, effective, data, agent=None):
     except Exception:  # a backend problem must not stop the journal line
         pass
     try:
-        write_sidecar(root, data.get("session_id"), handoff)
+        from . import crosscheck as gwcrosscheck
+        try:
+            check = gwcrosscheck.cross_check(root, effective, handoff, task)
+        except Exception:  # the check is a help; the sidecar is what matters
+            check = None
+        write_sidecar(root, data.get("session_id"), handoff, check)
     except OSError:  # without it the note counts as foreign: a stale answer, never a wrong one
         pass
     gwjournal.record(root, effective, "wrap-up", data)

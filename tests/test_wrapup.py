@@ -120,6 +120,98 @@ class WrapUpHookTests(HookBase):
         self.task()
         self.commit("task")
 
+    def archive_dir(self):
+        folder = self.p("docs/project/handoffs")
+        return sorted(os.listdir(folder)) if os.path.isdir(folder) else []
+
+    def put_note(self, task="P-13", written="2026-11-05T05:03Z", extra=""):
+        self.put("docs/project/HANDOFF.md", "# Handoff\n\nSession: s0\nTask: %s\nWritten: %s\n\n## Goal\nold %s\n" % (task, written, extra))
+
+    def test_archive_saves_the_old_note_before_the_wrap_up(self):
+        self.assertEqual(self.archive_dir(), [])
+        self.prompt("wrap up")  # no old note: nothing to save
+        self.assertEqual(self.archive_dir(), [])
+        self.put_note()
+        out = self.prompt("wrap up")
+        self.assertIn("docs/project/HANDOFF.md", out)  # the prompt is unchanged
+        self.assertEqual(self.archive_dir(), ["20261105T0503Z-P-13.md"])
+        self.assertIn("old ", self.get("docs/project/handoffs/20261105T0503Z-P-13.md"))
+        self.prompt("wrap up")  # the same note again: not saved twice
+        self.assertEqual(len(self.archive_dir()), 1)
+
+    def test_archive_keeps_only_the_last_n(self):
+        from wn import wrapup as wnwrapup
+        for i in range(wnwrapup.ARCHIVE_KEEP + 3):
+            self.put_note(written="2026-11-%02dT10:00Z" % (i + 1), extra=str(i))
+            self.prompt("wrap up")
+        names = self.archive_dir()
+        self.assertEqual(len(names), wnwrapup.ARCHIVE_KEEP)
+        self.assertEqual(names[0], "20261104T1000Z-P-13.md")  # the three oldest are gone
+        self.assertEqual(names[-1], "20261113T1000Z-P-13.md")
+
+    def test_archive_never_writes_through_a_link_or_deletes_other_files(self):
+        from wn import wrapup as wnwrapup
+        outside = os.path.join(self.tmp.name, "outside")
+        os.makedirs(outside)
+        folder = self.p("docs/project/handoffs")
+        os.makedirs(folder)
+        os.symlink(os.path.join(outside, "victim.md"), os.path.join(folder, "20261105T0503Z-P-13.md"))  # dangling link
+        self.put_note()
+        self.prompt("wrap up")
+        self.assertFalse(os.path.exists(os.path.join(outside, "victim.md")))
+        self.assertTrue(os.path.exists(os.path.join(folder, "20261105T0503Z-P-13-2.md")))
+        for i in range(wnwrapup.ARCHIVE_KEEP + 2):  # other files in the folder are never pruned
+            self.put("docs/project/handoffs/notes-%d.md" % i, "mine\n")
+        self.put_note(written="2026-11-06T10:00Z", extra="again")
+        self.prompt("wrap up")
+        self.assertEqual(len([n for n in os.listdir(folder) if n.startswith("notes-")]), wnwrapup.ARCHIVE_KEEP + 2)
+        shutil_target = self.p("docs/project/elsewhere")
+        os.makedirs(shutil_target)
+        os.rename(folder, folder + ".old")
+        os.symlink(shutil_target, folder)  # the folder itself is a link: nothing is archived into it
+        self.put_note(written="2026-11-07T10:00Z", extra="third")
+        self.prompt("wrap up")
+        self.assertEqual(os.listdir(shutil_target), [])
+
+    def test_archive_stays_inside_the_project_when_a_parent_folder_is_a_link(self):
+        outside = os.path.join(self.tmp.name, "elsewhere")
+        os.makedirs(outside)
+        with open(os.path.join(outside, "HANDOFF.md"), "w", encoding="utf-8") as f:
+            f.write("# Handoff\n\nSession: s0\nTask: P-13\nWritten: 2026-11-05T05:03Z\n\n## Goal\nold\n")
+        import shutil
+        shutil.rmtree(self.p("docs/project"), ignore_errors=True)
+        os.makedirs(self.p("docs"), exist_ok=True)
+        os.symlink(outside, self.p("docs/project"))  # docs/project -> outside the project
+        self.prompt("wrap up")
+        self.assertEqual(sorted(os.listdir(outside)), ["HANDOFF.md"])  # no handoffs/ folder was made out there
+
+    def test_archive_failure_does_not_stop_the_wrap_up(self):
+        self.put_note()
+        self.put("docs/project/handoffs", "a file where the folder should be\n")
+        out = self.prompt("wrap up")
+        self.assertIn("docs/project/HANDOFF.md", out)
+
+    def test_template_exact(self):
+        out = self.prompt("wrap up")
+        self.assertIn("file paths, ids, versions, URLs, commands and error text as they appear", out)
+        self.assertIn("for a decision with no ADR, give the reason", out)
+        self.assertIn("the user's corrections to you in their own words", out)
+        self.assertIn("then a line `If it fails: <what to check or try next>`", out)
+        self.assertIn("work the user asked for that is not done", out)
+        self.assertIn("At most 400 characters in all.", out)
+        self.assertLess(out.index("`Verify:"), out.index("`If it fails:"))
+        self.assertIn("Next: <next action, at most 400 characters>", out)
+
+    def test_template_exact_the_longest_line_still_fits_and_next_is_not_cut(self):
+        from wn import wrapup as wnwrapup
+        body = ("# Handoff\n\n## Goal\n" + "g" * 200 + "\n\n## Next action\n" + "n" * 400 + "\n\n## Constraints\n" + "c" * 600
+                + "\n\n## Decisions\n" + "d" * 400 + "\n\n## Dead ends\n" + "x" * 300 + "\n\n## Open questions and blockers\n" + "b" * 300 + "\n")
+        line = wnwrapup.compact_line(body)
+        self.assertLessEqual(len(line), wnwrapup.MAX_LINE_CHARS)
+        self.assertIn("n" * 400, line)
+        self.assertIn("c" * 600, line)
+        self.assertEqual(wnwrapup.MAX_NEXT_CHARS, 400)
+
     def test_exact_prompt_prints_the_instructions(self):
         out = self.prompt("wrap up")
         self.assertIn("docs/project/HANDOFF.md", out)
@@ -159,6 +251,39 @@ class WrapUpHookTests(HookBase):
         self.assertRegex(self.journal(), r"\n- \S+ wrap-up \S+ \S+ dirty=\d+")
         self.stop()  # the marker is gone: a later Stop records nothing more
         self.assertEqual(len(self.wrapups()), 1)
+
+    def write_note(self, what_changed):
+        self.put("docs/project/HANDOFF.md",
+                 "# Handoff\n\nSession: s1\nTask: P-13\nWritten: 2026-11-06T10:00Z\n\n## Goal\nx\n\n## What changed\n%s\n\n"
+                 "## Next action\n\nGo.\n" % what_changed)
+
+    def test_cross_check_names_both_gaps_in_the_sidecar_and_the_note(self):
+        self.prompt("wrap up")
+        self.put("src/real.py", "x\n")
+        self.put("src/forgotten.py", "x\n")
+        self.write_note("- `src/real.py`: new\n- src/ghost.py: said changed, but was not\n- v1.2.3 and https://x.io/a.b are not files")
+        self.stop()
+        side = json.loads(self.get(".whatsnext/sessions/s1.handoff.json"))
+        self.assertEqual(side["cross_check"]["named_not_changed"], ["src/ghost.py"])
+        self.assertEqual(side["cross_check"]["changed_not_named"], ["src/forgotten.py"])
+        note = self.hook("session-start", {"source": "startup", "session_id": "s1"})
+        self.assertIn("Handoff check: named, not changed in git: src/ghost.py; changed, not named: src/forgotten.py.", note)
+
+    def test_cross_check_agreeing_lists_add_no_line(self):
+        self.prompt("wrap up")
+        self.put("src/real.py", "x\n")
+        self.write_note("- src/real.py: new")
+        self.stop()
+        side = json.loads(self.get(".whatsnext/sessions/s1.handoff.json"))
+        self.assertEqual(side["cross_check"], {"named_not_changed": [], "changed_not_named": []})
+        self.assertNotIn("Handoff check", self.hook("session-start", {"source": "startup", "session_id": "s1"}))
+
+    def test_cross_check_does_not_count_the_handoff_the_archive_or_progress_files(self):
+        self.prompt("wrap up")
+        self.write_note("- nothing else")
+        self.stop()
+        side = json.loads(self.get(".whatsnext/sessions/s1.handoff.json"))
+        self.assertEqual(side["cross_check"]["changed_not_named"], [])
 
     def test_the_next_action_is_copied_as_auto(self):
         self.prompt("wrap up")
