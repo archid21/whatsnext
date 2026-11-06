@@ -45,6 +45,7 @@ MAX_TITLE = 80
 MAX_BRANCH = 60
 MAX_NEXT = 400
 MAX_RUN = 120
+MAX_CHECK = 160
 MAX_SUBJECT = 60
 MAX_FILE_NAME = 60
 STALE_DAYS = 7
@@ -412,6 +413,10 @@ def build(root, effective, compacted=False, session_id=None):
     compacted_line = compacted_text(root, session_id) if compacted else None
     info = handoff_info(root, effective, task, session_id)
     command, source = run_command(root, effective, task)
+    from . import crosscheck as gwcrosscheck
+    side = gwwrapup.read_sidecar(root, session_id) if session_id else None
+    check_line = gwcrosscheck.note_line((side or {}).get("cross_check")) if info else None
+    check_line = clip(check_line, MAX_CHECK) if check_line else None
     facts = git_facts(root, effective, task)
     warning = old_warning(task, now, effective.get("note.staleDays"), facts["new"] if facts else None,
                           effective.get("note.staleCommits"))
@@ -438,6 +443,8 @@ def build(root, effective, compacted=False, session_id=None):
         sections["next"] = [next_line(task, state["next"], info)]
         if state["handoff"]:
             sections["handoff"] = [handoff_line(info) if info else NO_HANDOFF]
+            if info and info["related"] and check_line:
+                sections["handoff"].append(check_line)
         if command:
             sections["run"] = ["Run (from %s): %s" % (source, clip(command, MAX_RUN))]
         since = since_lines(facts, state["commits"], state["files"])

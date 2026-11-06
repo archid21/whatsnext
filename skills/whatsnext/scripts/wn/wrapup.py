@@ -139,13 +139,16 @@ def read_sidecar(root, session_id):
     return data if isinstance(data, dict) else None
 
 
-def write_sidecar(root, session_id, handoff):
-    """Record that this session wrote the file as it is now: {"sha256", "path", "written_epoch"}."""
+def write_sidecar(root, session_id, handoff, check=None):
+    """Record that this session wrote the file as it is now: {"sha256", "path", "written_epoch"}, and `check`
+    (the handoff-versus-git cross-check, P-15) when there is one."""
     path = sidecar_path(root, session_id)
     if not path:
         return None
     data = {"sha256": file_sha256(handoff), "path": gwconfig.display_path(handoff, root),
             "written_epoch": os.path.getmtime(handoff)}
+    if check is not None:
+        data["cross_check"] = check
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -474,7 +477,12 @@ def settle(root, effective, data, agent=None):
     except Exception:  # a backend problem must not stop the journal line
         pass
     try:
-        write_sidecar(root, data.get("session_id"), handoff)
+        from . import crosscheck as gwcrosscheck
+        try:
+            check = gwcrosscheck.cross_check(root, effective, handoff, task)
+        except Exception:  # the check is a help; the sidecar is what matters
+            check = None
+        write_sidecar(root, data.get("session_id"), handoff, check)
     except OSError:  # without it the note counts as foreign: a stale answer, never a wrong one
         pass
     gwjournal.record(root, effective, "wrap-up", data)

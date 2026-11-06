@@ -252,6 +252,39 @@ class WrapUpHookTests(HookBase):
         self.stop()  # the marker is gone: a later Stop records nothing more
         self.assertEqual(len(self.wrapups()), 1)
 
+    def write_note(self, what_changed):
+        self.put("docs/project/HANDOFF.md",
+                 "# Handoff\n\nSession: s1\nTask: P-13\nWritten: 2026-11-06T10:00Z\n\n## Goal\nx\n\n## What changed\n%s\n\n"
+                 "## Next action\n\nGo.\n" % what_changed)
+
+    def test_cross_check_names_both_gaps_in_the_sidecar_and_the_note(self):
+        self.prompt("wrap up")
+        self.put("src/real.py", "x\n")
+        self.put("src/forgotten.py", "x\n")
+        self.write_note("- `src/real.py`: new\n- src/ghost.py: said changed, but was not\n- v1.2.3 and https://x.io/a.b are not files")
+        self.stop()
+        side = json.loads(self.get(".whatsnext/sessions/s1.handoff.json"))
+        self.assertEqual(side["cross_check"]["named_not_changed"], ["src/ghost.py"])
+        self.assertEqual(side["cross_check"]["changed_not_named"], ["src/forgotten.py"])
+        note = self.hook("session-start", {"source": "startup", "session_id": "s1"})
+        self.assertIn("Handoff check: named, not changed in git: src/ghost.py; changed, not named: src/forgotten.py.", note)
+
+    def test_cross_check_agreeing_lists_add_no_line(self):
+        self.prompt("wrap up")
+        self.put("src/real.py", "x\n")
+        self.write_note("- src/real.py: new")
+        self.stop()
+        side = json.loads(self.get(".whatsnext/sessions/s1.handoff.json"))
+        self.assertEqual(side["cross_check"], {"named_not_changed": [], "changed_not_named": []})
+        self.assertNotIn("Handoff check", self.hook("session-start", {"source": "startup", "session_id": "s1"}))
+
+    def test_cross_check_does_not_count_the_handoff_the_archive_or_progress_files(self):
+        self.prompt("wrap up")
+        self.write_note("- nothing else")
+        self.stop()
+        side = json.loads(self.get(".whatsnext/sessions/s1.handoff.json"))
+        self.assertEqual(side["cross_check"]["changed_not_named"], [])
+
     def test_the_next_action_is_copied_as_auto(self):
         self.prompt("wrap up")
         self.put("docs/project/HANDOFF.md", "# Handoff\n\n## Next action\n\nWrite the form tests.\nRun: python3 -m unittest\n\n## State\n\nok\n")
