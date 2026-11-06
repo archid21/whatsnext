@@ -1,7 +1,7 @@
 # ADR-0014: A plan item may say which open items it waits for, and `plan next` skips it
 
 - **Date:** 2026-11-06T22:12Z
-- **Status:** proposed (agent), awaiting the user's decision
+- **Status:** accepted (user), 2026-11-06
 
 Amends ADR-0002, which lists `blocked by:` under "Not in this release".
 
