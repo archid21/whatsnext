@@ -175,10 +175,8 @@ def precompact(root, effective, data, agent=None):
     gwwrapup.mark_compacted(root, session_id, when)
     if agent == "codex":
         return ""
-    lines = ["whatsnext facts:", gwpacket.first_line(task, gwpacket.MAX_TITLE) + "."]
-    next_text = " ".join(task.section("Next action").split())
-    if next_text:
-        lines.append("Next: " + gwwrapup.clip_to(next_text, 300))
+    from . import compact as gwcompact  # imported here: compact imports this module
+    lines = ["whatsnext facts:", gwcompact.facts_text(root, effective, task)]
     if when:
         lines.append("Compacted without wrap-up at %s." % when)
     facts = " ".join(lines)

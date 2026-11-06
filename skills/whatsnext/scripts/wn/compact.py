@@ -8,10 +8,55 @@ import json
 import os
 import sys
 
+from . import capture as gwcapture
 from . import config as gwconfig
 from . import hook as gwhook
+from . import journal as gwjournal
+from . import packet as gwpacket
 from . import sessions as gwsessions
+from . import status as gwstatus
 from . import wrapup as gwwrapup
+
+MAX_FACT_FILES = 8
+MAX_FACTS_CHARS = 700  # the facts alone; PreCompact keeps room for the handoff text and the latest request
+
+
+def changed_files(root, effective, task):
+    """Files changed since the progress file's commit, plus uncommitted ones, whatsnext's own files left out."""
+    if not gwstatus.in_git(root):
+        return []
+    code, out = gwstatus.git(root, "rev-parse", "--show-prefix")
+    prefix = out.strip() if code == 0 else ""
+    folder = gwstatus.status_folder(root, effective)
+    skip = (gwjournal.rel_path(root, prefix, os.path.join(folder, "journal", task.id + ".md")),
+            gwjournal.rel_path(root, prefix, task.path),
+            gwjournal.rel_path(root, prefix, os.path.join(root, gwjournal.SESSIONS_DIR)) + "/")
+    base = gwstatus.recorded_commit(task)
+    return [n for n in gwjournal.changed_since(root, base) if not gwjournal.is_bookkeeping(n, skip)]
+
+
+def facts_text(root, effective, task):
+    """The facts of the active task as one line (no newline): task, branch, plan step, Next and files changed.
+    Built from the progress file and git; no model, no handoff note."""
+    first = gwpacket.first_line(task, gwpacket.MAX_TITLE)  # "continue P-13 Title (branch b, step 2 of 3)"
+    parts = [first]
+    n, step, total = gwcapture.read_steps(task)
+    if step:
+        parts.append("Plan step %d of %d: %s." % (n, total, gwpacket.clip(gwpacket.clean(step), 120)))
+    next_text = " ".join(task.section("Next action").split())
+    if next_text:
+        parts.append("Next: " + gwwrapup.clip_to(gwpacket.clean(next_text), 300))
+    names = [gwpacket.clip(gwpacket.clean(n), gwpacket.MAX_FILE_NAME) for n in changed_files(root, effective, task)]
+    if names:
+        more = len(names) - MAX_FACT_FILES
+        parts.append("Files changed: %s%s." % (", ".join(names[:MAX_FACT_FILES]), ", +%d more" % more if more > 0 else ""))
+    text = " ".join(parts)
+    return gwwrapup.clip_to(" ".join(text.split()), MAX_FACTS_CHARS)
+
+
+def facts_line(root, effective, task):
+    """The one-line `/compact <text>` body for a task with no fresh handoff: the keep-list, then the facts."""
+    return gwwrapup.LINE_BASE + " Facts: " + facts_text(root, effective, task)
 
 
 def project_for(args, transcript):
@@ -43,6 +88,8 @@ def cmd_instructions(argv):
     handoff = gwwrapup.handoff_path(root, effective)
     state = gwwrapup.handoff_state(handoff, transcript, args.session, root)
     line = None
+    task = gwhook.branch_task(root, effective) if gwhook.is_project(root, effective) else None
+    facts = facts_line(root, effective, task) if task else None
     if state["exists"] and not state["foreign"]:
         with open(handoff, encoding="utf-8", errors="replace") as f:
             line = gwwrapup.compact_line(f.read())
@@ -50,6 +97,7 @@ def cmd_instructions(argv):
         "instructions": text,
         "compact_prompt": "/compact " + text,
         "compact_line": line,
+        "facts_line": facts,
         "handoff": gwconfig.display_path(handoff, root),
         "handoff_exists": state["exists"],
         "handoff_foreign": state["foreign"],
