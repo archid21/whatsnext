@@ -35,6 +35,7 @@ from . import wrapup as gwwrapup
 EVENTS = ("session-start", "plan-shown", "plan-approved", "prompt-submit", "stop", "pre-compact", "post-compact",
           "session-end")
 PRECOMPACT_CAP = 3000  # characters printed at PreCompact (P-20)
+OPEN_WORK_CAP = 500  # characters for the subagents and todo line (P-25)
 REQUEST_CAP = 2000  # characters of the user's latest request kept verbatim (P-6)
 FACT_EVENTS = ("stop", "pre-compact", "session-end")  # these write the facts layer
 AGENTS = ("claude-code", "codex")
@@ -164,6 +165,25 @@ def latest_request(transcript, facts):
     return head + gwwrapup.clip_to(gwredact.mask_secrets(text), room) if room > 0 else ""
 
 
+def open_work_text(transcript):
+    """One short line naming the subagents launched this session and the agent's in-progress todo, or "".
+    Plain facts from the transcript tail; any error gives ""."""
+    if not transcript or not os.path.isfile(transcript):
+        return ""
+    try:
+        work = gwsessions.open_work(transcript)
+    except (OSError, ValueError):
+        return ""
+    parts = []
+    if work["agents"]:
+        parts.append("Subagents launched: " + "; ".join("%s (%s, %s)" % (
+            gwwrapup.clip_to(" ".join(d.split()), 60), gwwrapup.clip_to(t, 30), "running" if running else "finished")
+            for d, t, running in work["agents"]) + ".")
+    if work["todo"]:
+        parts.append("In-progress todo: " + "; ".join(gwwrapup.clip_to(" ".join(t.split()), 80) for t in work["todo"][:3]) + ".")
+    return gwwrapup.clip_to(gwredact.mask_secrets(" ".join(parts)), OPEN_WORK_CAP) if parts else ""
+
+
 def precompact(root, effective, data, agent=None):
     """PreCompact (P-4, P-20, P-26). Records "compacted without wrap-up" when this session has no fresh handoff
     note (the resume note shows it after the compact). Claude Code: returns plain text, at most PRECOMPACT_CAP
@@ -184,6 +204,9 @@ def precompact(root, effective, data, agent=None):
     lines = ["whatsnext facts:", gwcompact.facts_text(root, effective, task)]
     if when:
         lines.append("Compacted without wrap-up at %s." % when)
+    open_work = open_work_text(transcript)
+    if open_work:
+        lines.append(open_work)
     facts = " ".join(lines)
     request = latest_request(transcript, facts)
     custom = data.get("custom_instructions")

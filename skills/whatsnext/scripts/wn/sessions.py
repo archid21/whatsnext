@@ -140,3 +140,40 @@ def latest_request(path, skip_prompt=None):
             continue
         found = text
     return found
+
+
+AGENT_TOOLS = ("Agent", "Task")  # the subagent tool's name has changed between Claude Code versions
+
+
+def open_work(path, max_agents=5):
+    """What was still open at the end of a transcript, from its tail: {"agents": [(description, type, running)],
+    "todo": [text]}. An agent is running while its tool_use has no tool_result; the todo is every task the
+    agent marked `in_progress` with TodoWrite, or with TaskCreate and TaskUpdate (ids are 1, 2, 3 in order)."""
+    agents, results, todo, tasks, created = {}, set(), [], {}, 0
+    for item in tail_entries(path):
+        if item.get("isSidechain"):
+            continue
+        content = (item.get("message") or {}).get("content")
+        for block in content if isinstance(content, list) else []:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_result" and isinstance(block.get("tool_use_id"), str):
+                results.add(block["tool_use_id"])
+            if block.get("type") != "tool_use" or not isinstance(block.get("input"), dict):
+                continue
+            name, data = block.get("name"), block["input"]
+            if name in AGENT_TOOLS:
+                agents[block.get("id")] = (str(data.get("description") or data.get("subagent_type") or "agent"),
+                                           str(data.get("subagent_type") or "agent"))
+            elif name == "TodoWrite" and isinstance(data.get("todos"), list):
+                todo = [str(t.get("content", "")) for t in data["todos"]
+                        if isinstance(t, dict) and t.get("status") == "in_progress" and t.get("content")]
+            elif name == "TaskCreate":
+                created += 1
+                tasks[str(created)] = [str(data.get("subject") or data.get("description") or ""), "pending"]
+            elif name == "TaskUpdate" and str(data.get("taskId")) in tasks and isinstance(data.get("status"), str):
+                tasks[str(data["taskId"])][1] = data["status"]
+    if tasks:
+        todo = [text for text, status in tasks.values() if status == "in_progress" and text]
+    shown = [(d, t, i not in results) for i, (d, t) in agents.items()][-max_agents:]
+    return {"agents": shown, "todo": todo}
