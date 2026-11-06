@@ -852,6 +852,21 @@ class OutputTailTests(unittest.TestCase):
 class VerifyTests(PlanBase):
     """`plan done <id> --verify "<cmd>"` (ADR-0003)."""
 
+    def test_pipe_warning(self):
+        self.assertTrue(plan.pipe_without_pipefail("python3 -m unittest 2>&1 | tail -3"))
+        self.assertTrue(plan.pipe_without_pipefail("make test | head"))
+        self.assertFalse(plan.pipe_without_pipefail("set -o pipefail; make test | tail"))
+        self.assertFalse(plan.pipe_without_pipefail("make test"))
+        self.assertFalse(plan.pipe_without_pipefail("a || b"))
+        self.assertFalse(plan.pipe_without_pipefail("grep 'a|b' file"))
+        self.assertFalse(plan.pipe_without_pipefail('echo "x | y"'))
+        self.assertFalse(plan.pipe_without_pipefail(""))
+        r = self.plan("done", "P-13", "--verify", "true | cat")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)  # a warning, not a refusal
+        self.assertIn("has a pipe and no `pipefail`", r.stderr)
+        r = self.plan("done", "P-16", "--verify", "test -f README.md")
+        self.assertNotIn("pipefail", r.stderr)
+
     def test_verify_records_state(self):
         r = self.plan("done", "P-13", "--verify", "test -f README.md")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)

@@ -651,6 +651,20 @@ def journal_failure(ctx, item_id, command, result, reason, stamp, tail):
     return gwconfig.display_path(path, ctx.root)
 
 
+QUOTED_RE = re.compile("'[^']*'|\"(?:\\\\.|[^\"\\\\])*\"")  # a single- or double-quoted string
+
+
+def pipe_without_pipefail(command):
+    """True when the shell command pipes (`|`, outside quotes, not `||`) and never says `pipefail`: the exit code is
+    then the last command's, so a failing test piped to `tail` still exits 0 (P-9)."""
+    bare = QUOTED_RE.sub("''", command or "")
+    return "pipefail" not in bare and re.search(r"(?<!\|)\|(?!\|)", bare) is not None
+
+
+PIPE_WARNING = ("warning: the verify command has a pipe and no `pipefail`, so it may pass when the first command fails. "
+                "Use `set -o pipefail; <command>` (bash) or run the test command alone.")
+
+
 def done_verified(ctx, args):
     """`plan done <id> --verify "<cmd>"`: run the command; a pass ticks the item as confirmed,
     a fail leaves PLAN.md alone and records the output tail in the journal."""
@@ -662,6 +676,8 @@ def done_verified(ctx, args):
     if item.checked:
         return fail("%s is already done." % args.id)
     command = args.verify
+    if pipe_without_pipefail(command):
+        print(PIPE_WARNING, file=sys.stderr)
     timeout = verify_timeout(ctx)
     result = run_verify(ctx.root, command, timeout)
     stamp = gwstatus.stamp_time()

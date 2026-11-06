@@ -31,7 +31,7 @@ One line per item: `- [ ] P-N Title · done means: <how we know it is done>`.
 
 ## Later
 
-- [ ] P-9 Verify pipe warning · done means: `python3 -m unittest tests.test_plan -k pipe_warning` passes: `plan done --verify` on a piped command with no `pipefail` prints a warning
+- [x] P-9 Verify pipe warning · done means: `python3 -m unittest tests.test_plan -k pipe_warning` passes: `plan done --verify` on a piped command with no `pipefail` prints a warning · evidence: verified: python3 -m unittest tests.test_plan -k pipe_warning passed in 0.6 s (2026-11-06T21:49Z) at e04ede8 t:632d3393
 - [ ] P-19 Codex plan-capture health · done means: `python3 -m unittest tests.test_hook -k capture_unreadable` passes: an unreadable Codex plan writes one `capture.unreadable` fact that `doctor` shows
 - [ ] P-27 Orphan and drift check for claims and progress files · done means: `python3 -m unittest tests.test_plan -k orphan_claim` passes: deleting a claimed item makes `plan check` report "claim for P-N, not in plan"
 - [ ] P-7 PLAN.md hand-tick guard · done means: `python3 -m unittest tests.test_hook -k plan_tick_guard` passes: a PreToolUse edit that ticks `- [ ] P-N` gets the "use `plan done --verify`" message
