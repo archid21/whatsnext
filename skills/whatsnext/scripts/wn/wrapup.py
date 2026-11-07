@@ -336,18 +336,49 @@ def marker_path(root, session_id):
     return os.path.join(root, gwjournal.SESSIONS_DIR, name + ".wrapup.json") if name else None
 
 
+ALLOW_WINDOW_SECONDS = 30 * 60  # a wrap-up older than this no longer opens the permission
+
+
+def safe_handoff_target(root, effective):
+    """The handoff note's real path when it is safe to write without a prompt, else None. The repository's own
+    settings and AGENTS.md choose this path, so it must be a plain `.md` file inside the project, outside every dot
+    folder but `.whatsnext/` (`.git/`, `.claude/`, `.github/`), and neither it nor a folder above it may be a link."""
+    inside = os.path.realpath(root)
+    rel = os.path.relpath(handoff_path(root, effective), root)
+    parts = rel.split(os.sep)
+    if rel.startswith("..") or os.path.isabs(rel) or not rel.endswith(".md") or ".." in parts:
+        return None
+    if any(p.startswith(".") and not (i == 0 and p == ".whatsnext") for i, p in enumerate(parts)):
+        return None
+    lexical = os.path.normpath(os.path.join(inside, rel))
+    if os.path.realpath(lexical) != lexical or os.path.commonpath([lexical, inside]) != inside:
+        return None
+    return lexical
+
+
 def allow_handoff_write(root, effective, data):
     """PermissionRequest (P-43): the JSON that lets the agent write the handoff note while this session's `wrap up` is
-    open, else "". It covers one file only: the handoff path. The request marker `begin` writes is the proof the person
-    (or the idle timer) asked for it, and `settle` removes it at Stop. Nothing is added to the person's settings."""
+    open, else "". It covers one file only (see `safe_handoff_target`), for 30 minutes after the request. The request
+    marker `begin` writes is the proof the person (or the idle timer) asked for it, and `settle` removes it at Stop.
+    Nothing is added to the person's settings."""
     path = marker_path(root, data.get("session_id"))
     tool_input = data.get("tool_input")
     target = tool_input.get("file_path") if isinstance(tool_input, dict) else None
     if not path or not os.path.isfile(path) or not isinstance(target, str) or data.get("tool_name") not in ("Write", "Edit", "MultiEdit"):
         return ""
-    base = data.get("cwd") if isinstance(data.get("cwd"), str) else root
-    wanted = os.path.realpath(handoff_path(root, effective))
-    if os.path.realpath(target if os.path.isabs(target) else os.path.join(base, target)) != wanted:
+    try:
+        with open(path, encoding="utf-8") as f:
+            requested = float(json.load(f).get("requested_epoch"))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return ""
+    if not 0 <= now_utc().timestamp() - requested <= ALLOW_WINDOW_SECONDS:
+        return ""
+    wanted = safe_handoff_target(root, effective)
+    if wanted is None:
+        return ""
+    base = root  # not the hook's `cwd`: a relative target means a path under the project root
+    given = target if os.path.isabs(target) else os.path.join(base, target)
+    if os.path.realpath(given) != wanted:
         return ""
     return json.dumps({"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {"behavior": "allow"}}}) + "\n"
 
