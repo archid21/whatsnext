@@ -1,7 +1,7 @@
 # ADR-0015: The resume note after a compact repeats the user's latest request and the open work
 
 - **Date:** 2026-11-07T06:20Z
-- **Status:** proposed (agent suggestion; the user asked for the change, has not yet accepted this record)
+- **Status:** accepted (user), 2026-11-07
 
 Amends ADR-0011 item 3 ("nothing is stored on disk") for the text below.
 

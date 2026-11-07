@@ -18,4 +18,4 @@ Dates are UTC. This list is the current set of decisions for whatsnext. Earlier 
 | 0012 | 2026-11-06T19:04Z | A plan item may carry a `suggest:` hint that whatsnext stores and never uses | accepted (user) | [ADR-0012](ADR-0012-suggest-field.md) |
 | 0013 | 2026-11-06T20:02Z | The handoff note has a Dead ends section, and the compact text keeps it | accepted (user) | [ADR-0013](ADR-0013-dead-ends-in-the-handoff.md) |
 | 0014 | 2026-11-06T22:12Z | A plan item may say which open items it waits for, and `plan next` skips it | accepted (user) | [ADR-0014](ADR-0014-blocked-by.md) |
-| 0015 | 2026-11-07T06:20Z | The resume note after a compact repeats the user's latest request and the open work | proposed (agent) | [ADR-0015](ADR-0015-carry-after-compact.md) |
+| 0015 | 2026-11-07T06:20Z | The resume note after a compact repeats the user's latest request and the open work | accepted (user) | [ADR-0015](ADR-0015-carry-after-compact.md) |

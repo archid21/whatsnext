@@ -10,7 +10,7 @@ After a compact, the resume note repeats the user's latest request and the open 
 
 ## Next action
 
-Accept or change ADR-0015 (it is `proposed`). Then finish P-39: run `claude --plugin-dir .`, `/compact`, and check the resume note shows "Before the compact the user asked: ...".
+Finish P-39: run `claude --plugin-dir .`, `/compact`, and check the resume note shows "Before the compact the user asked: ...".
 Verify: `python3 -m unittest discover -s tests` passes (418 tests).
 If it fails: run `python3 -m unittest tests.test_hook -k compact_carry` first.
 
@@ -27,7 +27,7 @@ State on Fri 2026-11-06 10:25 PM PST (Pacific): built and committed locally on b
 
 ## Decisions
 
-ADR-0015, proposed, 2026-11-07T06:20Z. Not built: a 15-minute expiry, a 5-bullet cap and a summary-dedupe check, because the note is rebuilt from files and already capped at 1,200 characters. The carry is 420 characters, not the 2,000 first estimated.
+ADR-0015, accepted (user) 2026-11-07, decided 2026-11-07T06:20Z. Not built: a 15-minute expiry, a 5-bullet cap and a summary-dedupe check, because the note is rebuilt from files and already capped at 1,200 characters. The carry is 420 characters, not the 2,000 first estimated.
 
 ## Constraints
 
@@ -35,4 +35,4 @@ Standard library only, Python 3.9+. Do not push or create a remote without askin
 
 ## Open questions and blockers
 
-Is ADR-0015 accepted? The unrelated P-39 progress edits and tsconfig.json were left uncommitted.
+The unrelated P-39 progress edits and tsconfig.json were left uncommitted.
