@@ -33,6 +33,10 @@ class Sandbox(unittest.TestCase):
         self.proj = os.path.join(base, "proj")
         os.makedirs(self.xdg)
         os.makedirs(self.proj)
+        # Install is long past in a test: the first-run welcome (P-44) has been shown. Its own tests remove the marker.
+        os.makedirs(os.path.join(self.xdg, "whatsnext"))
+        with open(os.path.join(self.xdg, "whatsnext", "welcomed"), "w", encoding="utf-8") as f:
+            f.write("shown\n")
         if self.git:
             subprocess.run(["git", "init", "-q", self.proj], check=True)
         self.env = dict(os.environ, HOME=self.home, XDG_CONFIG_HOME=self.xdg)

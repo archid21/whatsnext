@@ -45,6 +45,10 @@ class TableTests(unittest.TestCase):
 
 
 class FirstRunTests(PlanBase):
+    def setUp(self):
+        super().setUp()
+        os.remove(self.marker())  # a fresh install: the welcome has not been shown
+
     def hook(self, source="startup", agent="claude-code", cwd=None):
         data = {"session_id": "11111111-2222-3333-4444-555555555555", "cwd": cwd or self.proj, "source": source}
         r = self.gw(["hook", "session-start", "--agent", agent], stdin=json.dumps(data))
@@ -85,7 +89,6 @@ class FirstRunTests(PlanBase):
         self.assertNotIn("Set up your plan", self.hook(agent="codex"))
 
     def test_an_unwritable_marker_says_nothing_rather_than_everything_every_time(self):
-        os.makedirs(os.path.join(self.xdg, "whatsnext"))
         os.chmod(os.path.join(self.xdg, "whatsnext"), 0o500)
         try:
             self.assertNotIn("Set up your plan", self.hook())
