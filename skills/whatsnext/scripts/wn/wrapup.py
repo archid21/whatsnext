@@ -190,20 +190,24 @@ def compact_marker_path(root, session_id):
     return os.path.join(root, gwjournal.SESSIONS_DIR, name + ".compact.json") if name else None
 
 
-def mark_compacted(root, session_id, when):
-    """Record that a compact is about to happen with no fresh handoff (`when` = UTC text), or, when `when` is
-    None, clear an older record. Nothing is written without a usable session id."""
+def mark_compacted(root, session_id, when, carry=None):
+    """Record that a compact is about to happen with no fresh handoff (`when` = UTC text) and, in `carry`, the
+    short text the next resume note repeats (ADR-0015). With neither, clear an older record. Nothing is written
+    without a usable session id."""
     path = compact_marker_path(root, session_id)
     if path is None:
         return None
-    if when is None:
+    if when is None and not carry:
         if os.path.isfile(path):
             os.remove(path)
         return None
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump({"session_id": session_id, "without_wrapup": when}, f, indent=2)
+        state = {"session_id": session_id, "without_wrapup": when}
+        if carry:
+            state["carry"] = carry
+        json.dump(state, f, indent=2)
         f.write("\n")
     os.replace(tmp, path)
     return path
@@ -311,6 +315,17 @@ def compacted_without_wrapup(root, session_id):
     except (OSError, ValueError, TypeError, AttributeError):
         return None
     return when if isinstance(when, str) and when else None
+
+
+def compacted_carry(root, session_id):
+    """The text PreCompact saved for the resume note after the compact, or None."""
+    path = compact_marker_path(root, session_id) if session_id else None
+    try:
+        with open(path, encoding="utf-8") as f:
+            carry = json.load(f).get("carry")
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+    return carry if isinstance(carry, str) and carry else None
 
 
 # ---- wrap up: the hook ------------------------------------------------------

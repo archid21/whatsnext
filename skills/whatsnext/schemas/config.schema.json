@@ -36,7 +36,8 @@
       "additionalProperties": false,
       "properties": {
         "staleDays": { "type": "integer", "minimum": 1, "default": 7, "description": "The resume note warns that it is stale when the progress file was last updated more than this many days ago." },
-        "staleCommits": { "type": "integer", "minimum": 1, "default": 20, "description": "The resume note warns that it is stale when this many commits or more were made since the progress file's recorded commit." }
+        "staleCommits": { "type": "integer", "minimum": 1, "default": 20, "description": "The resume note warns that it is stale when this many commits or more were made since the progress file's recorded commit." },
+        "carryAfterCompact": { "type": "boolean", "default": true, "description": "Before a compact, save the user's latest request and the open work, and repeat them in the resume note after it (ADR-0015). Set to false to turn it off." }
       }
     },
     "plan": {

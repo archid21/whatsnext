@@ -38,6 +38,8 @@ from . import wrapup as gwwrapup
 EVENTS = ("session-start", "plan-shown", "plan-approved", "prompt-submit", "stop", "pre-compact", "post-compact",
           "pre-edit", "session-end")
 PRECOMPACT_CAP = 3000  # characters printed at PreCompact (P-20)
+CARRY_REQUEST_CAP = 250  # characters of the latest request repeated in the resume note after a compact (ADR-0015)
+CARRY_WORK_CAP = 150  # characters of the subagents and todo line repeated there
 OPEN_WORK_CAP = 500  # characters for the subagents and todo line (P-25)
 REQUEST_CAP = 2000  # characters of the user's latest request kept verbatim (P-6)
 FACT_EVENTS = ("stop", "pre-compact", "session-end")  # these write the facts layer
@@ -254,6 +256,25 @@ def open_work_text(transcript):
     return gwwrapup.clip_to(gwredact.mask_secrets(" ".join(parts)), OPEN_WORK_CAP) if parts else ""
 
 
+def carry_text(transcript):
+    """What the resume note repeats after the compact (ADR-0015): the user's latest request and the open work,
+    redacted and clipped (at most about 420 characters), or None. Any error gives None."""
+    if not transcript or not os.path.isfile(transcript):
+        return None
+    try:
+        request = gwsessions.latest_request(transcript, gwwrapup.PROMPT)
+        work = open_work_text(transcript)
+    except Exception:
+        return None
+    parts = []
+    if request:
+        flat = " ".join(gwredact.mask_secrets(request).split())
+        parts.append('Before the compact the user asked: "%s"' % gwwrapup.clip_to(flat, CARRY_REQUEST_CAP))
+    if work:
+        parts.append(gwwrapup.clip_to(work, CARRY_WORK_CAP))
+    return " ".join(parts) or None
+
+
 def precompact(root, effective, data, agent=None):
     """PreCompact (P-4, P-20, P-26). Records "compacted without wrap-up" when this session has no fresh handoff
     note (the resume note shows it after the compact). Claude Code: returns plain text, at most PRECOMPACT_CAP
@@ -266,7 +287,8 @@ def precompact(root, effective, data, agent=None):
     transcript = data.get("transcript_path") if isinstance(data.get("transcript_path"), str) else None
     state = gwwrapup.handoff_state(gwwrapup.handoff_path(root, effective), transcript, session_id, root)
     when = gwstatus.stamp_time() if state["stale"] else None
-    gwwrapup.mark_compacted(root, session_id, when)
+    carry = carry_text(transcript) if agent != "codex" and effective.get("note.carryAfterCompact") else None
+    gwwrapup.mark_compacted(root, session_id, when, carry)
     if agent == "codex":
         gwwrapup.set_resume_marker(root, session_id)  # Codex may not pass source=compact; the next prompt shows the note
         return ""

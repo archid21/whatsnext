@@ -617,6 +617,39 @@ class PreCompactTests(HookBase):
             self.assertNotIn("Keep verbatim", out)
             self.assertIn("whatsnext facts:", out)
 
+    def test_compact_carry_repeats_the_request_in_the_next_note(self):
+        self.task()
+        key = "sk-ant-" + "c" * 30
+        path = self.transcript([self.user("older request"), self.user("Fix the login bug now. key %s. " % key + "y" * 3000)])
+        pre = self.hook("pre-compact", {"session_id": "s1", "transcript_path": path})
+        self.assertLessEqual(len(pre), 3000)
+        note = self.hook("session-start", {"source": "compact", "session_id": "s1"})
+        self.assertIn("Before the compact the user asked: \"Fix the login bug now.", note)
+        self.assertNotIn(key, note)
+        self.assertNotIn("older request", note)
+        carry = json.loads(self.get(".whatsnext/sessions/s1.compact.json"))["carry"]
+        self.assertLessEqual(len(carry), 420)
+        self.assertLessEqual(len(note), 1200)
+        self.assertNotIn("Before the compact", self.hook("session-start", {"source": "startup", "session_id": "s1"}))
+
+    def test_compact_carry_can_be_turned_off(self):
+        self.task()
+        os.makedirs(os.path.join(self.proj, ".whatsnext"), exist_ok=True)
+        with open(os.path.join(self.proj, ".whatsnext", "config.json"), "w", encoding="utf-8") as f:
+            json.dump({"note": {"carryAfterCompact": False}}, f)
+        path = self.transcript([self.user("Fix the login bug now.")])
+        self.hook("pre-compact", {"session_id": "s1", "transcript_path": path})
+        note = self.hook("session-start", {"source": "compact", "session_id": "s1"})
+        self.assertNotIn("Before the compact", note)
+        self.assertIn("Context was compacted", note)
+
+    def test_compact_carry_is_silent_without_task_or_transcript(self):
+        self.assertEqual(self.hook("pre-compact", {"session_id": "s1", "transcript_path": self.transcript([self.user("hi")])}), "")
+        self.assertFalse(os.path.exists(os.path.join(self.proj, ".whatsnext/sessions/s1.compact.json")))
+        self.task()
+        self.hook("pre-compact", {"session_id": "s1", "transcript_path": os.path.join(self.tmp.name, "absent.jsonl")})
+        self.assertNotIn("Before the compact", self.hook("session-start", {"source": "compact", "session_id": "s1"}))
+
     def test_output_contract(self):
         self.task()
         out = self.hook("pre-compact", {"session_id": "s1"})

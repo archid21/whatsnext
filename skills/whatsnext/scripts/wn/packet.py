@@ -403,7 +403,9 @@ def compacted_text(root, session_id):
     text = ("Context was compacted without wrap-up at %s; this restates the task." % when if when
             else "Context was compacted; this restates the task.")
     kept = gwwrapup.summary_line(root, session_id)
-    return text + " " + kept if kept else text
+    text = text + " " + kept if kept else text
+    carry = gwwrapup.compacted_carry(root, session_id)
+    return text + " " + carry if carry else text
 
 
 def build(root, effective, compacted=False, session_id=None):

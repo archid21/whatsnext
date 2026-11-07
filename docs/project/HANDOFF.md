@@ -1,38 +1,38 @@
 # Handoff
 
-Session: 2230ec21-bc6b-4bd4-bf6a-f2c0f1c09e23
+Session: 869b255f-5943-4f33-850f-2c3380b03f59
 Task: none
-Written: 2026-11-06T22:56Z
+Written: 2026-11-07T06:25Z
 
 ## Goal
 
-Ship the next whatsnext release: the compact safety net, handoff checks and multi-agent fixes. All 31 plan items are built.
+After a compact, the resume note repeats the user's latest request and the open work, so the model keeps its place even when the summary drops them (ADR-0015).
 
 ## Next action
 
-Try the three unverified hooks in a real session (PreToolUse tick warning, PostCompact order, Codex hooks). Run `python3 skills/whatsnext/scripts/whatsnext.py doctor`.
-Verify: `python3 -m unittest discover -s tests` passes (408 tests) and `doctor` shows no Claude Code gap.
+Accept or change ADR-0015 (it is `proposed`). Then finish P-39: run `claude --plugin-dir .`, `/compact`, and check the resume note shows "Before the compact the user asked: ...".
+Verify: `python3 -m unittest discover -s tests` passes (418 tests).
+If it fails: run `python3 -m unittest tests.test_hook -k compact_carry` first.
 
 ## State
 
-State on Fri 2026-11-06 2:56 PM PST (Pacific): all 31 plan items are done and verified. Branch p-4-auto-compact-safety-net-with-p-20-p-26 is merged into local main (1285a38, 39 commits ahead of origin/main, not pushed). PR #1 is open. Last full suite: 408 tests pass. Soak test: 0 double claims in 60 runs.
+State on Fri 2026-11-06 10:25 PM PST (Pacific): built and committed locally on branch p-32-next-shows-handoff, not pushed. Full suite 418 tests pass. Not seen in a real Claude Code session yet.
 
 ## What changed
 
-- Compact: PreCompact and PostCompact hooks, latest request, facts line, dead ends, subagents, Codex once-only note (wn/hook.py, wn/compact.py, wn/wrapup.py)
-- Handoff: archive, git cross-check, cut line, stale commits, `handoff verify` (wn/wrapup.py, wn/crosscheck.py, wn/handoffverify.py)
-- Plan: verify records state, tick guard, drift checks, atomic writes, `suggest:`, `blocked by:` (wn/plan.py, wn/util.py)
-- Health and claims: `doctor`, sibling-worktree claims, soak test (wn/doctor.py, wn/claims.py, tests/soak_two_agents.py)
-- Tests 408, ADRs 0011 to 0014 in docs/decisions/
+- PreCompact saves a `carry` field (about 420 characters) in `.whatsnext/sessions/<session>.compact.json` (wn/hook.py `carry_text`, wn/wrapup.py `mark_compacted`, `compacted_carry`)
+- The compact-source resume note appends it (wn/packet.py `compacted_text`)
+- Setting `note.carryAfterCompact`, default true (schemas/config.schema.json)
+- Three tests in tests/test_hook.py, one paragraph and a settings row in docs/GUIDE.md, ADR-0015 and its index row
 
 ## Decisions
 
-ADR-0011 PreCompact reads the transcript tail; ADR-0012 `suggest:` hint; ADR-0013 Dead ends section; ADR-0014 `blocked by:`. All accepted 2026-11-06, in docs/decisions/.
+ADR-0015, proposed, 2026-11-07T06:20Z. Not built: a 15-minute expiry, a 5-bullet cap and a summary-dedupe check, because the note is rebuilt from files and already capped at 1,200 characters. The carry is 420 characters, not the 2,000 first estimated.
 
 ## Constraints
 
-Standard library only, Python 3.9+. Do not push main or create a remote without asking (AGENTS.md); the user allowed the PR and the local merge only. Keep AGENTS.md under 30 lines. Run `python3 -m unittest discover -s tests` before reporting done. Never copy code from other tools. Run a suite with its exit code checked, not through a pipe.
+Standard library only, Python 3.9+. Do not push or create a remote without asking. Do not name other plugins in code or public docs. Run the full suite before reporting done (about 11 minutes).
 
 ## Open questions and blockers
 
-Push main or merge PR #1 on GitHub? Not run in a real agent: Codex PreToolUse and UserPromptSubmit hooks, Codex PostCompact, the PreToolUse warning on Claude Code. `plan check` is noisy with stale-verify warnings.
+Is ADR-0015 accepted? The unrelated P-39 progress edits and tsconfig.json were left uncommitted.

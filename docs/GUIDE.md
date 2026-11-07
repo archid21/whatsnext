@@ -94,6 +94,8 @@ Use this when the context window is filling but you want to keep going in the sa
 
 A handoff written by a different session is never put into a compact. The text names its path instead.
 
+**After a compact.** Before the compact starts, whatsnext saves your latest request (the first 250 characters, secrets removed) and any running subagents or in-progress todo, in a git-ignored file. The resume note that loads after the compact repeats them, so the model still knows what you just asked even if the summary dropped it. It does nothing when no task is active. To turn it off: `python3 skills/whatsnext/scripts/whatsnext.py config set --user note.carryAfterCompact false`.
+
 **Run it yourself:** `compact-instructions` prints the `/compact` text. See [Commands](#commands).
 
 **Compare with `/clear`.** `/clear` drops everything and starts over from the resume note. Compact keeps a summary of this session. Use `/clear` after `wrap up` for a clean start. Use compact to stay in flow.
@@ -149,6 +151,7 @@ Settings you may want:
 | `plan.tickGuard` | `warn` | Warn when a plan item is ticked by hand |
 | `plan.verifyTimeout` | `30m` | How long a `--verify` command may run |
 | `note.staleDays` | `7` | Age at which the resume note warns |
+| `note.carryAfterCompact` | `true` | Repeat your latest request in the resume note after a compact |
 | `paths.handoff` | `docs/project/HANDOFF.md` | Where the handoff note is written |
 
 ---
