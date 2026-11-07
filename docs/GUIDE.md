@@ -4,7 +4,7 @@ What you can do with whatsnext, and the words to say. Each section gives the act
 
 You talk to your agent (Claude Code or Codex). The agent runs the commands. The few commands you may run yourself are marked **Run it yourself**.
 
-Contents: [Save and resume](#save-and-resume-a-session) · [Pick work](#pick-and-start-work) · [Change the plan](#change-the-plan) · [Mark done](#mark-work-done) · [Track a task](#track-a-task) · [Compact](#compact-a-long-session) · [Several agents](#use-more-than-one-agent) · [Health check](#check-that-it-works) · [Settings](#change-a-setting) · [Tips](#tips) · [Set up a repo](#set-up-a-repository) · [Known gaps](#known-gaps)
+Contents: [Save and resume](#save-and-resume-a-session) · [Pick work](#pick-and-start-work) · [Change the plan](#change-the-plan) · [Bring a plan](#bring-a-plan-from-another-tool) · [Mark done](#mark-work-done) · [Track a task](#track-a-task) · [Compact](#compact-a-long-session) · [Several agents](#use-more-than-one-agent) · [Health check](#check-that-it-works) · [Settings](#change-a-setting) · [Tips](#tips) · [Set up a repo](#set-up-a-repository) · [Known gaps](#known-gaps)
 
 ---
 
@@ -61,6 +61,21 @@ Nothing is marked in progress until every answer is in. After Start, the agent r
 | `move P-14 to Later` | Moves it to the end of that section. You can also say "before P-13" or "after P-15". |
 
 The agent asks you before it changes the plan, and uses these commands instead of editing `PLAN.md` by hand, so the line is always in the right format and an id is never reused. Run it yourself: `python3 skills/whatsnext/scripts/whatsnext.py plan add "Export CSV" --done-means "python3 -m unittest" --section Next`.
+
+---
+
+## Bring a plan from another tool
+
+Say `import the plan from <path>`. The path can be a file or a folder: a spec, a task list, a folder of ticket files, a design plan. Plans from Superpowers, Matt Pocock's skills (`.scratch/` tickets), Spec Kit, OpenSpec and BMAD are all examples; the agent reads whatever you point at, so any other tool works the same way.
+
+The agent turns each task, ticket or story into a plan item, with:
+
+- the next free `P-` id (it never reuses one);
+- a done means, taken from a command in the source. If the source has none, the agent asks you once for the whole batch. It does not make one up;
+- `blocked by:` for anything the source says depends on another task;
+- anything already checked in the source marked as done but not verified.
+
+Then it runs `plan check`, shows you the result, and asks before it saves a batch of more than 5 items.
 
 ---
 

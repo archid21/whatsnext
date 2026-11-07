@@ -868,7 +868,8 @@ def report(args, ok, message, data):
 
 # ---- editing the plan (P-45) -----------------------------------------------
 
-ID_RE = re.compile(r"^%s$" % ID_PATTERN)
+ID_RE = re.compile(r"\A%s\Z" % ID_PATTERN)
+PREFIX_RE = re.compile(r"\A[A-Z][A-Z0-9]*\Z")
 DEFAULT_PREFIX = "P"
 
 
@@ -911,6 +912,8 @@ def next_free_id(items, prefix):
 
 
 def item_line(item_id, title, done_means, blocked_by):
+    if any(c in text for text in (item_id, title, done_means) for c in "\r\n"):
+        raise ValueError("an item is one line")
     line = "- [ ] %s %s · done means: %s" % (item_id, title, done_means)
     if blocked_by:
         line += " · blocked by: " + ", ".join(blocked_by)
@@ -932,6 +935,8 @@ def cmd_add(ctx, args):
                    context={"title": title}, answer='--done-means "<text>"', free_text=True)
     lines, items = parse_text(read_plan(ctx.plan_path))
     ids = {it.id for it in items}
+    if args.prefix and not PREFIX_RE.match(args.prefix):
+        return fail("--prefix is capital letters and digits, for example SK.")
     if args.id:
         if not ID_RE.match(args.id):
             return fail("%s is not an item id. Use letters, a dash and a number, for example P-12." % args.id)
@@ -959,8 +964,9 @@ def cmd_drop(ctx, args):
     item = next((it for it in items if it.id == args.id), None)
     if item is None:
         return fail("No item %s in %s." % (args.id, ctx.plan_rel))
-    if gwclaims.read(ctx.root, args.id) is not None:
-        return fail("%s is in progress. Put it back first: plan put-back %s." % (args.id, args.id))
+    held = gwclaims.read_all(ctx.root, siblings=True).get(args.id)
+    if held is not None:
+        return fail("%s is in progress (%s). Put it back first: plan put-back %s." % (args.id, held.get("agent") or "unknown agent", args.id))
     waiting = [it.id for it in items if not it.checked and args.id in it.blocked_by and it.id != args.id]
     if waiting:
         return fail("%s is named in `blocked by:` on %s. Move or edit those first." % (args.id, ", ".join(waiting)))

@@ -58,6 +58,23 @@ When the user asks to add, drop or reorder plan items, use the commands. Do not 
 
 Run `plan check` after a batch of changes and show the result.
 
+## Import a plan from another file
+
+When the user points you at a spec, plan or task list from any tool (a single file, a folder of ticket files, a design doc, a plain to-do list), turn its tasks into plan items. The source can look like anything: read it and work out what it means. Do not look for a particular tool's layout, and do not write a parser. The target is always the same:
+
+`- [ ] P-<N> <title> · done means: <how we know it is done> · blocked by: P-<M>, P-<K>`
+
+Rules:
+
+1. Read whatever file or folder the user names, all of it.
+2. One item per piece of work someone could start and finish: a task, a ticket or a story. Not one per step or sub-step.
+3. Add each item with `plan add`. It picks the next free id, never reuses or overwrites one, and puts the item in a section (`--section Now|Next|Later`, default Next). Add blockers first, so `--blocked-by` can name their new ids.
+4. Turn "depends on", "blocked by" and "after" into `--blocked-by`, using the new ids.
+5. Done means: for each item, use the command the source gives for that item (a `Run:` line, a test command in its criteria or notes). Write it in backticks, like `python3 -m unittest tests.test_x`, so `plan done --verify` can run it; `plan check` warns about a done means with no backticked command. If the source gives none for an item, ask the user once for all such items ("what proves these done? A command is best") and use that one answer for them only. Never invent one.
+6. Work already checked in the source stays checked. Tick it with `plan done <id> --unverified`, so it shows as not verified.
+7. Run every `whatsnext` command with the script's full path (`python3 <plugin>/skills/whatsnext/scripts/whatsnext.py plan add ...`), not through a shell variable: a variable in a command triggers a permission prompt.
+8. Run `plan check`, show the user the new items and any warning, and ask before you save a batch of more than 5 items.
+
 ## Rules
 
 - Set the Next action with `progress next`, in one or two lines: the exact next step. Never write the `Note:` line by hand. After you edit any other part of a progress file, run `progress stamp <task-id>`.

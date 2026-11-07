@@ -67,6 +67,18 @@ class PlanEditTests(PlanBase):
         self.assertIn("P-40 Report · done means: `true` · blocked by: P-13, P-14", self.text())
         self.assertEqual(self.plan("add", "Z", "--done-means", "y", "--blocked-by", "P-99").returncode, 1)
 
+    def test_add_refuses_an_id_or_prefix_with_a_line_break_or_bad_shape(self):
+        before = self.text()
+        for flag, value in (("--id", "P-50\n"), ("--id", "P-50\n- [ ] P-51 x"), ("--prefix", "SK\n- [ ] P-9"), ("--prefix", "sk"), ("--prefix", "")):
+            args = ["add", "X", "--done-means", "`true`", flag, value]
+            r = self.plan(*args)
+            if flag == "--prefix" and value == "":
+                self.assertEqual(r.returncode, 0)  # an empty prefix means the default
+                before = self.text()
+                continue
+            self.assertEqual(r.returncode, 1, (flag, value, r.stdout))
+            self.assertEqual(self.text(), before)
+
     def test_add_with_a_prefix_starts_its_own_numbers(self):
         self.plan("add", "From a spec", "--done-means", "`true`", "--prefix", "SK")
         self.plan("add", "Another", "--done-means", "`true`", "--prefix", "SK")
@@ -108,6 +120,14 @@ class PlanEditTests(PlanBase):
         r = self.plan("drop", "P-14")
         self.assertEqual(r.returncode, 1)
         self.assertIn("in progress", r.stderr)
+        self.assertIn("P-14", self.ids())
+
+    def test_drop_refuses_an_item_held_in_another_worktree(self):
+        self.set_claim("P-14", worktree="/elsewhere/worktree")
+        r = self.plan("drop", "P-14")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("in progress", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
         self.assertIn("P-14", self.ids())
 
     def test_drop_refuses_an_item_another_open_item_waits_for(self):
