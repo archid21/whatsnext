@@ -46,7 +46,12 @@ A command that needs an answer prints a question and exits 4 (add `--json` for d
    - `current_item`: `--current done|keep|put-back`. Done also needs `--evidence "<text>"` or `--unverified`. Put-back asks you to update that item's progress file first, then add `--saved`.
    - `branch`: `--branch branch|stay|worktree`. Add `--always` when the user says "always do this".
    Nothing is marked in progress until the checks pass. If Start prints "Earlier work: ...", read that item's progress file first, and prefer the branch or worktree the branch question recommends.
-3. After Start, restate the goal and done means, list 3 to 5 steps, and wait for the user's OK before changing files. For a new worktree, tell the user to open the folder it printed.
+3. After Start, restate the goal and done means, list 3 to 5 steps, and ask the user one question before changing files, with these answers (the first is recommended):
+   - **Run all steps, then verify and mark done.** The user approves once. Work the listed steps in order without asking again. Tick each in the progress file (`progress stamp <task-id>` after). When the last step is done, run `plan done <id> --verify "<the item's done means command>"`. If it passes, say the item is confirmed done. If it fails, stop and show the last 20 lines of output it saved; do not mark the item done, and do not retry in a loop. If the done means has no command, ask the user for evidence instead of ticking it.
+   - **Go step by step.** Do one step, show the result, wait for the user's OK, then the next.
+   - **Change the steps.** The user edits the list first; ask again.
+   A step that needs a permission the user has not given, a decision the user must make, or a failure you cannot fix stops the run: say which step and why, and wait. Never skip the verify step to finish sooner.
+   For a new worktree, tell the user to open the folder it printed.
 
 ## Change the plan
 

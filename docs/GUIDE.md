@@ -46,7 +46,13 @@ Use this when you stop work, or the context window is full.
 4. Another item is in progress: mark it done, keep it, or put it back?
 5. Branch: make a branch, stay, or make a worktree? Say "always do this" to stop being asked.
 
-Nothing is marked in progress until every answer is in. After Start, the agent restates the goal and done means, lists 3 to 5 steps, and waits for your OK before it changes files.
+Nothing is marked in progress until every answer is in. After Start, the agent restates the goal and done means, lists 3 to 5 steps, and asks once how to go on:
+
+- **Run all steps, then verify and mark done** (recommended). You approve once. The agent works the steps in order, then runs the item's done means command. If it passes, the item is confirmed done. If it fails, the agent stops, shows you the last 20 lines of output, and leaves the item open.
+- **Go step by step.** The agent does one step, shows it, and waits for your OK.
+- **Change the steps.** You edit the list first.
+
+A run also stops when a step needs a permission you have not given, a decision only you can make, or a failure the agent cannot fix. It tells you which step and why. It never skips the verify step.
 
 **Keep or put back a stale item.** Say `keep working on P-12` to reset its idle clock. Say `put P-12 back` to release it for any agent. The agent updates its progress file first.
 
