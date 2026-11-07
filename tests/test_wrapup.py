@@ -14,7 +14,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fixtures import STATUS, StatusBase  # noqa: E402
+from fixtures import STATUS, StatusBase, session_note  # noqa: E402
 
 from wn import sessions as wnsessions  # noqa: E402
 from wn import wrapup as wnwrapup  # noqa: E402
@@ -96,7 +96,7 @@ class HookBase(StatusBase):
     def hook(self, event, data=None, agent="claude-code"):
         r = self.gw(["hook", event, "--agent", agent], stdin=json.dumps(data or {}))
         self.assertEqual((r.returncode, r.stderr), (0, ""))
-        return r.stdout
+        return session_note(event, agent, r.stdout)
 
     def prompt(self, text, session="s1"):
         return self.hook("prompt-submit", {"prompt": text, "session_id": session, "permission_mode": "default",

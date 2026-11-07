@@ -11,7 +11,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fixtures import ROOT, STATUS, StatusBase  # noqa: E402
+from fixtures import ROOT, STATUS, StatusBase, session_note  # noqa: E402
 
 import whatsnext  # noqa: E402
 from wn import hook as wnhook  # noqa: E402
@@ -26,7 +26,7 @@ class HookBase(StatusBase):
         args = ["hook", event] + (["--agent", agent] if agent else [])
         r = self.gw(args, stdin=raw if raw is not None else json.dumps(data if data is not None else {}))
         self.assertEqual((r.returncode, r.stderr), (0, ""))
-        return r.stdout
+        return session_note(event, agent, r.stdout)
 
     def plan_field(self, task="P-13"):
         for line in self.get("%s/%s.md" % (STATUS, task)).splitlines():
@@ -42,6 +42,24 @@ class SessionStartTests(HookBase):
         self.assertEqual(out, self.packet()["text"])
         self.assertIn("Next: Run the login tests.", out)
         self.assertIn("Context was compacted", self.hook("session-start", {"source": "compact"}))
+
+    def test_claude_code_gets_json_with_a_one_line_banner_the_user_sees(self):  # P-41
+        self.task()
+        r = self.gw(["hook", "session-start", "--agent", "claude-code"], stdin=json.dumps({"source": "clear"}))
+        data = json.loads(r.stdout)
+        self.assertEqual(data["hookSpecificOutput"]["hookEventName"], "SessionStart")
+        self.assertEqual(data["hookSpecificOutput"]["additionalContext"] + "\n", self.packet()["text"])
+        self.assertEqual(data["systemMessage"], "whatsnext: resume note loaded. Next: Run the login tests. "
+                                                "Type `what's next?` for details.")
+        self.assertNotIn("\n", data["systemMessage"])
+
+    def test_banner_without_a_next_line_and_codex_stays_plain_text(self):  # P-41
+        r = self.gw(["hook", "session-start", "--agent", "claude-code"], stdin=json.dumps({"source": "startup"}))
+        data = json.loads(r.stdout)
+        self.assertEqual(data["systemMessage"], "whatsnext: resume note loaded. Type `what's next?` to see where "
+                                                "you left off.")
+        codex = self.gw(["hook", "session-start", "--agent", "codex"], stdin=json.dumps({"source": "startup"}))
+        self.assertFalse(codex.stdout.startswith("{"))
 
     def test_codex_note_names_the_command_and_claude_code_note_does_not(self):
         self.task()

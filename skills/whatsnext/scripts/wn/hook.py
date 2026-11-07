@@ -198,7 +198,25 @@ def session_start(root, effective, data, agent=None):
         return ""
     if agent == "codex":  # Codex has no plugin folder to resolve `whatsnext` against; the note is not committed
         text += "\n" + command_line()
-    return text + "\n"
+        return text + "\n"
+    return claude_session_start(text, result)
+
+
+NEXT_LINE_RE = re.compile(r"^Next[^:\n]*:\s*(.+)$", re.M)
+BANNER_NEXT_CAP = 110
+
+
+def claude_session_start(text, result):
+    """Claude Code gets JSON: the note as `additionalContext` (the model reads it) and a one-line `systemMessage`
+    (P-41), because plain stdout is shown to nobody until the model answers."""
+    found = NEXT_LINE_RE.search(text)
+    if found:
+        banner = "whatsnext: resume note loaded. Next: %s Type `what's next?` for details." % \
+                 gwwrapup.clip_to(" ".join(found.group(1).split()), BANNER_NEXT_CAP)
+    else:
+        banner = "whatsnext: resume note loaded. Type `what's next?` to see where you left off."
+    out = {"systemMessage": banner, "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
+    return json.dumps(out) + "\n"
 
 
 def latest_request(transcript, facts):

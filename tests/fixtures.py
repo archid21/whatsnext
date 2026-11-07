@@ -229,3 +229,11 @@ class PlanBase(StatusBase):
     def question(self, r):
         self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
         return json.loads(r.stdout)
+
+
+def session_note(event, agent, out):
+    """The resume note a session-start hook printed. Claude Code gets JSON (a `systemMessage` banner and the note as
+    `additionalContext`, P-41); Codex gets the note as plain text. Other events and empty output come back as given."""
+    if event == "session-start" and agent != "codex" and out.startswith("{"):
+        return json.loads(out)["hookSpecificOutput"]["additionalContext"] + "\n"
+    return out

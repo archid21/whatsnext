@@ -21,7 +21,7 @@ Use this when you stop work, or the context window is full.
 
 **What you see at step 2.** A summary of the session, then three lines: the path, a one-line `/compact` text you can paste, and "or `/clear` for a fresh start".
 
-**What you see at step 3.** A short resume note appears at the top of the new session by itself. It says what was done, what is next, which test command to run, and what changed in git since the note. It is at most 1,200 characters.
+**What you see at step 3.** A one-line banner appears at the top of the new session by itself: "whatsnext: resume note loaded. Next: …". The full resume note goes to the agent, not to your screen. The agent uses it in its first reply, and `what's next?` shows it to you. The note says what was done, what is next, which test command to run, and what changed in git since the note. It is at most 1,200 characters. In Codex there is no banner.
 
 **What `what's next?` does at step 4.** It shows the handoff's Next action and open questions, with the file path and the time it was written. It then offers the open items from the plan checklist (`PLAN.md`). If the plan has no open items, it says so and still shows the handoff.
 
