@@ -174,8 +174,21 @@ async function stop($: EngineInterface) {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'whatsnext-tips', description: 'Show the whatsnext tips again' })
+    await $.command.register({ name: 'whatsnext-welcome', description: 'Show what whatsnext does, as a table' })
 
     return next(e)
+  })
+
+  // The welcome table (P-44) comes from the Python side, which also shows it once after install.
+  on('command.run', { command: 'whatsnext-welcome' }, async ($, e, next) => {
+    try {
+      const ran = await $.process.run(['python3', `${$.plugin.root}/${SCRIPT}`, 'welcome'], { cwd: await $.session.cwd(), timeoutMs: 10_000 })
+      if (ran.exitCode === 0 && ran.stdout.trim()) return { text: ran.stdout }
+    } catch {
+      // the line below
+    }
+
+    return { text: `Could not show the welcome table. The guide has the same list: ${GUIDE}` }
   })
 
   on('command.run', { command: 'whatsnext-tips' }, async ($, e, next) => {

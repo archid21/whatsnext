@@ -37,6 +37,7 @@ from . import redact as gwredact
 from . import sessions as gwsessions
 from . import status as gwstatus
 from . import util as gwutil
+from . import welcome as gwwelcome
 from . import wrapup as gwwrapup
 
 EVENTS = ("session-start", "plan-shown", "plan-approved", "prompt-submit", "stop", "pre-compact", "post-compact",
@@ -371,17 +372,39 @@ def plan_tick_guard(root, effective, data):
     return json.dumps({"hookSpecificOutput": out}) + "\n"
 
 
+def with_welcome(out, welcome, agent):
+    """`out` (a session-start answer) with the first-run welcome in front of it. Claude Code shows the welcome as the
+    `systemMessage`; Codex prints plain text."""
+    if not welcome:
+        return out
+    if agent == "codex":
+        return welcome + "\n" + out
+    try:
+        payload = json.loads(out) if out.strip() else {}
+    except ValueError:
+        return out
+    banner = payload.get("systemMessage")
+    payload["systemMessage"] = welcome + ("\n" + banner if banner else "")
+    return json.dumps(payload) + "\n"
+
+
 def handle(event, data, agent=None):
     """The text to print for one event ("" for nothing)."""
     if not isinstance(data, dict):
         return ""
+    welcome = ""
+    if event == "session-start":
+        try:  # the first-run welcome (P-44): once per install, in any folder
+            welcome = gwwelcome.take_first_run(data)
+        except Exception:  # a welcome must never break the session
+            welcome = ""
     found = project(data)
     if found is None:
-        return ""
+        return with_welcome("", welcome, agent)
     root, effective = found
     out = ""
     if event == "session-start":
-        return session_start(root, effective, data, agent)
+        return with_welcome(session_start(root, effective, data, agent), welcome, agent)
     if event == "plan-shown":
         tool_input = data.get("tool_input")
         text = tool_input.get("plan") if isinstance(tool_input, dict) else None

@@ -69,6 +69,10 @@ Each works alone. A ★ marks where whatsnext does more because rightsize is the
 
 *These rightsize behaviors need rightsize 0.9.0 or later. whatsnext does not need rightsize for anything it does.*
 
+## First run
+
+The first time a session starts after install, whatsnext shows a table of what it does (the feature, what it does in plain words, how it works) and a short diagram of how plan, handoff, compact and resume fit together. It shows once. See it again with `/whatsnext-welcome` in Claude Code, or `whatsnext welcome`.
+
 ## Tips
 
 In Claude Code (terminal and desktop app only), a tip band above the prompt teaches the three phrases that matter: `wrap up`, `what's next?` and `mark P-13 done`. It shows one tip at a time, only when the tip applies, and never at startup. **Next tip** moves on, **Stop tips** hides the band for good, and `/whatsnext-tips` brings it back. See [the guide](docs/GUIDE.md#tips).

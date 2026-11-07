@@ -113,7 +113,7 @@ test('/whatsnext-tips is registered, clears tipsOff and the seen list, and links
   })
 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  expect(registered).toEqual(['whatsnext-tips'])
+  expect(registered).toEqual(['whatsnext-tips', 'whatsnext-welcome'])
 
   // Stopped and seen: nothing shows.
   await $.command.run(COMPACT)

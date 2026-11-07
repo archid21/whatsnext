@@ -4,7 +4,15 @@ What you can do with whatsnext, and the words to say. Each section gives the act
 
 You talk to your agent (Claude Code or Codex). The agent runs the commands. The few commands you may run yourself are marked **Run it yourself**.
 
-Contents: [Save and resume](#save-and-resume-a-session) · [Pick work](#pick-and-start-work) · [Change the plan](#change-the-plan) · [Bring a plan](#bring-a-plan-from-another-tool) · [Mark done](#mark-work-done) · [Track a task](#track-a-task) · [Compact](#compact-a-long-session) · [Several agents](#use-more-than-one-agent) · [Health check](#check-that-it-works) · [Settings](#change-a-setting) · [Tips](#tips) · [Set up a repo](#set-up-a-repository) · [Known gaps](#known-gaps)
+Contents: [First run](#first-run) · [Save and resume](#save-and-resume-a-session) · [Pick work](#pick-and-start-work) · [Change the plan](#change-the-plan) · [Bring a plan](#bring-a-plan-from-another-tool) · [Mark done](#mark-work-done) · [Track a task](#track-a-task) · [Compact](#compact-a-long-session) · [Several agents](#use-more-than-one-agent) · [Health check](#check-that-it-works) · [Settings](#change-a-setting) · [Tips](#tips) · [Set up a repo](#set-up-a-repository) · [Known gaps](#known-gaps)
+
+---
+
+## First run
+
+The first time a session starts after install, whatsnext shows a table of what it does: the feature, what it does in plain words, and how it works. The five rows to learn first (set up your plan, start work, change the plan, mark done with proof, save and resume) come first, then a short diagram of how they fit together. It shows once, in any folder, and never again: it writes a marker file, `welcomed`, next to your user settings (`~/.config/whatsnext/`).
+
+To see it again: type `/whatsnext-welcome` in Claude Code, or run `python3 skills/whatsnext/scripts/whatsnext.py welcome`.
 
 ---
 
@@ -239,6 +247,7 @@ You rarely type these. The agent runs them from your words. All commands start w
 | `handoff verify` | Run the handoff's `Verify:` line and archive the note if it passes |
 | `compact-instructions` | Text for `/compact` |
 | `doctor` | Check hooks |
+| `welcome` | Print the table of what whatsnext does |
 | `config show`, `config set --user` | Settings |
 | `init`, `install-hooks` | Set up |
 
