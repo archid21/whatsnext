@@ -40,6 +40,23 @@ def claude_hooks(path=None):
     return found, None
 
 
+def installed_copy():
+    """Folder of the whatsnext plugin copy Claude Code runs, from `plugins/installed_plugins.json`, or None."""
+    try:
+        with open(os.path.join(gwsessions.claude_dir(), "plugins", "installed_plugins.json"), encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    plugins = data.get("plugins", data) if isinstance(data, dict) else None
+    for key, records in (plugins.items() if isinstance(plugins, dict) else []):
+        if str(key).startswith("whatsnext@") and isinstance(records, list):
+            for record in records:
+                path = record.get("installPath") if isinstance(record, dict) else None
+                if isinstance(path, str) and path:
+                    return path
+    return None
+
+
 def claude_plugin_enabled():
     """True or False from Claude Code's settings.json `enabledPlugins`; None when it cannot be told."""
     try:
@@ -107,6 +124,16 @@ def report(root):
                   "  fix: update the whatsnext plugin"]
     else:
         lines.append("  hooks: all %d events are in the plugin's hooks/hooks.json" % len(CLAUDE_EVENTS))
+    copy = installed_copy()  # P-33: the copy Claude Code runs may be older than the one doctor was started from
+    if copy and os.path.realpath(copy) != os.path.realpath(PLUGIN_ROOT):
+        found_copy, error = claude_hooks(os.path.join(copy, "hooks", "hooks.json"))
+        missing_copy = [e for e in CLAUDE_EVENTS if e not in found_copy]
+        if error or missing_copy:
+            gaps += 1
+            lines += ["  installed copy (%s): %s" % (copy, error or "missing %s" % ", ".join(missing_copy)),
+                      "  fix: update the whatsnext plugin"]
+        else:
+            lines.append("  installed copy (%s): all %d events" % (copy, len(CLAUDE_EVENTS)))
     enabled = claude_plugin_enabled()
     if enabled is False:
         gaps += 1

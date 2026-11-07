@@ -4,7 +4,7 @@ What you can do with whatsnext, and the words to say. Each section gives the act
 
 You talk to your agent (Claude Code or Codex). The agent runs the commands. The few commands you may run yourself are marked **Run it yourself**.
 
-Contents: [Save and resume](#save-and-resume-a-session) · [Pick work](#pick-and-start-work) · [Mark done](#mark-work-done) · [Track a task](#track-a-task) · [Compact](#compact-a-long-session) · [Several agents](#use-more-than-one-agent) · [Health check](#check-that-it-works) · [Settings](#change-a-setting) · [Set up a repo](#set-up-a-repository) · [Known gaps](#known-gaps)
+Contents: [Save and resume](#save-and-resume-a-session) · [Pick work](#pick-and-start-work) · [Mark done](#mark-work-done) · [Track a task](#track-a-task) · [Compact](#compact-a-long-session) · [Several agents](#use-more-than-one-agent) · [Health check](#check-that-it-works) · [Settings](#change-a-setting) · [Tips](#tips) · [Set up a repo](#set-up-a-repository) · [Known gaps](#known-gaps)
 
 ---
 
@@ -150,6 +150,18 @@ Settings you may want:
 | `plan.verifyTimeout` | `30m` | How long a `--verify` command may run |
 | `note.staleDays` | `7` | Age at which the resume note warns |
 | `paths.handoff` | `docs/project/HANDOFF.md` | Where the handoff note is written |
+
+---
+
+## Tips
+
+A short tip band shows above the prompt in Claude Code, in the terminal and the desktop app. It does not show in Codex, VS Code or on mobile. One tip shows at a time, only when it applies:
+
+- **`wrap up`:** after a compact, or after 20 turns in one session.
+- **`what's next?`:** after your first turn, when no task is active.
+- **`mark P-13 done`:** after a plan item's `--verify` command passes.
+
+Press **Next tip** to mark the tip seen and see the next one. Press **Stop tips** to hide the band for good, in every session. Type `/whatsnext-tips` to turn the tips back on and show them all again. A tip you have seen does not return, and no tip shows twice in one session.
 
 ---
 

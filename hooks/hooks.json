@@ -1,5 +1,8 @@
 {
   "description": "whatsnext hooks (ADR-0005): the session-start resume note, plan-mode capture (ExitPlanMode and the next prompt's mode), the `wrap up` prompt (ADR-0008) and the facts journal (Stop, PreCompact, SessionEnd). Each calls the same Python script other agents use.",
+  "modules": [
+    "./register.tsx"
+  ],
   "hooks": {
     "SessionStart": [
       {

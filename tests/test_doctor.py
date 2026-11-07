@@ -50,6 +50,41 @@ class DoctorTests(StatusBase):
         self.assertIn("missing or changed: PreCompact", r.stdout)
         self.assertIn("fix: whatsnext install-hooks --project", r.stdout)
 
+    def install_record(self, hooks_json_text):
+        """A Claude Code install record pointing at a plugin copy whose hooks.json is `hooks_json_text`."""
+        copy = os.path.join(self.home, "plugin-copy")
+        os.makedirs(os.path.join(copy, "hooks"))
+        with open(os.path.join(copy, "hooks", "hooks.json"), "w", encoding="utf-8") as f:
+            f.write(hooks_json_text)
+        folder = os.path.join(self.home, ".claude", "plugins")
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "installed_plugins.json"), "w", encoding="utf-8") as f:
+            json.dump({"version": 2, "plugins": {"whatsnext@whatsnext": [{"scope": "user", "installPath": copy,
+                                                                            "version": "0.1.0"}]}}, f)
+        return copy
+
+    def test_installed_plugin_copy_missing_events_is_a_gap(self):
+        repo_hooks = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks", "hooks.json")
+        with open(repo_hooks, encoding="utf-8") as f:
+            data = json.load(f)
+        for event in ("PreToolUse", "PostCompact"):  # PreToolUse holds both plan-shown and pre-edit
+            data["hooks"].pop(event, None)
+        copy = self.install_record(json.dumps(data))
+        r = self.doctor()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("  installed copy (%s): missing plan-shown, post-compact, pre-edit" % copy, r.stdout)
+        self.assertIn("  fix: update the whatsnext plugin", r.stdout)
+        self.assertIn("2 gaps found.", r.stdout)
+
+    def test_installed_plugin_copy_with_every_event_adds_no_gap(self):
+        repo_hooks = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks", "hooks.json")
+        with open(repo_hooks, encoding="utf-8") as f:
+            copy = self.install_record(f.read())
+        r = self.doctor()
+        self.assertIn("  installed copy (%s): all 9 events" % copy, r.stdout)
+        self.assertNotIn("missing pre-edit", r.stdout)
+        self.assertIn("1 gap found.", r.stdout)  # the Codex gap only
+
     def test_last_fired_comes_from_the_session_state_and_json_works(self):
         self.assertIn("none recorded yet", self.doctor().stdout)
         self.commit("task")
