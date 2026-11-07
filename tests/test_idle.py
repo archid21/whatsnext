@@ -76,5 +76,24 @@ class IdleCheckTests(CompactBase):
             self.assertIn("`wrapup.autoIdle`", f.read())
 
 
+class IdleOfferTests(CompactBase):
+    """`hook idle-offer` (P-42): the whatsnext side of the opt-in tip."""
+
+    def offer(self):
+        data = {"session_id": SID, "cwd": self.proj}
+        r = self.gw(["hook", "idle-offer", "--agent", "claude-code"], stdin=json.dumps(data))
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+        return json.loads(r.stdout) if r.stdout.strip() else None
+
+    def test_offers_while_the_setting_is_off(self):
+        self.task()
+        self.assertEqual(self.offer(), {"offer": True})
+
+    def test_does_not_offer_once_it_is_on(self):
+        self.task()
+        self.cfg(wrapup={"autoIdle": True})
+        self.assertEqual(self.offer(), {"offer": False, "reason": "wrapup.autoIdle is already on"})
+
+
 if __name__ == "__main__":
     unittest.main()

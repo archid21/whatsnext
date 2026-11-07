@@ -1,12 +1,13 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import { IDLE_MS, WRAP_UP, minTokens, skipReason } from './idle'
+import { IDLE_MS, WRAP_UP, minTokens, saveTipKind, skipReason, type IdleFacts } from './idle'
 import { GUIDE, TIPS, loadState, markSeen, nextTip, restartTips, stopTips, type Tip } from './tips'
 
 // whatsnext tips band (P-36). One tip shows above the prompt, with Next tip and Stop tips.
 // Which tip, and when, is decided by `offer` (P-37 adds the triggers). The band yields to a survey and to a
 // running turn. The seen list and tipsOff live in `$.store`; what is on screen now lives in this module.
 let current: Tip | undefined
+let notice: string | undefined // one line after Turn on, until the next prompt
 const shown = new Set<string>() // a tip shows once per session, even if it was not marked seen
 let turns = 0
 let hasCheckedTask = false
@@ -63,26 +64,37 @@ function armIdle($: EngineInterface) {
   })
 }
 
+// What the module can read about Claude Code: its two compact settings, the context size and the minimum.
+async function idleFacts($: EngineInterface): Promise<IdleFacts> {
+  const { context } = await $.session.usage({ breakdown: 'summary' })
+
+  return {
+    idleCompaction: await $.settings.read({ key: 'idleCompaction' }),
+    autoCompactEnabledSetting: await $.settings.read({ key: 'autoCompactEnabled' }),
+    isAutoCompactEnabled: context.breakdown?.isAutoCompactEnabled,
+    tokens: context.tokens,
+    minTokens: minTokens(await $.env.get('CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS')),
+  }
+}
+
+// Run one whatsnext hook command and read its one JSON line. undefined on any failure.
+async function whatsnextHook($: EngineInterface, event: string) {
+  const cwd = await $.session.cwd()
+  const ran = await $.process.run(['python3', `${$.plugin.root}/${SCRIPT}`, 'hook', event, '--agent', 'claude-code'], {
+    cwd,
+    stdin: JSON.stringify({ session_id: await $.session.id(), cwd }),
+    timeoutMs: 10_000,
+  })
+
+  return ran.exitCode === 0 ? (JSON.parse(ran.stdout) as Record<string, unknown>) : undefined
+}
+
 // Any error means no `wrap up`: this is a convenience and must never break the session.
 async function idleWrapUp($: EngineInterface) {
   try {
     if (askedThisPeriod) return
-    const { context } = await $.session.usage({ breakdown: 'summary' })
-    const reason = skipReason({
-      idleCompaction: await $.settings.read({ key: 'idleCompaction' }),
-      autoCompactEnabledSetting: await $.settings.read({ key: 'autoCompactEnabled' }),
-      isAutoCompactEnabled: context.breakdown?.isAutoCompactEnabled,
-      tokens: context.tokens,
-      minTokens: minTokens(await $.env.get('CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS')),
-    })
-    if (reason) return
-    const cwd = await $.session.cwd()
-    const ran = await $.process.run(['python3', `${$.plugin.root}/${SCRIPT}`, 'hook', 'idle-check', '--agent', 'claude-code'], {
-      cwd,
-      stdin: JSON.stringify({ session_id: await $.session.id(), cwd }),
-      timeoutMs: 10_000,
-    })
-    if (ran.exitCode !== 0 || JSON.parse(ran.stdout).fire !== true) return
+    if (skipReason(await idleFacts($))) return
+    if ((await whatsnextHook($, 'idle-check'))?.fire !== true) return
     askedThisPeriod = true
     await Promise.resolve($.prompt.submit({ text: WRAP_UP })).catch(() => undefined)
   } catch {
@@ -90,9 +102,49 @@ async function idleWrapUp($: EngineInterface) {
   }
 }
 
+// The save tip that fits (P-42): the opt-in tip when auto-compact is on and auto wrap-up is off, the manual tip when
+// auto-compact is off, else the plain `save` tip. Any error falls back to the plain tip.
+async function offerSave($: EngineInterface) {
+  try {
+    const kind = saveTipKind(await idleFacts($))
+    if (kind === 'manual' && (await offer($, 'manual'))) return true
+    if (kind === 'idle' && (await whatsnextHook($, 'idle-offer'))?.offer === true && (await offer($, 'idle'))) return true
+  } catch {
+    // the plain tip below
+  }
+
+  return offer($, 'save')
+}
+
+// Turn on auto wrap-up for this person (user settings), and say so.
+async function turnOnIdle($: EngineInterface, tip: Tip) {
+  let ok = false
+  try {
+    const ran = await $.process.run(
+      ['python3', `${$.plugin.root}/${SCRIPT}`, 'config', 'set', '--user', 'wrapup.autoIdle', 'true'],
+      { cwd: await $.session.cwd(), timeoutMs: 10_000 },
+    )
+    ok = ran.exitCode === 0
+  } catch {
+    ok = false
+  }
+  await markSeen($, tip.id)
+  current = undefined
+  notice = ok
+    ? 'Auto wrap-up is on: after 45 idle minutes whatsnext will say "wrap up" for you, once. Turn it off: whatsnext config set --user wrapup.autoIdle false.'
+    : 'Could not turn on auto wrap-up. Run: python3 <plugin>/skills/whatsnext/scripts/whatsnext.py config set --user wrapup.autoIdle true'
+  $.ui.invalidate('ui.render')
+}
+
+async function declineTip($: EngineInterface, tip: Tip) {
+  await markSeen($, tip.id)
+  current = undefined
+  $.ui.invalidate('ui.render')
+}
+
 async function afterTurn($: EngineInterface) {
   turns += 1
-  if (turns >= LONG_SESSION_TURNS && (await offer($, 'save'))) return
+  if (turns >= LONG_SESSION_TURNS && (await offerSave($))) return
   if (hasCheckedTask) return
   hasCheckedTask = true
   if ((await hasActiveTask($)) === false) await offer($, 'pick')
@@ -137,7 +189,7 @@ export const register: Register = on => {
   // says "bypassed by cc-plugin-sec-default"). An automatic compact is not seen; the long-session trigger covers it.
   on('command.run', { command: 'compact' }, async ($, e, next) => {
     const result = await next(e)
-    await offer($, 'save')
+    await offerSave($)
 
     return result
   })
@@ -146,6 +198,10 @@ export const register: Register = on => {
   // new idle period; a notification or the plugin's own `wrap up` does not.
   on('prompt.submit', async ($, e, next) => {
     disarmIdle()
+    if (notice !== undefined) {
+      notice = undefined
+      $.ui.invalidate('ui.render')
+    }
     // An absent origin is the person's own prompt (the engine stamps Enter as `composer`).
     const kind = e.origin?.kind
     if (kind === undefined || kind === 'composer' || kind === 'bridge') askedThisPeriod = false
@@ -175,9 +231,37 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey || e.props.isWorking || !current) return next(e)
-    const tip = current
+    if (e.props.hasSurvey || e.props.isWorking) return next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
+    if (!current) {
+      if (notice === undefined) return next(e)
+
+      return (
+        <Box>
+          <Text>{notice}</Text>
+        </Box>
+      )
+    }
+    const tip = current
+    if (tip.action === 'turn-on-idle') {
+      return (
+        <Box>
+          <Text>
+            {tip.text} <Text dimColor>{tip.link}</Text>{' '}
+          </Text>
+          <Button
+            key="turn-on"
+            label="Turn on"
+            onPress={() => turnOnIdle($, tip)}
+          />
+          <Button
+            key="no-thanks"
+            label="No thanks"
+            onPress={() => declineTip($, tip)}
+          />
+        </Box>
+      )
+    }
 
     return (
       <Box>

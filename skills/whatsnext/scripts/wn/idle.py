@@ -54,3 +54,11 @@ def check_text(root, effective, data):
     if path:
         write_atomic(path, json.dumps({"asked": now_utc().strftime("%Y-%m-%dT%H:%M:%SZ")}) + "\n")
     return json.dumps({"fire": True})
+
+
+def offer_text(root, effective, data):
+    """The one JSON line for the opt-in tip (P-42): `{"offer": true}` when the tip may show, else `{"offer": false,
+    "reason": "..."}`. Only the whatsnext side: the setting is off, and the folder is a project (the caller's gate)."""
+    if effective.get("wrapup.autoIdle"):
+        return json.dumps({"offer": False, "reason": "wrapup.autoIdle is already on"}) + "\n"
+    return json.dumps({"offer": True}) + "\n"

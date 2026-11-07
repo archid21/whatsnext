@@ -2,9 +2,10 @@ import { expect, test } from 'claude-code/testing'
 
 import { GUIDE, TIPS, loadState, markSeen, nextTip, restartTips, stopTips } from './tips'
 
-test('three tips in order, each with the exact phrase and a guide link', () => {
-  expect(TIPS.map(t => t.say)).toEqual(['wrap up', "what's next?", 'mark P-13 done'])
-  expect(TIPS.map(t => t.id)).toEqual(['save', 'pick', 'done'])
+test('three tips in order, then two that are only offered; each has the exact phrase and a guide link', () => {
+  expect(TIPS.filter(t => !t.offerOnly).map(t => t.say)).toEqual(['wrap up', "what's next?", 'mark P-13 done'])
+  expect(TIPS.map(t => t.id)).toEqual(['save', 'pick', 'done', 'idle', 'manual'])
+  expect(TIPS.filter(t => t.offerOnly).map(t => t.id)).toEqual(['idle', 'manual'])
 
   for (const tip of TIPS) {
     expect(tip.text).toContain(tip.say)

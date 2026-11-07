@@ -8,6 +8,8 @@ export type Tip = {
   say: string // the exact words to type
   text: string // the one line the band shows
   link: string // where the guide explains it
+  offerOnly?: boolean // shown only when something offers it (never by Next tip)
+  action?: 'turn-on-idle' // the band shows Turn on and No thanks, not Next tip and Stop tips
 }
 
 // Order matters: Next tip walks this list.
@@ -29,6 +31,23 @@ export const TIPS: readonly Tip[] = [
     say: 'mark P-13 done',
     text: 'To close a plan item, say "mark P-13 done" (use your item\'s id). A passing command is the proof.',
     link: `${GUIDE}#mark-work-done`,
+  },
+  {
+    id: 'idle',
+    say: 'wrap up',
+    text:
+      'Claude auto-compact is on. It keeps what it thinks matters, not your goal. Turn on auto wrap-up: after 45 idle minutes whatsnext saves your goal and next step first ("wrap up").',
+    link: `${GUIDE}#change-a-setting`,
+    offerOnly: true,
+    action: 'turn-on-idle',
+  },
+  {
+    id: 'manual',
+    say: 'wrap up',
+    text:
+      'Claude auto-compact is off, so nothing saves your goal for you. Before you /clear or /compact, say "wrap up".',
+    link: `${GUIDE}#save-and-resume-a-session`,
+    offerOnly: true,
   },
 ]
 
@@ -88,5 +107,5 @@ export async function restartTips($: StoreHost): Promise<TipsState> {
 export function nextTip(seen: readonly string[], afterId?: string): Tip | undefined {
   const start = afterId === undefined ? 0 : TIPS.findIndex(t => t.id === afterId) + 1
 
-  return TIPS.slice(start).find(t => !seen.includes(t.id))
+  return TIPS.slice(start).find(t => !t.offerOnly && !seen.includes(t.id))
 }

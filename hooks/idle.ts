@@ -29,3 +29,12 @@ export function skipReason(facts: IdleFacts): string | undefined {
 
   return undefined
 }
+
+// Which save tip fits (P-42). `manual`: Claude Code's auto-compact is off, so nothing saves a handoff unless the person
+// says `wrap up`. `idle`: auto-compact is on and the context is big enough that the idle wrap-up would run, so offer to
+// turn it on. Anything else: undefined, and the plain `save` tip applies.
+export function saveTipKind(facts: IdleFacts): 'manual' | 'idle' | undefined {
+  if (facts.autoCompactEnabledSetting === false || facts.isAutoCompactEnabled === false) return 'manual'
+
+  return skipReason(facts) === undefined ? 'idle' : undefined
+}
