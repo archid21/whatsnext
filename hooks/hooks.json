@@ -104,6 +104,18 @@
           }
         ]
       }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/whatsnext/scripts/whatsnext.py\" hook permission --agent claude-code",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

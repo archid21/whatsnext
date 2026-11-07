@@ -161,6 +161,8 @@ Settings you may want:
 - the context is at or above `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS` (default 200,000, never under 100,000);
 - Claude Code's `idleCompaction` and `autoCompactEnabled` are not `false`.
 
+The plugin also lets the agent write the handoff note without asking you, but only while a `wrap up` is open and only for that one file (a permission hook; it changes none of your settings), so a wrap-up you are not there to answer does not stall on a prompt.
+
 It sends it once. It does not send it again until you send a prompt yourself. When you come back, you will see one extra turn that wrote the handoff note.
 
 ---

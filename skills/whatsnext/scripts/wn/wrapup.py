@@ -336,6 +336,22 @@ def marker_path(root, session_id):
     return os.path.join(root, gwjournal.SESSIONS_DIR, name + ".wrapup.json") if name else None
 
 
+def allow_handoff_write(root, effective, data):
+    """PermissionRequest (P-43): the JSON that lets the agent write the handoff note while this session's `wrap up` is
+    open, else "". It covers one file only: the handoff path. The request marker `begin` writes is the proof the person
+    (or the idle timer) asked for it, and `settle` removes it at Stop. Nothing is added to the person's settings."""
+    path = marker_path(root, data.get("session_id"))
+    tool_input = data.get("tool_input")
+    target = tool_input.get("file_path") if isinstance(tool_input, dict) else None
+    if not path or not os.path.isfile(path) or not isinstance(target, str) or data.get("tool_name") not in ("Write", "Edit", "MultiEdit"):
+        return ""
+    base = data.get("cwd") if isinstance(data.get("cwd"), str) else root
+    wanted = os.path.realpath(handoff_path(root, effective))
+    if os.path.realpath(target if os.path.isabs(target) else os.path.join(base, target)) != wanted:
+        return ""
+    return json.dumps({"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {"behavior": "allow"}}}) + "\n"
+
+
 def line_template():
     """The `/compact` line with a slot for each section, as the prompt shows it (the caps come from LINE_SECTIONS)."""
     slots = " ".join("%s: <%s, at most %d characters>" % (label, names[0].lower(), cap) for label, names, cap in LINE_SECTIONS)

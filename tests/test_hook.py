@@ -775,8 +775,8 @@ class ClaudeCodeConfigTests(unittest.TestCase):
     def test_hooks_json_calls_known_events(self):
         with open(os.path.join(str(ROOT), "hooks", "hooks.json"), encoding="utf-8") as f:
             data = json.load(f)["hooks"]
-        self.assertEqual(sorted(data), ["PostCompact", "PostToolUse", "PreCompact", "PreToolUse", "SessionEnd",
-                                        "SessionStart", "Stop", "UserPromptSubmit"])
+        self.assertEqual(sorted(data), ["PermissionRequest", "PostCompact", "PostToolUse", "PreCompact", "PreToolUse",
+                                        "SessionEnd", "SessionStart", "Stop", "UserPromptSubmit"])
         for name, event in (("PreCompact", "pre-compact"), ("PostCompact", "post-compact"), ("SessionEnd", "session-end"), ("Stop", "stop")):
             self.assertEqual(len(data[name]), 1)
             self.assertIn(" hook %s --agent claude-code" % event, data[name][0]["hooks"][0]["command"])
