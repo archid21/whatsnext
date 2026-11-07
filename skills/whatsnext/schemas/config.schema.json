@@ -68,6 +68,13 @@
         }
       }
     },
+    "wrapup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "autoIdle": { "type": "boolean", "default": false, "description": "Claude Code only. When a session has been idle 45 minutes, submit `wrap up` once, before Claude Code's own idle compact (ADR-0016). Off by default. It also needs the context to be at or above CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS (default 200000, floor 100000), and does nothing when Claude Code's `idleCompaction` or `autoCompactEnabled` is false or the session already has a fresh wrap-up." }
+      }
+    },
     "backend": {
       "type": "object",
       "additionalProperties": false,

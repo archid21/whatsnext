@@ -152,7 +152,16 @@ Settings you may want:
 | `plan.verifyTimeout` | `30m` | How long a `--verify` command may run |
 | `note.staleDays` | `7` | Age at which the resume note warns |
 | `note.carryAfterCompact` | `true` | Repeat your latest request in the resume note after a compact |
+| `wrapup.autoIdle` | `false` | Claude Code only: say `wrap up` for you once, 45 minutes after your last turn, before Claude Code's own idle compact (see below) |
 | `paths.handoff` | `docs/project/HANDOFF.md` | Where the handoff note is written |
+
+**Auto wrap-up when you step away.** Set `wrapup.autoIdle` to `true` and, in Claude Code, the plugin sends `wrap up` once when a session has been idle 45 minutes. Claude Code's own idle compact (it runs when you have been away about an hour, so the prompt cache does not expire) came 54 minutes after the last request in both of our tests, so the wrap-up goes first and the handoff note exists before the compact. It sends `wrap up` only when all of these hold:
+
+- the folder is a whatsnext project and this session has no fresh wrap-up;
+- the context is at or above `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS` (default 200,000, never under 100,000);
+- Claude Code's `idleCompaction` and `autoCompactEnabled` are not `false`.
+
+It sends it once. It does not send it again until you send a prompt yourself. When you come back, you will see one extra turn that wrote the handoff note.
 
 ---
 

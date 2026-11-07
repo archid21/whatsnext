@@ -14,6 +14,7 @@ every event does nothing.
 - stop: also records a wrap-up that was requested in this session and wrote the handoff (ADR-0008).
 - pre-compact: Claude Code prints plain text (the compact instructions, capped; P-20); every agent records a compact with no fresh handoff (P-4).
 - pre-edit: Claude Code and Codex PreToolUse on Edit, Write and apply_patch; warns or denies a hand-ticked plan item (P-7).
+- idle-check: asked by the hooks module 45 minutes after the last turn; prints `{"fire": true|false}` (ADR-0016, P-40).
 - post-compact: Claude Code's PostCompact; keeps `compact_summary` in git-ignored session state (P-21).
 - stop / pre-compact / session-end: also write the facts (journal line and progress header, ADR-0005).
 """
@@ -27,6 +28,7 @@ import re
 
 from . import capture as gwcapture
 from . import config as gwconfig
+from . import idle as gwidle
 from . import journal as gwjournal
 from . import packet as gwpacket
 from . import redact as gwredact
@@ -36,7 +38,7 @@ from . import util as gwutil
 from . import wrapup as gwwrapup
 
 EVENTS = ("session-start", "plan-shown", "plan-approved", "prompt-submit", "stop", "pre-compact", "post-compact",
-          "pre-edit", "session-end")
+          "pre-edit", "session-end", "idle-check")
 PRECOMPACT_CAP = 3000  # characters printed at PreCompact (P-20)
 CARRY_REQUEST_CAP = 250  # characters of the latest request repeated in the resume note after a compact (ADR-0015)
 CARRY_WORK_CAP = 150  # characters of the subagents and todo line repeated there
@@ -401,6 +403,11 @@ def handle(event, data, agent=None):
         try:
             out = precompact(root, effective, data, agent)
         except Exception:  # PreCompact output is a help, never a failure
+            out = ""
+    elif event == "idle-check":
+        try:
+            out = gwidle.check_text(root, effective, data)
+        except Exception:  # no answer reads as "do not fire"
             out = ""
     elif event == "pre-edit":
         try:

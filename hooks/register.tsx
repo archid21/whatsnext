@@ -1,5 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 
+import { IDLE_MS, WRAP_UP, minTokens, skipReason } from './idle'
 import { GUIDE, TIPS, loadState, markSeen, nextTip, restartTips, stopTips, type Tip } from './tips'
 
 // whatsnext tips band (P-36). One tip shows above the prompt, with Next tip and Stop tips.
@@ -11,6 +12,13 @@ let turns = 0
 let hasCheckedTask = false
 const LONG_SESSION_TURNS = 20
 const PROGRESS_FOLDER = 'docs/project/progress'
+
+// Idle wrap-up (P-40, ADR-0016). A timer starts at the end of each main-thread turn and stops when any prompt is
+// submitted. When it runs out, `wrap up` is submitted once, if the whatsnext check and Claude Code's settings agree.
+// After that no timer starts until the person sends a prompt of their own.
+let idleTimer: { cancel: () => void } | undefined
+let askedThisPeriod = false
+const SCRIPT = 'skills/whatsnext/scripts/whatsnext.py'
 
 // Show `id` if tips are on, it was not seen, and nothing else is showing. A plain function declaration at the top
 // of the file, because the engine follows `$` only into those.
@@ -38,6 +46,47 @@ async function hasActiveTask($: EngineInterface) {
     return false
   } catch {
     return undefined
+  }
+}
+
+function disarmIdle() {
+  idleTimer?.cancel()
+  idleTimer = undefined
+}
+
+function armIdle($: EngineInterface) {
+  disarmIdle()
+  if (askedThisPeriod) return
+  idleTimer = $.clock.after(IDLE_MS, () => {
+    idleTimer = undefined
+    void idleWrapUp($)
+  })
+}
+
+// Any error means no `wrap up`: this is a convenience and must never break the session.
+async function idleWrapUp($: EngineInterface) {
+  try {
+    if (askedThisPeriod) return
+    const { context } = await $.session.usage({ breakdown: 'summary' })
+    const reason = skipReason({
+      idleCompaction: await $.settings.read({ key: 'idleCompaction' }),
+      autoCompactEnabledSetting: await $.settings.read({ key: 'autoCompactEnabled' }),
+      isAutoCompactEnabled: context.breakdown?.isAutoCompactEnabled,
+      tokens: context.tokens,
+      minTokens: minTokens(await $.env.get('CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS')),
+    })
+    if (reason) return
+    const cwd = await $.session.cwd()
+    const ran = await $.process.run(['python3', `${$.plugin.root}/${SCRIPT}`, 'hook', 'idle-check', '--agent', 'claude-code'], {
+      cwd,
+      stdin: JSON.stringify({ session_id: await $.session.id(), cwd }),
+      timeoutMs: 10_000,
+    })
+    if (ran.exitCode !== 0 || JSON.parse(ran.stdout).fire !== true) return
+    askedThisPeriod = true
+    await Promise.resolve($.prompt.submit({ text: WRAP_UP })).catch(() => undefined)
+  } catch {
+    // no wrap up this time
   }
 }
 
@@ -93,10 +142,24 @@ export const register: Register = on => {
     return result
   })
 
+  // Any submitted prompt ends the idle wait. Only the person's own prompt (Enter, or the phone or web client) starts a
+  // new idle period; a notification or the plugin's own `wrap up` does not.
+  on('prompt.submit', async ($, e, next) => {
+    disarmIdle()
+    // An absent origin is the person's own prompt (the engine stamps Enter as `composer`).
+    const kind = e.origin?.kind
+    if (kind === undefined || kind === 'composer' || kind === 'bridge') askedThisPeriod = false
+
+    return next(e)
+  })
+
   // Never at startup: the first turn's end is the earliest a tip can show, apart from a compact.
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    if (!e.agentId) await afterTurn($)
+    if (!e.agentId) {
+      armIdle($)
+      await afterTurn($)
+    }
 
     return result
   })
