@@ -83,7 +83,10 @@ export const register: Register = on => {
     return { text: `whatsnext tips are on again. What each one does: ${GUIDE}` }
   })
 
-  on('session.compact', async ($, e, next) => {
+  // A compact is marked by the command that runs it. `session.compact` and `classic.PostCompact` cannot be used:
+  // in a real session the engine's security plugin runs first and skips this plugin's hooks on both (the debug log
+  // says "bypassed by cc-plugin-sec-default"). An automatic compact is not seen; the long-session trigger covers it.
+  on('command.run', { command: 'compact' }, async ($, e, next) => {
     const result = await next(e)
     await offer($, 'save')
 

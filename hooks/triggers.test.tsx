@@ -8,14 +8,14 @@ const BAND = {
   props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 5 }, view: {} },
 } as const
 
-const messages = [{ role: 'user', text: 'a summary', toolUses: [] }] as const
+const COMPACT = { command: 'compact', args: '' } as const
 
 type World = { files?: Record<string, string>; stored?: Record<string, unknown> }
 
 // What sits beneath the plugin in a test: the engine's drawing, a compaction, a turn end, a Bash tool and a folder.
 function world(on: On, { files = {}, stored }: World = {}) {
   mock.store(on, stored)
-  on('session.compact', () => ({ messages }))
+  on('command.run', () => ({ text: 'Compacted.' }))
   on('turn.complete', () => ({ text: 'ok' }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('tool.call', () => ({ result: { stdout: 'Marked P-13 done. Verified: true passed in 1.0 s.', stderr: '' } }))
@@ -46,7 +46,7 @@ const TURN = { answer: 'ok', durationMs: 1, isAborted: false, turnId: 't', reaso
 test('wrap up shows after a compact', async ($, on) => {
   world(on, { files: { 'P-1.md': '- **State:** active' } })
   expect(await band($, /save this session/)).toBe(false)
-  await $.session.compact({ trigger: 'auto', messages })
+  await $.command.run(COMPACT)
   expect(await band($, /save this session/)).toBe(true)
 })
 
@@ -88,18 +88,18 @@ test('mark done shows after a plan item passes its command, not after other comm
 
 test('a tip never shows twice in one session or after it was seen', async ($, on) => {
   world(on, { files: { 'P-1.md': '- **State:** active' } })
-  await $.session.compact({ trigger: 'auto', messages })
+  await $.command.run(COMPACT)
   const ui = await $.ui.mount(BAND)
   await $.ui.press({ plugin: 'whatsnext', key: 'next', surface: 'terminal' })
   await ui.unmount()
   // Another compact in the same session does not bring the save tip back.
-  await $.session.compact({ trigger: 'auto', messages })
+  await $.command.run(COMPACT)
   expect(await band($, /save this session/)).toBe(false)
 })
 
 test('a tip stored as seen does not show in a new session', async ($, on) => {
   world(on, { files: { 'P-1.md': '- **State:** active' }, stored: { tips: { tipsOff: false, seen: ['save'] } } })
-  await $.session.compact({ trigger: 'auto', messages })
+  await $.command.run(COMPACT)
   expect(await band($, /save this session/)).toBe(false)
 })
 
@@ -116,13 +116,13 @@ test('/whatsnext-tips is registered, clears tipsOff and the seen list, and links
   expect(registered).toEqual(['whatsnext-tips'])
 
   // Stopped and seen: nothing shows.
-  await $.session.compact({ trigger: 'auto', messages })
+  await $.command.run(COMPACT)
   expect(await band($, /save this session/)).toBe(false)
 
   const { text } = await $.command.run({ command: 'whatsnext-tips' })
   expect(text).toContain('docs/GUIDE.md')
 
   // Back on, nothing seen: the save tip shows again.
-  await $.session.compact({ trigger: 'auto', messages })
+  await $.command.run(COMPACT)
   expect(await band($, /save this session/)).toBe(true)
 })
