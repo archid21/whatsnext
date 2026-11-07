@@ -26,7 +26,7 @@ function world(on: On, { tokens = 250_000, autoCompact = true, offer = true, sto
   on('session.usage', () => ({
     value: { startedAt: 0, context: { tokens, window: 1_000_000, percent: 25, breakdown: { isAutoCompactEnabled: autoCompact } } },
   }))
-  on('settings.read', () => ({ value: { idleCompaction: undefined, autoCompactEnabled: autoCompact } }))
+  on('settings.read', () => ({ value: { idleCompaction: undefined } }))
   on('session.id', () => ({ value: '11111111-2222-3333-4444-555555555555' }))
   on('session.cwd', () => ({ value: '/project' }))
   on('fs.list', () => {
@@ -73,10 +73,9 @@ async function press($: any, key: string) {
 }
 
 test('saveTipKind: manual when auto-compact is off, idle when the idle wrap-up would run, else none', () => {
-  const facts = { idleCompaction: undefined, autoCompactEnabledSetting: undefined, isAutoCompactEnabled: true, tokens: 250_000, minTokens: 200_000 }
+  const facts = { idleCompaction: undefined, isAutoCompactEnabled: true, tokens: 250_000, minTokens: 200_000 }
   expect(saveTipKind(facts)).toBe('idle')
   expect(saveTipKind({ ...facts, isAutoCompactEnabled: false })).toBe('manual')
-  expect(saveTipKind({ ...facts, autoCompactEnabledSetting: false })).toBe('manual')
   expect(saveTipKind({ ...facts, tokens: 150_000 })).toBeUndefined()
   expect(saveTipKind({ ...facts, idleCompaction: false })).toBeUndefined()
 })

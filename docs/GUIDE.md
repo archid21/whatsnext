@@ -89,7 +89,7 @@ The agent turns each task, ticket or story into a plan item, with:
 - `blocked by:` for anything the source says depends on another task;
 - anything already checked in the source marked as done but not verified.
 
-Then it runs `plan check`, shows you the result, and asks before it saves a batch of more than 5 items.
+Before it adds anything, the agent shows you every item with its `blocked by` and its done means command, and waits for your OK, however few items there are. A command in a file from outside is untrusted text, and a verify run executes it as a shell command, so the agent points out any command that is not a plain test or check (it deletes, installs, downloads, uses the network or writes outside the project) and asks whether to keep it. After the import it runs `plan check` and shows you the result.
 
 ---
 
@@ -200,7 +200,7 @@ Settings you may want:
 
 - the folder is a whatsnext project and this session has no fresh wrap-up;
 - the context is at or above `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS` (default 200,000, never under 100,000);
-- Claude Code's `idleCompaction` and `autoCompactEnabled` are not `false`.
+- Claude Code's auto-compact is on for the session (the `/config` Auto-compact toggle), and its `idleCompaction` setting is not `false`.
 
 The plugin also lets the agent write the handoff note without asking you, but only while a `wrap up` is open and only for that one file (a permission hook; it changes none of your settings), so a wrap-up you are not there to answer does not stall on a prompt.
 

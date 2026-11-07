@@ -30,3 +30,6 @@ It starts a model turn nobody typed. That costs tokens: the wrap-up turn re-read
 ## Not known yet
 
 Whether the wrap-up turn resets Claude Code's idle clock, so that the compact comes 54 minutes after the wrap-up and not after the original last request. The result of the harness run is in `docs/project/progress/P-40.md`.
+
+## Correction, 2026-11-07
+Claude Code keeps `autoCompactEnabled` in its global config, not in `settings.json`, so `$.settings.read({ key: 'autoCompactEnabled' })` can never see it. The module now reads only the session's own `isAutoCompactEnabled` (the engine documents it as "whether auto-compaction is on for the session"). `idleCompaction` is a `settings.json` key and is still read with `settings.read`. Found by searching the Claude Code binary and the engine types; the decision itself is unchanged.

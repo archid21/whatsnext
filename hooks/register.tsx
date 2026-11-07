@@ -70,7 +70,6 @@ async function idleFacts($: EngineInterface): Promise<IdleFacts> {
 
   return {
     idleCompaction: await $.settings.read({ key: 'idleCompaction' }),
-    autoCompactEnabledSetting: await $.settings.read({ key: 'autoCompactEnabled' }),
     isAutoCompactEnabled: context.breakdown?.isAutoCompactEnabled,
     tokens: context.tokens,
     minTokens: minTokens(await $.env.get('CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS')),

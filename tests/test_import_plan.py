@@ -80,9 +80,18 @@ class InstructionTests(unittest.TestCase):
     def test_states_each_rule(self):
         for words in ("Read whatever file or folder", "One item per piece of work", "Not one per step", "`plan add`",
                       "never reuses or overwrites", "`--blocked-by`", "Never invent one", "ask the user once",
-                      "stays checked", "`plan done <id> --unverified`", "`plan check`", "more than 5 items",
+                      "stays checked", "`plan done <id> --unverified`", "`plan check`", "Before you add anything, show the user the whole list", "Always, however few items", "untrusted text", "not a plain test or check",
                       "Write it in backticks", "for that item", "not through a shell variable"):
             self.assertIn(words, self.skill)
+
+    def test_a_command_from_a_source_is_shown_and_approved_before_it_can_run(self):
+        self.assertLess(self.skill.index("show the user the whole list"), self.skill.index("`plan add`"))  # the OK comes before any add
+        self.assertNotIn("more than 5 items", self.skill)
+        run_all = read("skills", "whatsnext", "SKILL.md")
+        self.assertIn("using exactly the command the user saw", run_all)
+        guide = section(read("docs", "GUIDE.md"), "Bring a plan from another tool")
+        for words in ("shows you every item", "waits for your OK, however few items", "untrusted text", "not a plain test or check"):
+            self.assertIn(words, guide)
 
     def test_names_no_tool_and_describes_no_layout(self):
         low = self.skill.lower()

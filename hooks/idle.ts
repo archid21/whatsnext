@@ -15,7 +15,6 @@ export function minTokens(raw: string | undefined): number {
 
 export type IdleFacts = {
   idleCompaction: unknown // Claude Code's `idleCompaction` setting
-  autoCompactEnabledSetting: unknown // Claude Code's `autoCompactEnabled` setting, if settings.json holds it
   isAutoCompactEnabled: boolean | undefined // what the session reports (the context breakdown)
   tokens: number | undefined // input tokens of the last response
   minTokens: number
@@ -24,7 +23,7 @@ export type IdleFacts = {
 // Why `wrap up` is not submitted, or undefined when these facts allow it. Only an explicit `false` turns a setting off.
 export function skipReason(facts: IdleFacts): string | undefined {
   if (facts.idleCompaction === false) return 'idleCompaction is false'
-  if (facts.autoCompactEnabledSetting === false || facts.isAutoCompactEnabled === false) return 'autoCompactEnabled is false'
+  if (facts.isAutoCompactEnabled === false) return 'auto-compact is off'
   if (facts.tokens === undefined || facts.tokens < facts.minTokens) return 'context is under the idle compact minimum'
 
   return undefined
@@ -34,7 +33,7 @@ export function skipReason(facts: IdleFacts): string | undefined {
 // says `wrap up`. `idle`: auto-compact is on and the context is big enough that the idle wrap-up would run, so offer to
 // turn it on. Anything else: undefined, and the plain `save` tip applies.
 export function saveTipKind(facts: IdleFacts): 'manual' | 'idle' | undefined {
-  if (facts.autoCompactEnabledSetting === false || facts.isAutoCompactEnabled === false) return 'manual'
+  if (facts.isAutoCompactEnabled === false) return 'manual'
 
   return skipReason(facts) === undefined ? 'idle' : undefined
 }

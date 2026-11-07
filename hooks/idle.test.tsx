@@ -29,7 +29,7 @@ function world(on: On, { tokens = 250_000, idleCompaction, autoCompact = true, e
     },
   }))
   on('turn.complete', () => ({ text: 'ok' }))
-  on('settings.read', () => ({ value: { idleCompaction, autoCompactEnabled: autoCompact } }))
+  on('settings.read', () => ({ value: { idleCompaction } }))
   on('session.id', () => ({ value: '11111111-2222-3333-4444-555555555555' }))
   on('session.cwd', () => ({ value: '/project' }))
   on('process.run', (_, e) => {
@@ -56,12 +56,11 @@ test('the numbers: 45 minutes, a 200,000 default and a 100,000 floor', () => {
 })
 
 test('only an explicit false turns Claude Code settings off; a small context skips', () => {
-  const facts = { idleCompaction: undefined, autoCompactEnabledSetting: undefined, isAutoCompactEnabled: true, tokens: 200_000, minTokens: 200_000 }
+  const facts = { idleCompaction: undefined, isAutoCompactEnabled: true, tokens: 200_000, minTokens: 200_000 }
   expect(skipReason(facts)).toBeUndefined()
   expect(skipReason({ ...facts, idleCompaction: true })).toBeUndefined()
   expect(skipReason({ ...facts, idleCompaction: false })).toContain('idleCompaction')
-  expect(skipReason({ ...facts, isAutoCompactEnabled: false })).toContain('autoCompactEnabled')
-  expect(skipReason({ ...facts, autoCompactEnabledSetting: false })).toContain('autoCompactEnabled')
+  expect(skipReason({ ...facts, isAutoCompactEnabled: false })).toContain('auto-compact')
   expect(skipReason({ ...facts, isAutoCompactEnabled: undefined })).toBeUndefined()
   expect(skipReason({ ...facts, tokens: 199_999 })).toContain('minimum')
   expect(skipReason({ ...facts, tokens: undefined })).toContain('minimum')
