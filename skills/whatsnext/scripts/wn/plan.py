@@ -866,6 +866,147 @@ def report(args, ok, message, data):
     return 0
 
 
+# ---- editing the plan (P-45) -----------------------------------------------
+
+ID_RE = re.compile(r"^%s$" % ID_PATTERN)
+DEFAULT_PREFIX = "P"
+
+
+def section_name(text):
+    """The section a person named (any case), else None."""
+    return next((s for s in SECTIONS if s.lower() == (text or "").strip().lower()), None)
+
+
+def heading_index(lines, name):
+    """Line index of the `## <name>` heading, else None. Headings inside HTML comments do not count."""
+    in_comment = False
+    for i, raw in enumerate(lines):
+        visible, in_comment = strip_comments(raw.rstrip("\r"), in_comment)
+        h = HEADING_RE.match(visible)
+        if h and h.group(1) == "##" and h.group(2).strip().lower() == name.lower():
+            return i
+    return None
+
+
+def end_of_section(lines, items, name):
+    """Index at which a new item goes to be last in section `name`; adds the heading when the plan has none."""
+    mine = [it for it in items if it.section == name]
+    if mine:
+        return mine[-1].index + 1
+    at = heading_index(lines, name)
+    if at is None:
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.extend(["## " + name, ""])
+        return len(lines) - 1
+    i = at + 1
+    if i >= len(lines) or lines[i].strip() != "":
+        lines.insert(i, "")
+    return i + 1
+
+
+def next_free_id(items, prefix):
+    numbers = [int(m.group(1)) for it in items for m in [re.match(r"^%s-(\d+)$" % re.escape(prefix), it.id)] if m]
+    return "%s-%d" % (prefix, max(numbers or [0]) + 1)
+
+
+def item_line(item_id, title, done_means, blocked_by):
+    line = "- [ ] %s %s · done means: %s" % (item_id, title, done_means)
+    if blocked_by:
+        line += " · blocked by: " + ", ".join(blocked_by)
+    return line
+
+
+def cmd_add(ctx, args):
+    if not ctx.has_plan():
+        return fail(no_plan(ctx))
+    title = clean(args.title)
+    if not title:
+        return fail("plan add needs a title.")
+    section = section_name(args.section)
+    if section is None:
+        return fail("--section is one of: %s." % ", ".join(SECTIONS))
+    done_means = clean(args.done_means)
+    if not done_means:
+        return ask(args.json, "done_means", "What does done mean for the new item (%s)? One line, ideally a command." % title,
+                   context={"title": title}, answer='--done-means "<text>"', free_text=True)
+    lines, items = parse_text(read_plan(ctx.plan_path))
+    ids = {it.id for it in items}
+    if args.id:
+        if not ID_RE.match(args.id):
+            return fail("%s is not an item id. Use letters, a dash and a number, for example P-12." % args.id)
+        if args.id in ids:
+            return fail("%s is already in %s. Pick another id, or leave --id out for the next free one." % (args.id, ctx.plan_rel))
+        item_id = args.id
+    else:
+        item_id = next_free_id(items, args.prefix or DEFAULT_PREFIX)
+    blocked = []
+    for raw in (args.blocked_by or "").replace(",", " ").split():
+        if raw not in ids:
+            return fail("--blocked-by names %s, which is not in %s." % (raw, ctx.plan_rel))
+        if raw not in blocked:
+            blocked.append(raw)
+    at = end_of_section(lines, items, section)
+    lines.insert(at, item_line(item_id, title, done_means, blocked))
+    write_atomic(ctx.plan_path, "\n".join(lines))
+    return report(args, True, "Added %s to %s: %s" % (item_id, section, title), {"id": item_id, "section": section})
+
+
+def cmd_drop(ctx, args):
+    if not ctx.has_plan():
+        return fail(no_plan(ctx))
+    lines, items = parse_text(read_plan(ctx.plan_path))
+    item = next((it for it in items if it.id == args.id), None)
+    if item is None:
+        return fail("No item %s in %s." % (args.id, ctx.plan_rel))
+    if gwclaims.read(ctx.root, args.id) is not None:
+        return fail("%s is in progress. Put it back first: plan put-back %s." % (args.id, args.id))
+    waiting = [it.id for it in items if not it.checked and args.id in it.blocked_by and it.id != args.id]
+    if waiting:
+        return fail("%s is named in `blocked by:` on %s. Move or edit those first." % (args.id, ", ".join(waiting)))
+    del lines[item.index]
+    write_atomic(ctx.plan_path, "\n".join(lines))
+    return report(args, True, "Dropped %s: %s" % (args.id, item.title), {"id": args.id})
+
+
+def cmd_move(ctx, args):
+    if not ctx.has_plan():
+        return fail(no_plan(ctx))
+    given = [x for x in (args.to, args.before, args.after) if x]
+    if len(given) != 1:
+        return fail("Give exactly one of --to, --before or --after.")
+    lines, items = parse_text(read_plan(ctx.plan_path))
+    item = next((it for it in items if it.id == args.id), None)
+    if item is None:
+        return fail("No item %s in %s." % (args.id, ctx.plan_rel))
+    moved = lines[item.index]
+    if args.to:
+        section = section_name(args.to)
+        if section is None:
+            return fail("--to is one of: %s." % ", ".join(SECTIONS))
+        rest = [it for it in items if it is not item]
+        del lines[item.index]
+        for it in rest:  # indexes after the removed line move up by one
+            if it.index > item.index:
+                it.index -= 1
+        at = end_of_section(lines, rest, section)
+        lines.insert(at, moved)
+        where = "the end of " + section
+    else:
+        other_id = args.before or args.after
+        if other_id == args.id:
+            return fail("An item cannot move relative to itself.")
+        other = next((it for it in items if it.id == other_id), None)
+        if other is None:
+            return fail("No item %s in %s." % (other_id, ctx.plan_rel))
+        del lines[item.index]
+        at = other.index - (1 if other.index > item.index else 0)
+        lines.insert(at if args.before else at + 1, moved)
+        where = ("before " if args.before else "after ") + other_id
+    write_atomic(ctx.plan_path, "\n".join(lines))
+    return report(args, True, "Moved %s to %s." % (args.id, where), {"id": args.id})
+
+
 # ---- git helpers for Start -------------------------------------------------
 
 
@@ -1277,6 +1418,23 @@ def build_parser():
     p.add_argument("--unverified", action="store_true")
     p.add_argument("--verify", metavar="CMD", help="run CMD from the project root; exit 0 marks the item done and confirmed, anything else leaves it open (not combinable with --evidence)")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("add", help="add an item to the plan (the next free id, in the plan's format)")
+    p.add_argument("title")
+    p.add_argument("--done-means", help="how we know it is done, ideally a command (asked for when left out)")
+    p.add_argument("--section", default="Next", help="Now, Next or Later (default Next)")
+    p.add_argument("--blocked-by", help="ids this item waits for, comma separated")
+    p.add_argument("--id", help="use this id instead of the next free one")
+    p.add_argument("--prefix", help="id prefix for the next free id (default P)")
+    p.add_argument("--json", action="store_true")
+    p = sub.add_parser("drop", help="remove an item that no agent has in progress")
+    p.add_argument("id")
+    p.add_argument("--json", action="store_true")
+    p = sub.add_parser("move", help="move an item to a section, or before or after another item")
+    p.add_argument("id")
+    p.add_argument("--to", help="Now, Next or Later: the end of that section")
+    p.add_argument("--before", metavar="ID")
+    p.add_argument("--after", metavar="ID")
+    p.add_argument("--json", action="store_true")
     for name, text in (("keep", "keep an item in progress (resets its idle time)"), ("put-back", "put an item back for any agent to start")):
         p = sub.add_parser(name, help=text)
         p.add_argument("id")
@@ -1292,5 +1450,5 @@ def run(argv, cwd=None):
     if args.action is None:
         args.action, args.json = "list", False
     handler = {"list": cmd_list, "next": cmd_next, "check": cmd_check, "start": cmd_start, "done": cmd_done,
-               "keep": cmd_keep, "put-back": cmd_release}[args.action]
+               "keep": cmd_keep, "put-back": cmd_release, "add": cmd_add, "drop": cmd_drop, "move": cmd_move}[args.action]
     return handler(ctx, args)

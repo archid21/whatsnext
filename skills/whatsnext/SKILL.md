@@ -48,6 +48,16 @@ A command that needs an answer prints a question and exits 4 (add `--json` for d
    Nothing is marked in progress until the checks pass. If Start prints "Earlier work: ...", read that item's progress file first, and prefer the branch or worktree the branch question recommends.
 3. After Start, restate the goal and done means, list 3 to 5 steps, and wait for the user's OK before changing files. For a new worktree, tell the user to open the folder it printed.
 
+## Change the plan
+
+When the user asks to add, drop or reorder plan items, use the commands. Do not edit `PLAN.md` by hand: the commands write the line in the right format, pick the next free id and refuse a duplicate. Ask the user before you change the plan, one question, then run:
+
+- `plan add "<title>" --done-means "<command or check>" [--section Now|Next|Later] [--blocked-by P-1,P-2] [--id P-N] [--prefix X]`. Without `--done-means` it asks (exit 4): ask the user, then run it again with the answer.
+- `plan drop <id>`: refuses an item in progress or one that another open item waits for.
+- `plan move <id> --to Now|Next|Later`, or `--before <id>` or `--after <id>`.
+
+Run `plan check` after a batch of changes and show the result.
+
 ## Rules
 
 - Set the Next action with `progress next`, in one or two lines: the exact next step. Never write the `Note:` line by hand. After you edit any other part of a progress file, run `progress stamp <task-id>`.

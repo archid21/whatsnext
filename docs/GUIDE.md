@@ -4,7 +4,7 @@ What you can do with whatsnext, and the words to say. Each section gives the act
 
 You talk to your agent (Claude Code or Codex). The agent runs the commands. The few commands you may run yourself are marked **Run it yourself**.
 
-Contents: [Save and resume](#save-and-resume-a-session) · [Pick work](#pick-and-start-work) · [Mark done](#mark-work-done) · [Track a task](#track-a-task) · [Compact](#compact-a-long-session) · [Several agents](#use-more-than-one-agent) · [Health check](#check-that-it-works) · [Settings](#change-a-setting) · [Tips](#tips) · [Set up a repo](#set-up-a-repository) · [Known gaps](#known-gaps)
+Contents: [Save and resume](#save-and-resume-a-session) · [Pick work](#pick-and-start-work) · [Change the plan](#change-the-plan) · [Mark done](#mark-work-done) · [Track a task](#track-a-task) · [Compact](#compact-a-long-session) · [Several agents](#use-more-than-one-agent) · [Health check](#check-that-it-works) · [Settings](#change-a-setting) · [Tips](#tips) · [Set up a repo](#set-up-a-repository) · [Known gaps](#known-gaps)
 
 ---
 
@@ -49,6 +49,18 @@ Use this when you stop work, or the context window is full.
 Nothing is marked in progress until every answer is in. After Start, the agent restates the goal and done means, lists 3 to 5 steps, and waits for your OK before it changes files.
 
 **Keep or put back a stale item.** Say `keep working on P-12` to reset its idle clock. Say `put P-12 back` to release it for any agent. The agent updates its progress file first.
+
+---
+
+## Change the plan
+
+| You say | The agent does |
+|---|---|
+| `add an item: <what>` | Asks what proves it done (a command is best), then adds it with the next free id. Say which section: Now, Next or Later. The default is Next. |
+| `drop P-16` | Removes it. It refuses an item in progress, or one another open item waits for. |
+| `move P-14 to Later` | Moves it to the end of that section. You can also say "before P-13" or "after P-15". |
+
+The agent asks you before it changes the plan, and uses these commands instead of editing `PLAN.md` by hand, so the line is always in the right format and an id is never reused. Run it yourself: `python3 skills/whatsnext/scripts/whatsnext.py plan add "Export CSV" --done-means "python3 -m unittest" --section Next`.
 
 ---
 
@@ -197,6 +209,7 @@ You rarely type these. The agent runs them from your words. All commands start w
 |---|---|
 | `plan list`, `plan next`, `plan check` | See the plan |
 | `plan start <id>`, `plan keep <id>`, `plan put-back <id>` | Move an item |
+| `plan add`, `plan drop <id>`, `plan move <id>` | Change the plan |
 | `plan done <id> --verify "<cmd>"` or `--evidence "<text>"` | Mark done |
 | `progress new/next/stamp/show/list` | Task progress files |
 | `progress capture`, `progress resume-note` | Store a plan, print the resume note |
