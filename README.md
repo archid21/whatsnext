@@ -26,7 +26,7 @@ A compact does not fix this. It keeps whatever the model thinks matters, which m
 
 **A plan every agent reads.** `PLAN.md` is a checklist in your repository. `plan next` shows what is next; `plan start` asks a few questions first and refuses an item another agent has checked out. A claim is a note, not a lock: two agents requesting the same item around the same time might both claim it.
 
-**"Done" means a command passed.** `plan done P-13 --verify "<cmd>"` runs your command. Exit 0 ticks the item. Anything else leaves it open and saves the last 20 lines of output. An item no command can check is ticked with `--evidence` and shows as `done*`, so you can tell the two apart.
+**"Done" means a command passed.** `plan done P-13 --verify` runs the single backticked command saved in the item. A replacement requires an explicit approved `--override-reason`, recorded with the evidence. Exit 0 ticks the item. Anything else leaves it open and saves the last 20 lines of output. An item no command can check is ticked with `--evidence` and shows as `done*`, so you can tell the two apart.
 
 **Resume where you stopped.** At session start, after `/clear` and after a compact, a note of at most 1,200 characters says what is done, what is next, which test command to run and what changed since the note was written. It warns when it is over 7 days old.
 
@@ -81,7 +81,7 @@ In Claude Code (terminal and desktop app only), a tip band above the prompt teac
 
 - **Using more than one agent on a plan is experimental.** Handing a plan from one agent to another works through the files, but it has not been extensively tested.
 - **Claims are notes, not locks.** Two agents requesting the same item around the same time might both claim it.
-- **In Codex's default sandbox,** a claim is written to `.whatsnext/claims/` because `.git` is read-only there, so another worktree does not see it.
+- **In Codex's default sandbox,** a claim falls back to `.whatsnext/claims/` when `.git` is read-only. Sibling worktrees can read it when accessible; separate clones cannot.
 - **Agents can skip the commands.** In our Codex runs the agent sometimes edited `PLAN.md` by hand or mistyped the script path. `plan check` finds items ticked without evidence.
 - **Codex support is new.** Run `install-hooks`, trust the hooks in `/hooks`, and expect some rough edges. Plan capture on Codex may stop working after a Codex update (ADR-0005).
 
@@ -102,7 +102,7 @@ python3 skills/whatsnext/scripts/whatsnext.py plan next
 python3 skills/whatsnext/scripts/whatsnext.py plan done P-13 --verify "python3 -m unittest discover -s tests"
 ```
 
-Claude Code loads `hooks/hooks.json` with the plugin. For Codex, run `install-hooks` (it also links the skill into `~/.agents/skills/whatsnext`), then trust the hooks in Codex's `/hooks`.
+Claude Code loads `hooks/hooks.json` with the plugin. For Codex, run `install-hooks` (it also links the skill into `~/.agents/skills/whatsnext`), then review changed hooks in Settings > Hooks (desktop) or `/hooks` (CLI).
 
 ---
 
@@ -119,7 +119,7 @@ Claude Code loads `hooks/hooks.json` with the plugin. For Codex, run `install-ho
 - **Session-aware handoff:** a note is fresh for a session only when that session's sidecar exists, its SHA-256 is the file's, and no turn came after the file was written. Any other note is *foreign* (another session wrote it, it was edited since, or it predates the sidecar). A foreign note is never carried into a compact: the text says another session wrote it and gives the path. The resume note adds `Handoff: <path> (read it first)` when the note's `Session:` is this session or its `Task:` is the active task, else `Handoff: <path> (another session's note)`. When a related note has a Next action, the `Next` line shows the newer of it and the progress file's Next, labeled `Next (confirmed <UTC>)` or `Next (handoff <UTC>)`; without one it stays `Next:`.
 - **Compact:** `compact-instructions` prints the text for `/compact` in an open session, built from the handoff note. `--json` also returns a one-line `compact_line`. A note another session wrote is never carried into a compact.
 - **Init:** `whatsnext init` (git repositories only) creates what is missing: `PLAN.md`, `.whatsnext/config.json`, the progress and journal folders, the `.whatsnext/sessions/` line in `.gitignore`, and a block in `AGENTS.md` between `<!-- whatsnext:start -->` and `<!-- whatsnext:end -->`. `--dry-run` prints the plan and writes nothing. `--undo` removes only the `AGENTS.md` block.
-- **Hooks:** the resume note at session start, after `/clear` and after compaction; plan capture when the agent shows a plan; the facts journal. Claude Code loads `hooks/hooks.json` with the plugin. For Codex, run `install-hooks` (it also links the skill into `~/.agents/skills/whatsnext`), then trust the hooks in Codex's `/hooks`. See [ADR-0005](docs/decisions/ADR-0005-hooks-and-journal.md).
+- **Hooks:** the resume note at session start, after `/clear` and after compaction; plan capture when the agent shows a plan; the facts journal. Claude Code loads `hooks/hooks.json` with the plugin. For Codex, run `install-hooks` (it also links the skill into `~/.agents/skills/whatsnext`), then review changed hooks in Settings > Hooks (desktop) or `/hooks` (CLI). See [ADR-0005](docs/decisions/ADR-0005-hooks-and-journal.md).
 
 Commands: `plan`, `progress`, `config show`, `config set --user`, `init`, `install-hooks` and `compact-instructions`. The script is `skills/whatsnext/scripts/whatsnext.py`.
 
@@ -173,4 +173,10 @@ The tests create temporary git repositories and a temporary HOME, so your own co
 | `hooks/hooks.json` | Claude Code hooks: session start, plan capture, `wrap up`, Stop, PreCompact and SessionEnd |
 | `skills/whatsnext/schemas/config.schema.json` | The settings schema |
 | `tests/` | Unit tests (`fixtures.py` holds the shared test bases) |
-| `docs/decisions/` | The ten current decisions, [index](docs/decisions/README.md) |
+| `docs/decisions/` | The current decisions, [index](docs/decisions/README.md) |
+
+## Execution and Codex continuity
+
+`what's next?` recommends current work before a new item and flags a handoff that references completed work. The agent reports completed work, current step, next action, blockers and verification at meaningful milestones. “Run all steps” covers one task; “run the ready plan items” approves an explicit set of tasks.
+
+Codex supports `wrap up`, request carryover after compaction, fork startup, session-end and interruption facts. `doctor` separates configured hooks from observed behavior for each agent. Automated two-way workflow coverage is in `tests/test_continuity.py`; live release validation is tracked in [the acceptance checklist](docs/CODEX-ACCEPTANCE.md). Tips, idle wrap-up and compact-summary comparison remain Claude-only.

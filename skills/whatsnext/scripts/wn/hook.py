@@ -41,13 +41,13 @@ from . import welcome as gwwelcome
 from . import wrapup as gwwrapup
 
 EVENTS = ("session-start", "plan-shown", "plan-approved", "prompt-submit", "stop", "pre-compact", "post-compact",
-          "pre-edit", "session-end", "idle-check", "idle-offer", "permission")
+          "pre-edit", "session-end", "interrupt", "idle-check", "idle-offer", "permission")
 PRECOMPACT_CAP = 3000  # characters printed at PreCompact (P-20)
 CARRY_REQUEST_CAP = 250  # characters of the latest request repeated in the resume note after a compact (ADR-0015)
 CARRY_WORK_CAP = 150  # characters of the subagents and todo line repeated there
 OPEN_WORK_CAP = 500  # characters for the subagents and todo line (P-25)
 REQUEST_CAP = 2000  # characters of the user's latest request kept verbatim (P-6)
-FACT_EVENTS = ("stop", "pre-compact", "session-end")  # these write the facts layer
+FACT_EVENTS = ("stop", "pre-compact", "session-end", "interrupt")  # these write the facts layer
 AGENTS = ("claude-code", "codex")
 
 
@@ -105,7 +105,7 @@ def codex_plan(path, turn_id):
             except ValueError:
                 continue
             payload = record.get("payload") if isinstance(record, dict) else None
-            if record.get("type") != "event_msg" or not isinstance(payload, dict):
+            if not isinstance(record, dict) or record.get("type") != "event_msg" or not isinstance(payload, dict):
                 continue
             if payload.get("type") == "task_started" and isinstance(payload.get("turn_id"), str):
                 turns.append((payload["turn_id"], payload.get("collaboration_mode_kind")))
@@ -128,7 +128,7 @@ def codex_plan(path, turn_id):
 
 
 def codex_format_known(path):
-    """True when the Codex transcript has the records `codex_plan` reads (a `task_started` event)."""
+    """A turn-start record alone does not demonstrate that plans are readable."""
     with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
             try:
@@ -136,8 +136,10 @@ def codex_format_known(path):
             except ValueError:
                 continue
             payload = record.get("payload") if isinstance(record, dict) else None
-            if isinstance(payload, dict) and record.get("type") == "event_msg" and payload.get("type") == "task_started":
-                return True
+            if isinstance(payload, dict) and record.get("type") == "event_msg" and payload.get("type") == "item_completed":
+                item = payload.get("item")
+                if isinstance(item, dict) and item.get("type") == "Plan" and isinstance(item.get("text"), str):
+                    return True
     return False
 
 
@@ -173,16 +175,27 @@ def note_capture_health(root, ok, reason=None):
 def codex_stop(root, effective, data):
     path, turn_id = data.get("transcript_path"), data.get("turn_id")
     if not isinstance(path, str) or not isinstance(turn_id, str):
+        observe(root, "codex", "plan-capture", "unverified", "Stop supplied no transcript path or turn id")
         return
     try:
         found = codex_plan(path, turn_id)
         known = True if found else codex_format_known(path)
     except OSError as e:
+        observe(root, "codex", "plan-capture", "unverified", "Cannot read the transcript")
         note_capture_health(root, False, "cannot read the transcript (%s)" % (e.strerror or "error"))
         return
     if found:
-        capture(root, effective, found[0], "codex", found[1])
-    note_capture_health(root, known, None if known else "the transcript has no task_started records (format changed?)")
+        result = capture(root, effective, found[0], "codex", found[1])
+        if branch_task(root, effective) is not None and result == 0:
+            observe(root, "codex", "plan-capture", "observed", "captured " + found[0])
+    if known:
+        note_capture_health(root, True)
+    else:
+        observe(root, "codex", "plan-capture", "unverified", "No readable Plan item observed")
+        started = any(r.get("type") == "event_msg" and isinstance(r.get("payload"), dict)
+                      and r["payload"].get("type") == "task_started" for r in gwsessions.entries(path))
+        if not started:
+            note_capture_health(root, False, "the transcript has no task_started records (format changed?)")
 
 
 # ---- events ----------------------------------------------------------------
@@ -254,7 +267,7 @@ def open_work_text(transcript):
     parts = []
     if work["agents"]:
         parts.append("Subagents launched: " + "; ".join("%s (%s, %s)" % (
-            gwwrapup.clip_to(" ".join(d.split()), 60), gwwrapup.clip_to(t, 30), "running" if running else "finished")
+            gwwrapup.clip_to(" ".join(d.split()), 60), gwwrapup.clip_to(t, 30), "status unknown" if running is None else "running" if running else "finished")
             for d, t, running in work["agents"]) + ".")
     if work["todo"]:
         parts.append("In-progress todo: " + "; ".join(gwwrapup.clip_to(" ".join(t.split()), 80) for t in work["todo"][:3]) + ".")
@@ -292,7 +305,7 @@ def precompact(root, effective, data, agent=None):
     transcript = data.get("transcript_path") if isinstance(data.get("transcript_path"), str) else None
     state = gwwrapup.handoff_state(gwwrapup.handoff_path(root, effective), transcript, session_id, root)
     when = gwstatus.stamp_time() if state["stale"] else None
-    carry = carry_text(transcript) if agent != "codex" and effective.get("note.carryAfterCompact") else None
+    carry = carry_text(transcript) if effective.get("note.carryAfterCompact") else None
     gwwrapup.mark_compacted(root, session_id, when, carry)
     if agent == "codex":
         gwwrapup.set_resume_marker(root, session_id)  # Codex may not pass source=compact; the next prompt shows the note
@@ -388,7 +401,29 @@ def with_welcome(out, welcome, agent):
     return json.dumps(payload) + "\n"
 
 
+def observe(root, agent, event, status="observed", detail=None):
+    """Per-agent, per-event evidence. This reports execution, not hook trust or end-to-end success."""
+    if agent not in AGENTS:
+        return
+    path = os.path.join(root, gwjournal.SESSIONS_DIR, "health-%s-%s.json" % (agent, event))
+    if os.path.islink(path) or os.path.islink(os.path.dirname(path)):
+        return
+    state = {"agent": agent, "event": event, "status": status, "time": gwstatus.stamp_time(), "detail": detail}
+    gwutil.write_atomic(path, json.dumps(state) + "\n", newline=None)
+
+
 def handle(event, data, agent=None):
+    result = handle_event(event, data, agent)
+    found = project(data) if isinstance(data, dict) else None
+    if found:
+        try:
+            observe(found[0], agent or "claude-code", event)
+        except OSError:
+            pass
+    return result
+
+
+def handle_event(event, data, agent=None):
     """The text to print for one event ("" for nothing)."""
     if not isinstance(data, dict):
         return ""
@@ -413,6 +448,12 @@ def handle(event, data, agent=None):
     elif event == "plan-approved":
         capture(root, effective, "approved", agent or "claude-code")
     elif event == "prompt-submit":
+        prompt = data.get("prompt")
+        if isinstance(prompt, str) and prompt.strip() == gwwrapup.PROMPT:
+            resume = ""
+            if agent == "codex" and gwwrapup.take_resume_marker(root, data.get("session_id")):
+                resume = session_start(root, effective, dict(data, source="compact"), agent)
+            return resume + gwwrapup.begin(root, effective, data)
         if agent == "codex":  # Codex: only the once-after-compact resume note (P-22)
             if gwwrapup.take_resume_marker(root, data.get("session_id")):
                 return session_start(root, effective, dict(data, source="compact"), agent)
@@ -421,9 +462,6 @@ def handle(event, data, agent=None):
         if agent != "codex" and isinstance(mode, str) and mode != "plan" and \
                 plan_status(root, effective) == gwcapture.STATUS_TEXT["shown"]:
             capture(root, effective, "unapproved", agent or "claude-code")
-        prompt = data.get("prompt")
-        if isinstance(prompt, str) and prompt.strip() == gwwrapup.PROMPT:
-            return gwwrapup.begin(root, effective, data)
     elif event == "pre-compact":
         try:
             out = precompact(root, effective, data, agent)
@@ -458,7 +496,8 @@ def handle(event, data, agent=None):
         if agent == "codex":
             codex_stop(root, effective, data)
         try:
-            gwwrapup.settle(root, effective, data, agent)
+            if gwwrapup.settle(root, effective, data, agent):
+                observe(root, agent or "claude-code", "handoff", "observed", "handoff recorded at Stop")
         except Exception:  # recording a wrap-up must never break the agent's session
             pass
     if event in FACT_EVENTS:

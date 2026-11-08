@@ -36,7 +36,7 @@ class DoctorTests(StatusBase):
         self.assertEqual(self.gw(["install-hooks", "--project"]).returncode, 0)
         r = self.doctor()
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("hooks (project, .codex/hooks.json): all 5 events installed", r.stdout)
+        self.assertIn("hooks (project, .codex/hooks.json): all 7 events installed", r.stdout)
         self.assertIn("trust: Codex skips new or changed hooks", r.stdout)
         self.assertIn("No gaps found.", r.stdout)
         path = os.path.join(self.proj, ".codex", "hooks.json")

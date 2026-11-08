@@ -14,7 +14,7 @@ whatsnext is Python 3.9+, standard library only. It makes no network calls, runs
 | `docs/project/HANDOFF.md` (or `paths.handoff`) | The handoff note | the agent writes it when you type `wrap up` |
 | `AGENTS.md` | One block between `<!-- whatsnext:start -->` and `<!-- whatsnext:end -->`, appended, never replacing text | `init`; `init --undo` removes it |
 | `.gitignore` | The line `.whatsnext/sessions/` | `init` |
-| `.whatsnext/sessions/` (git-ignored) | Per-session state and the handoff sidecar (SHA-256, path, time) | hooks |
+| `.whatsnext/sessions/` (git-ignored) | Per-session state, handoff sidecars, compaction carryover and per-agent hook observations | hooks |
 
 `init --dry-run` prints every change and writes nothing. `init` never overwrites a file.
 
@@ -31,11 +31,11 @@ whatsnext is Python 3.9+, standard library only. It makes no network calls, runs
 
 - Your repository and git (branch, commit, changed files).
 - Claude Code's session transcripts in `~/.claude/projects/` (or `$CLAUDE_CONFIG_DIR`), only for a session's id, working folder and turn times. It does not send them anywhere.
-- On Codex, the plan item from `transcript_path`, for plan capture.
+- On Codex, `transcript_path` or a session-id lookup under `$CODEX_HOME/sessions/`: plan items, user/assistant turn times, latest request and in-progress plan steps. Known message records are read locally, never sent anywhere.
 
 ## What it runs
 
-- `plan done --verify "<command>"` runs the command you gave, in your repository, with a time limit. It never runs a command you did not pass.
+- `plan done <id> --verify` runs the single saved completion command. An explicit different command needs a user-approved `--override-reason`. It runs in the repository with a time limit; the agent must obtain approval of commands imported from untrusted files.
 - `git`, read-only except what you commit yourself. whatsnext never commits, pushes or changes branches.
 
 ## Hooks (Claude Code)

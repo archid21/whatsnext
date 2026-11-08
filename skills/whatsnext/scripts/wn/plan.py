@@ -19,6 +19,7 @@ import sys
 import time
 
 from . import backend as gwbackend
+from . import capture as gwcapture
 from . import claims as gwclaims
 from . import config as gwconfig
 from . import journal as gwjournal
@@ -413,10 +414,17 @@ def handoff_block(ctx):
     if not (questions or next_action):
         return None
     when = gwclaims.to_dt(gwwrapup.read_header(path)["written"])
+    mentioned = set(re.findall(r"\b" + ID_PATTERN + r"\b", next_action))
+    header_task = gwwrapup.read_header(path).get("task")
+    if header_task:
+        mentioned.add(header_task)
+    completed = [it.id for it in ctx.items() if it.checked and it.id in mentioned] if ctx.has_plan() else []
     return {"path": gwconfig.display_path(path, ctx.root),
             "written": when.strftime("%Y-%m-%dT%H:%MZ") if when else None,
             "written_pacific": gwwrapup.pacific_now(when)[0] if when else None,
-            "next_action": next_action, "open_questions": questions}
+            "next_action": next_action, "open_questions": questions,
+            "warnings": ["Handoff references completed work: %s. Use current plan/progress before resuming." %
+                         ", ".join(completed)] if completed else []}
 
 
 def print_handoff(block):
@@ -424,10 +432,33 @@ def print_handoff(block):
         return
     when = " (%s)" % block["written_pacific"] if block["written_pacific"] else ""
     print("Handoff: %s, written %s%s" % (block["path"], block["written"] or "at an unknown time", when))
+    for warning in block.get("warnings", []):
+        print("  Warning: " + warning)
     if block["next_action"]:
         print("  Next action: %s" % block["next_action"])
     if block["open_questions"]:
         print("  Open questions and blockers: %s" % block["open_questions"])
+
+
+def current_work(ctx, views):
+    """Current checkout work comes before the ready queue, even when another agent must hand it over."""
+    branch = gwstatus.current_branch(ctx.root)
+    tasks = [t for t in gwstatus.load_tasks(ctx.root, ctx.folder)
+             if t.state in ("active", "blocked") and t.field("branch") == branch and branch]
+    by_id = {v["id"]: v for v in views}
+    mine = gwclaims.worktree_root(ctx.root)
+    for task in sorted(tasks, key=lambda t: (t.field("updated"), t.id), reverse=True):
+        view = by_id.get(task.id)
+        if not view or view["status"] == "done":
+            continue
+        claim = view.get("claim") or {}
+        if claim.get("worktree") and os.path.realpath(claim["worktree"]) != mine:
+            continue
+        number, step, total = gwcapture.read_steps(task)
+        return dict(view, source="Current", action="resolve-blocker" if task.state == "blocked" else "resume",
+                    next_action=task.section("Next action").strip(), step=step, step_number=number,
+                    total_steps=total, blockers=task.section("Open questions").strip(), progress_file=task.rel)
+    return None
 
 
 def cmd_next(ctx, args):
@@ -440,12 +471,15 @@ def cmd_next(ctx, args):
             print_handoff(handoff_block(ctx))
         return 0
     views = ctx.views()
-    found = candidates(views, args.limit)
+    active = current_work(ctx, views)
+    found = candidates([v for v in views if not active or v["id"] != active["id"]], args.limit)
+    if active:
+        found = ([active] + found)[:max(args.limit, 0)]
     waiting = [v["id"] for v in views if v.get("blocked_on") and v["status"] == "open" and v["section"] in ("Now", "Next")]
     empty = "Nothing open in Now or Next." if not waiting else \
         "Nothing ready in Now or Next: %s wait%s for open items (`blocked by:`)." % (", ".join(waiting), "s" if len(waiting) == 1 else "")
     if args.json:
-        print(json.dumps({"candidates": found, "recommended": found[0]["id"] if found else None,
+        print(json.dumps({"candidates": found, "current": active, "recommended": found[0]["id"] if found else None,
                           "message": "" if found else empty, "handoff": handoff_block(ctx)}, indent=2))
         return 0
     if not found:
@@ -459,12 +493,18 @@ def cmd_next(ctx, args):
             notes.append("stale: %s" % describe_claim(v["claim"]))
         if v["source"] == "Next":
             notes.append("from Next")
+        if v["source"] == "Current":
+            notes.append(v["action"])
         if n == 1:
             notes.append("recommended")
         line = "%d. %s %s" % (n, v["id"], v["title"])
         if v["done_means"]:
             line += " · done means: " + v["done_means"]
         print(line + ("  [%s]" % "; ".join(notes) if notes else ""))
+        if v["source"] == "Current":
+            print("   Next: " + (v.get("step") or v.get("next_action") or "Review the progress file."))
+            if v.get("blockers"):
+                print("   Blockers: " + v["blockers"])
     print_handoff(handoff_block(ctx))
     return 0
 
@@ -794,7 +834,18 @@ def done_verified(ctx, args):
         return fail("No item %s in %s." % (args.id, ctx.plan_rel))
     if item.checked:
         return fail("%s is already done." % args.id)
-    command = args.verify
+    commands = re.findall(r"`([^`\n]+)`", item.done_means)
+    saved = commands[0].strip() if len(commands) == 1 else None
+    command = args.verify.strip() or saved
+    reason = clean(args.override_reason) if args.override_reason else None
+    if not command:
+        return fail("No single saved completion command for %s. Supply --verify CMD and an approved --override-reason, "
+                    "or use --evidence for a manual check." % item.id)
+    if command != saved and not reason:
+        return ask(args.json, "verify_override", "The proposed command differs from %s's saved completion check. "
+                   "Approve this replacement?" % item.id,
+                   context={"id": item.id, "saved_command": saved, "proposed_command": command},
+                   answer='--override-reason "<user-approved reason>"', free_text=True)
     if pipe_without_pipefail(command):
         print(PIPE_WARNING, file=sys.stderr)
     timeout = verify_timeout(ctx)
@@ -804,6 +855,8 @@ def done_verified(ctx, args):
             "seconds": round(result["seconds"], 1), "timed_out": result["timed_out"], "time": stamp}
     if result["passed"]:
         evidence = "%s %s passed in %s" % (VERIFIED_PREFIX, short_command(command), format_seconds(result["seconds"]))
+        if reason:
+            evidence += "; override: " + reason
         state = ctx.code_state()  # taken before mark_done writes the plan and progress files
         ok, message = mark_done(ctx, args.id, evidence, False, stamp=stamp,
                                 suffix=" at %s t:%s" % state if state else "")
@@ -832,9 +885,9 @@ def cmd_done(ctx, args):
         if args.evidence or args.unverified:
             return fail("--verify cannot be combined with --evidence or --unverified. "
                         "Use --verify when a command can prove %s is done; use --evidence for what no command can check." % args.id)
-        if not args.verify.strip():
-            return fail("--verify needs a command to run.")
         return done_verified(ctx, args)
+    if args.override_reason:
+        return fail("--override-reason requires --verify.")
     if not (args.evidence or args.unverified):
         item = next((it for it in ctx.items() if it.id == args.id), None)
         if item is None:
@@ -1422,7 +1475,8 @@ def build_parser():
     p.add_argument("id")
     p.add_argument("--evidence", help="one line of evidence no command can check; the item shows as done* (not verified)")
     p.add_argument("--unverified", action="store_true")
-    p.add_argument("--verify", metavar="CMD", help="run CMD from the project root; exit 0 marks the item done and confirmed, anything else leaves it open (not combinable with --evidence)")
+    p.add_argument("--verify", nargs="?", const="", metavar="CMD", help="run the saved completion command, or CMD when it matches; a different command needs --override-reason")
+    p.add_argument("--override-reason", help="user-approved reason for replacing the saved command; recorded with the evidence")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("add", help="add an item to the plan (the next free id, in the plan's format)")
     p.add_argument("title")

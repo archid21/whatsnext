@@ -181,7 +181,7 @@ class CodexStopTests(HookBase):
         out = self.gw(["doctor"]).stdout
         self.assertIn("plan capture: unreadable since %s (2 turns)" % since, out)
         self.assertIn("fix: record the plan by hand with `whatsnext progress capture`", out)
-        self.stop("t1", ("t1", "default", None))  # a readable transcript clears the fact
+        self.stop("t1", ("t1", "plan", PLAN))  # an actual readable plan clears the fact
         self.assertFalse(self.has(fact))
         self.assertNotIn("plan capture:", self.gw(["doctor"]).stdout)
         self.hook("stop", {"transcript_path": self.p("missing.jsonl"), "turn_id": "t3"}, agent="codex")
@@ -242,11 +242,11 @@ class InstallHooksTests(HookBase):
         self.assertIn("trust the whatsnext hooks", r.stdout)
         data = self.hooks_file()
         self.assertEqual(data["x"], 1)
-        self.assertEqual(sorted(data["hooks"]), ["PreCompact", "PreToolUse", "SessionStart", "Stop", "UserPromptSubmit"])
+        self.assertEqual(sorted(data["hooks"]), ["Interrupt", "PreCompact", "PreToolUse", "SessionEnd", "SessionStart", "Stop", "UserPromptSubmit"])
         self.assertEqual(data["hooks"]["Stop"][0], {"hooks": [other]})
         command = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         self.assertRegex(command, r'^python3 ".*whatsnext\.py" hook session-start --agent codex$')
-        self.assertEqual(data["hooks"]["SessionStart"][0]["matcher"], "startup|resume|clear|compact")
+        self.assertEqual(data["hooks"]["SessionStart"][0]["matcher"], "startup|resume|clear|compact|fork")
         before = self.get(".codex/hooks.json")
         self.assertIn("already installed", self.install().stdout)
         self.assertEqual(self.get(".codex/hooks.json"), before)
@@ -393,7 +393,7 @@ class FactsTests(HookBase):
         for event in ("stop", "pre-compact", "session-end"):
             self.hook(event, {"session_id": "s1"})
         self.assertFalse(self.has(STATUS + "/journal"))
-        self.assertFalse(self.has(".whatsnext/sessions"))
+        self.assertFalse(self.has(".whatsnext/sessions/s1.json"))  # only runtime health is written without a task
         self.task(state="parked")  # a parked task is not the active one
         self.hook("stop", {"session_id": "s1"})
         self.assertFalse(self.has(JOURNAL))
@@ -407,7 +407,7 @@ class FactsTests(HookBase):
             self.assertEqual(self.hook(event, {"session_id": "s1"}), "")
         self.assertFalse(self.has(STATUS + "/journal"))
         self.assertFalse(self.has(STATUS + "/journal/P-2.md"))
-        self.assertFalse(self.has(".whatsnext/sessions"))
+        self.assertFalse(self.has(".whatsnext/sessions/s1.json"))  # only runtime health is written without a task
         self.assertEqual(self.get(rel), before)
         with open(self.p(rel), "rb") as f:
             self.assertIn(b"- **Branch:** other\n", f.read())
@@ -458,7 +458,7 @@ class FactsTests(HookBase):
         self.assertEqual(state["commit"], self.head())
         self.hook("session-end", {"session_id": "abc-123"})
         self.assertEqual(json.loads(self.get(".whatsnext/sessions/abc-123.json"))["last_event"], "session-end")
-        self.assertEqual(os.listdir(self.p(".whatsnext/sessions")), ["abc-123.json"])
+        self.assertEqual([n for n in os.listdir(self.p(".whatsnext/sessions")) if not n.startswith("health-")], ["abc-123.json"])
         _text, lines = self.lines()
         self.assertEqual([l[5] for l in lines], [None, None])  # the state file is not counted as work
 
@@ -469,7 +469,7 @@ class FactsTests(HookBase):
         self.assertIsNone(wnjournal.safe_session_id(7))
         self.settled()
         self.hook("stop", {"session_id": "../../evil"})
-        self.assertEqual(os.listdir(self.p(".whatsnext/sessions")), ["_.._evil.json"])
+        self.assertEqual([n for n in os.listdir(self.p(".whatsnext/sessions")) if not n.startswith("health-")], ["_.._evil.json"])
         self.hook("stop")  # no session id: the journal still gets its line
         self.assertEqual(len(self.lines()[1]), 2)
 
@@ -717,7 +717,7 @@ class PreCompactTests(HookBase):
 
     def test_outside_a_project_and_without_a_task_stay_quiet_and_safe(self):
         self.assertEqual(self.hook("pre-compact", {"session_id": "s1"}), "")  # no active task: nothing printed or written
-        self.assertFalse(self.has(".whatsnext/sessions"))
+        self.assertFalse(self.has(".whatsnext/sessions/s1.json"))  # only runtime health is written without a task
         self.assertEqual(self.hook("pre-compact", raw="not json"), "")
 
 

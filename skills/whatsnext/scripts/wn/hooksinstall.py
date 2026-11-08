@@ -6,12 +6,11 @@ Codex config layer: `~/.codex/hooks.json` (--user, the default) or
 entries sit beside the user's own; only entries whose command is
 `... whatsnext.py hook <event> --agent codex` count as whatsnext's.
 
-Codex has no plan-mode signal in UserPromptSubmit (live test C),
-so only SessionStart, Stop and PreCompact are installed. Idempotent, keeps every other
+Codex plan capture reads the transcript at Stop; UserPromptSubmit handles wrap-up and compact resume. Idempotent, keeps every other
 hook and key, `--dry-run` prints the diff and writes nothing, `--remove` takes out
 whatsnext's entries only. Codex skips a new or changed hook until the user trusts it.
 
-Codex has no plugin loader that finds `<plugin>/skills/`, so the user scope also links the
+This checkout installer does not depend on native plugin packaging; the user scope links the
 skill folder into `~/.agents/skills/whatsnext` (a symlink to this plugin's `skills/whatsnext`).
 It never replaces a file, folder or link it did not make; `--remove` removes only its own link.
 """
@@ -27,11 +26,13 @@ from . import config as gwconfig
 
 # Codex event -> (whatsnext event, matcher or None, timeout in seconds, additionalContextLimit or None).
 EVENTS = (
-    ("SessionStart", "session-start", "startup|resume|clear|compact", 10, 5000),
+    ("SessionStart", "session-start", "startup|resume|clear|compact|fork", 10, 5000),
     ("Stop", "stop", None, 10, None),
     ("PreCompact", "pre-compact", None, 10, None),
     ("PreToolUse", "pre-edit", "apply_patch|Edit|Write", 10, None),  # warns on a hand-ticked PLAN.md item (P-7)
     ("UserPromptSubmit", "prompt-submit", None, 10, None),  # prints the resume note once after a compact (P-22)
+    ("SessionEnd", "session-end", None, 3, None),
+    ("Interrupt", "interrupt", None, 3, None),
 )
 AGENT = "codex"
 OWN_COMMAND = re.compile(r"whatsnext\.py[\"']?\s+hook\s+\S+\s+--agent\s+codex\b")

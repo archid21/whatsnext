@@ -31,7 +31,7 @@ Use this when you stop work, or the context window is full.
 
 **What you see at step 3.** A one-line banner appears at the top of the new session by itself: "whatsnext: resume note loaded. Next: …". The full resume note goes to the agent, not to your screen. The agent uses it in its first reply, and `what's next?` shows it to you. The note says what was done, what is next, which test command to run, and what changed in git since the note. It is at most 1,200 characters. In Codex there is no banner.
 
-**What `what's next?` does at step 4.** It shows the handoff's Next action and open questions, with the file path and the time it was written. It then offers the open items from the plan checklist (`PLAN.md`). If the plan has no open items, it says so and still shows the handoff.
+**What `what's next?` does at step 4.** It shows the handoff's Next action and open questions, with the file path and the time it was written. It flags references to completed tasks and prefers current plan/progress over a conflicting handoff. Current work comes first; otherwise it offers ready items from the plan checklist (`PLAN.md`). If the plan has no open items, it says so and still shows the handoff.
 
 **Use `wrap up` before:** closing the laptop, switching agent, ending the day, or a `/clear`.
 
@@ -41,7 +41,7 @@ Use this when you stop work, or the context window is full.
 
 | You say | The agent does |
 |---|---|
-| `what's next?` | Shows up to 3 open items from the plan. The recommended one is first. Items idle for too long are marked stale. |
+| `what's next?` | Shows current work and its unfinished step first, then ready alternatives. The recommended one is first. Items idle for too long are marked stale. |
 | `start P-13` | Starts that item. |
 | `show the plan` or `who has what?` | Lists every item, its status and who holds it. |
 | `check the plan` | Finds items with no done means or no evidence, and duplicate ids. |
@@ -61,6 +61,10 @@ Nothing is marked in progress until every answer is in. After Start, the agent r
 - **Change the steps.** You edit the list first.
 
 A run also stops when a step needs a permission you have not given, a decision only you can make, or a failure the agent cannot fix. It tells you which step and why. It never skips the verify step.
+
+**Status updates.** After a meaningful step, the agent reports completed work, current step, next action, blockers and verification. It saves these in the progress file for the next chat. A blocked task stays visible until it can resume.
+
+**Run the plan.** “Run all steps” covers one item. To work through several items, say “run the ready plan items.” The agent shows the item IDs and completion commands, obtains approval once (or uses approval you already gave), and executes only that set. It stops at failed verification, blockers, changed checks, missing permission or a decision. New items are outside that approval.
 
 **Keep or put back a stale item.** Say `keep working on P-12` to reset its idle clock. Say `put P-12 back` to release it for any agent. The agent updates its progress file first.
 
@@ -97,7 +101,7 @@ Before it adds anything, the agent shows you every item with its `blocked by` an
 
 Say `mark P-13 done`. The agent then picks one of two ways:
 
-- **Proved by a command.** The agent runs your test command from the project root. Exit 0 ticks the item as **confirmed**. Any failure leaves it open and saves the last 20 lines of output.
+- **Proved by a command.** The agent runs `plan done P-13 --verify`, which uses the single command saved in backticks in the item's done means. An explicit replacement command requires your approval and `--override-reason`, which is saved with the evidence. A passing command proves only the check it performs; separate manual acceptance criteria must also be completed. The command runs from the project root. Exit 0 ticks the item as **confirmed**. Any failure leaves it open and saves the last 20 lines of output.
 - **Checked by a person.** For work no command can check, the agent ticks it with one line of evidence. It shows as `done*`, which means "not verified". The agent asks you which way to use.
 
 Tip: give every plan item a done means that is a command, such as `python3 -m unittest discover -s tests`.
@@ -149,12 +153,12 @@ Claude Code and Codex read the same plain files, so one can pick up where the ot
 
 - `plan start` refuses an item another agent holds. It asks if you want to take it over.
 - A claim is a note, not a lock. Two agents that ask at the same moment might both get it.
-- Claims in other git worktrees are visible, except in Codex's default sandbox.
+- Claims in sibling git worktrees are read when those folders are accessible, including Codex fallback claims. Separate clones and machines do not share claims.
 - A handoff note is read first only by the session that wrote it, or one working the same task.
 
 This is experimental. See the README's [Known limits](../README.md#known-limits).
 
-For Codex: run `install-hooks`, then trust the hooks in Codex's `/hooks`.
+For Codex: run `install-hooks`, then review changed hooks in **Settings > Hooks** (desktop) or `/hooks` (CLI). Startup includes forked chats; session-end and interruption also record facts.
 
 ---
 
@@ -166,7 +170,7 @@ For Codex: run `install-hooks`, then trust the hooks in Codex's `/hooks`.
 python3 skills/whatsnext/scripts/whatsnext.py doctor
 ```
 
-It reports whether the hooks are in place for Claude Code and Codex, and when a hook last fired. It prints the fix for each gap.
+It reports installed hooks separately from runtime observations for each agent in this checkout. Each event is observed or unverified, with its time. A configured hook is not proof that it ran; an observed hook is not proof of an end-to-end handoff. It prints a fix for configuration gaps.
 
 Say `check the plan` to find plan items ticked without proof.
 
@@ -259,3 +263,9 @@ Every command takes `--help`.
 
 - **After `/clear`, the resume note may call the handoff "another session's note".** The new session has a new id. The note is marked "read it first" only when its `Task:` matches the active task. With `Task: none`, it never matches. The resume note then shows only a pointer to the handoff. `what's next?` shows the handoff's Next action and open questions whoever wrote it.
 - **`what's next?` shows the handoff even if it is old.** Check the written time it prints.
+
+## Compatibility checks
+
+Automated workflow tests exercise both Codex → Claude Code and Claude Code → Codex: start, wrap up, reload the same task, fail verification without completing it, then pass the saved check. They also cover compaction carryover, fork startup, interruption and session-end recording. These are hook/command tests, not a claim that a live model always follows the skill. Before a release, run the [live acceptance checklist](CODEX-ACCEPTANCE.md) on the installed versions.
+
+Codex now supports manually installed plugins with lifecycle hooks ([official packaging documentation](https://developers.openai.com/plugins/build/plugins#bundled-mcp-servers-and-lifecycle-hooks)). This repository's documented checkout install uses `install-hooks` and a skill link; it does not rely on native plugin discovery. Do not load the Claude hook file unchanged in Codex: its handlers explicitly identify Claude Code. Avoid installing both hook sources, which would run bookkeeping twice.

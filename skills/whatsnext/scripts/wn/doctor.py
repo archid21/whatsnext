@@ -97,6 +97,19 @@ def unreadable_capture(root):
     return state if isinstance(state, dict) and state.get("fact") == "capture.unreadable" else None
 
 
+def observations(root):
+    result = {"claude-code": {}, "codex": {}}
+    for path in glob.glob(os.path.join(glob.escape(os.path.join(root, gwjournal.SESSIONS_DIR)), "health-*.json")):
+        try:
+            with open(path, encoding="utf-8") as f:
+                entry = json.load(f)
+            if isinstance(entry, dict) and entry.get("agent") in result and isinstance(entry.get("event"), str):
+                result[entry["agent"]][entry["event"]] = entry
+        except (OSError, ValueError):
+            continue
+    return result
+
+
 def codex_gaps(root):
     """[(scope, shown path, events to fix, error)] for the user and project hooks files that hold whatsnext's
     entries. A file with none of them is reported once, as not installed."""
@@ -174,7 +187,16 @@ def report(root):
     lines.append("PreCompact text: Claude Code yes, Codex no (ignored; Codex gets the journal fact and the resume note)")
     fired = last_fired(root)
     lines.append("Last hook fired (either agent): %s" % ("%s at %s" % fired if fired else "none recorded yet"))
-    return {"lines": lines, "gaps": gaps, "last_fired": fired}
+    observed = observations(root)
+    for agent, events in observed.items():
+        lines.append("Runtime evidence (%s; this checkout):" % agent)
+        for event in ("session-start", "prompt-submit", "stop", "pre-compact", "session-end", "handoff", "plan-capture"):
+            record = events.get(event)
+            lines.append("  %s: %s" % (event, "%s at %s%s" % (
+                record.get("status", "unverified"), record.get("time", "unknown"),
+                " (" + record["detail"] + ")" if record.get("detail") else "") if record else "unverified (not observed)"))
+    lines.append("Installed hooks are configuration only. Observed events do not prove a complete cross-agent handoff.")
+    return {"lines": lines, "gaps": gaps, "last_fired": fired, "runtime": observed}
 
 
 def run(argv):

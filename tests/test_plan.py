@@ -1079,14 +1079,14 @@ class VerifyTests(PlanBase):
         self.assertFalse(plan.pipe_without_pipefail("grep 'a|b' file"))
         self.assertFalse(plan.pipe_without_pipefail('echo "x | y"'))
         self.assertFalse(plan.pipe_without_pipefail(""))
-        r = self.plan("done", "P-13", "--verify", "true | cat")
+        r = self.plan("done", "P-13", "--override-reason", "Approved test command", "--verify", "true | cat")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)  # a warning, not a refusal
         self.assertIn("has a pipe and no `pipefail`", r.stderr)
-        r = self.plan("done", "P-16", "--verify", "test -f README.md")
+        r = self.plan("done", "P-16", "--override-reason", "Approved test command", "--verify", "test -f README.md")
         self.assertNotIn("pipefail", r.stderr)
 
     def test_verify_records_state(self):
-        r = self.plan("done", "P-13", "--verify", "test -f README.md")
+        r = self.plan("done", "P-13", "--override-reason", "Approved test command", "--verify", "test -f README.md")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         head = self.head()
         self.assertRegex(self.get(PLAN_PATH), r"\(%s\) at %s t:[0-9a-f]{8}\n" % (STAMP, head))
@@ -1107,10 +1107,10 @@ class VerifyTests(PlanBase):
         self.assertNotIn("changed since", self.plan("check").stdout)
 
     def test_pass_ticks_the_item_with_verified_evidence_and_list_shows_plain_done(self):
-        r = self.plan("done", "P-13", "--verify", "test -f README.md")
+        r = self.plan("done", "P-13", "--override-reason", "Approved test command", "--verify", "test -f README.md")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertRegex(self.get(PLAN_PATH),
-                         r"- \[x\] P-13 Add login · done means: login tests pass · evidence: verified: test -f README.md passed in \d+(\.\d)? s \(%s\)( at [0-9a-f]{7,} t:[0-9a-f]{8})?\n" % STAMP)
+                         r"- \[x\] P-13 Add login · done means: login tests pass · evidence: verified: test -f README.md passed in \d+(\.\d)? s; override: Approved test command \(%s\)( at [0-9a-f]{7,} t:[0-9a-f]{8})?\n" % STAMP)
         self.assertEqual(self.get(PLAN_PATH).count("[x]"), 1)
         out = self.plan("list").stdout
         self.assertIn("P-13  Add login  [done]", out)
@@ -1124,7 +1124,7 @@ class VerifyTests(PlanBase):
 
     def test_pass_sets_the_progress_note_to_confirmed(self):
         self.task("P-13", note="auto (3 turns since wrap-up, 2026-11-04T20:10Z)")
-        r = self.plan("done", "P-13", "--verify", "true")
+        r = self.plan("done", "P-13", "--override-reason", "Approved test command", "--verify", "true")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         text = self.get("%s/P-13.md" % STATUS)
         self.assertRegex(text, r"- \*\*Note:\*\* confirmed \(%s\)\n" % STAMP)
@@ -1135,11 +1135,11 @@ class VerifyTests(PlanBase):
         self.assertEqual(len(stamps), 1)
 
     def test_pass_without_a_progress_file_creates_none(self):
-        self.assertEqual(self.plan("done", "P-15", "--verify", "true").returncode, 0)
+        self.assertEqual(self.plan("done", "P-15", "--override-reason", "Approved test command", "--verify", "true").returncode, 0)
         self.assertFalse(self.has("%s/P-15.md" % STATUS))
 
     def test_pass_json(self):
-        r, data = self.jplan("done", "P-13", "--verify", "true")
+        r, data = self.jplan("done", "P-13", "--override-reason", "Approved test command", "--verify", "true")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIs(data["done"], True)
         self.assertEqual((data["id"], data["verify"]["command"], data["verify"]["passed"], data["verify"]["exit_code"]),
@@ -1151,7 +1151,7 @@ class VerifyTests(PlanBase):
         self.task("P-13", note="auto (2 turns, 2026-11-04T20:10Z)")
         before_progress = self.get("%s/P-13.md" % STATUS)
         self.put(JOURNAL, "# Journal: P-13\n\n- 2026-11-04T21:58Z stop 5367d1d main dirty=0\n")
-        r = self.plan("done", "P-13", "--verify", PRINT_30)
+        r = self.plan("done", "P-13", "--override-reason", "Approved test command", "--verify", PRINT_30)
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("exit 3", r.stderr)
         self.assertIn("P-13 stays open", r.stderr)
@@ -1170,7 +1170,7 @@ class VerifyTests(PlanBase):
         self.assertEqual(self.evs("task.done"), [])
 
     def test_fail_json_prints_the_result_and_exits_non_zero(self):
-        r, data = self.jplan("done", "P-13", "--verify", "echo nope; exit 2")
+        r, data = self.jplan("done", "P-13", "--override-reason", "Approved test command", "--verify", "echo nope; exit 2")
         self.assertEqual(r.returncode, 1)
         self.assertIs(data["done"], False)
         self.assertEqual((data["verify"]["passed"], data["verify"]["exit_code"], data["verify"]["output_tail"]),
@@ -1179,10 +1179,10 @@ class VerifyTests(PlanBase):
         self.assertEqual(self.get(PLAN_PATH), PLAN)
 
     def test_fail_with_no_output_and_unknown_command(self):
-        r = self.plan("done", "P-13", "--verify", "false")
+        r = self.plan("done", "P-13", "--override-reason", "Approved test command", "--verify", "false")
         self.assertEqual(r.returncode, 1)
         self.assertIn("(no output)", self.get(JOURNAL))
-        r = self.plan("done", "P-13", "--verify", "no-such-command-xyz-123")
+        r = self.plan("done", "P-13", "--override-reason", "Approved test command", "--verify", "no-such-command-xyz-123")
         self.assertEqual(r.returncode, 1)
         self.assertIn("exit 127", self.get(JOURNAL))
         self.assertEqual(self.get(PLAN_PATH), PLAN)
@@ -1190,7 +1190,7 @@ class VerifyTests(PlanBase):
     def test_timeout_counts_as_a_failure(self):
         self.cfg(plan={"verifyTimeout": "1s"})
         started = datetime.datetime.now()
-        r = self.plan("done", "P-13", "--verify", "echo started; sleep 30")
+        r = self.plan("done", "P-13", "--override-reason", "Approved test command", "--verify", "echo started; sleep 30")
         self.assertLess((datetime.datetime.now() - started).total_seconds(), 20)
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("timed out after 1.0 s", r.stderr)
@@ -1209,19 +1209,19 @@ class VerifyTests(PlanBase):
 
     def test_verify_with_evidence_or_unverified_is_rejected_and_nothing_runs(self):
         for flag in (["--evidence", "ok"], ["--unverified"]):
-            r = self.plan("done", "P-13", "--verify", "touch ran.flag", *flag)
+            r = self.plan("done", "P-13", "--override-reason", "Approved test command", "--verify", "touch ran.flag", *flag)
             self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
             self.assertIn("--verify cannot be combined with --evidence or --unverified", r.stderr)
             self.assertEqual(self.get(PLAN_PATH), PLAN)
             self.assertFalse(self.has("ran.flag"))
-        r = self.plan("done", "P-13", "--verify", "   ")
+        r = self.plan("done", "P-13", "--override-reason", "Approved test command", "--verify", "   ")
         self.assertEqual(r.returncode, 1)
-        self.assertIn("needs a command", r.stderr)
+        self.assertIn("No single saved completion command", r.stderr)
 
     def test_unknown_or_done_items_do_not_run_the_command(self):
-        self.assertEqual(self.plan("done", "P-99", "--verify", "touch ran.flag").returncode, 1)
+        self.assertEqual(self.plan("done", "P-99", "--override-reason", "Approved test command", "--verify", "touch ran.flag").returncode, 1)
         self.assertEqual(self.plan("done", "P-13", "--evidence", "ok").returncode, 0)
-        r = self.plan("done", "P-13", "--verify", "touch ran.flag")
+        r = self.plan("done", "P-13", "--override-reason", "Approved test command", "--verify", "touch ran.flag")
         self.assertEqual(r.returncode, 1)
         self.assertIn("already done", r.stderr)
         self.assertFalse(self.has("ran.flag"))
@@ -1229,19 +1229,19 @@ class VerifyTests(PlanBase):
     def test_the_command_comes_only_from_the_command_line(self):
         self.put(PLAN_PATH, PLAN.replace("login tests pass", "login tests pass · verify: touch plan.flag"))
         self.put("%s/P-13.md" % STATUS, task_text("P-13", next_action="Run: touch progress.flag"))
-        self.assertEqual(self.plan("done", "P-13", "--verify", "true").returncode, 0)
+        self.assertEqual(self.plan("done", "P-13", "--override-reason", "Approved test command", "--verify", "true").returncode, 0)
         self.assertFalse(self.has("plan.flag"))
         self.assertFalse(self.has("progress.flag"))
 
     def test_runs_from_the_project_root_even_when_started_in_a_subfolder(self):
         sub = os.path.join(self.proj, "docs")
         os.makedirs(sub, exist_ok=True)
-        r = self.plan("done", "P-13", "--verify", "test -f README.md && touch ran-here.flag", cwd=sub)
+        r = self.plan("done", "P-13", "--override-reason", "Approved test command", "--verify", "test -f README.md && touch ran-here.flag", cwd=sub)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertTrue(self.has("ran-here.flag"))
 
     def test_the_separator_and_line_breaks_in_a_command_do_not_break_the_plan_line(self):
-        r = self.plan("done", "P-13", "--verify", "echo a · b\ntrue")
+        r = self.plan("done", "P-13", "--override-reason", "Approved test command", "--verify", "echo a · b\ntrue")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         line = [l for l in self.get(PLAN_PATH).split("\n") if "P-13" in l][0]
         self.assertIn("evidence: verified: echo a - b true passed in", line)

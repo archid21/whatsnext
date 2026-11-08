@@ -20,3 +20,4 @@ Dates are UTC. This list is the current set of decisions for whatsnext. Earlier 
 | 0014 | 2026-11-06T22:12Z | A plan item may say which open items it waits for, and `plan next` skips it | accepted (user) | [ADR-0014](ADR-0014-blocked-by.md) |
 | 0015 | 2026-11-07T06:20Z | The resume note after a compact repeats the user's latest request and the open work | accepted (user) | [ADR-0015](ADR-0015-carry-after-compact.md) |
 | 0016 | 2026-11-07T07:52Z | An opt-in idle timer submits `wrap up` before Claude Code's idle compact | accepted (user) | [ADR-0016](ADR-0016-idle-wrap-up.md) |
+| 0017 | 2026-11-08T17:15Z | One execution contract for Codex and Claude Code | accepted (user) | [ADR-0017](ADR-0017-cross-agent-execution-contract.md) |

@@ -49,12 +49,12 @@ class VerifyEndsTheRunTests(PlanBase):
     """What the last step does: a passing command confirms the item, a failing one leaves it open with its output."""
 
     def test_a_passing_command_marks_it_confirmed(self):
-        r = self.plan("done", "P-14", "--verify", "true")
+        r = self.plan("done", "P-14", "--override-reason", "Approved test command", "--verify", "true")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("Marked P-14 done. Verified", r.stdout)
 
     def test_a_failing_command_leaves_it_open_and_shows_the_output(self):
-        r = self.plan("done", "P-14", "--verify", "for i in $(seq 1 30); do echo line$i; done; exit 3")
+        r = self.plan("done", "P-14", "--override-reason", "Approved test command", "--verify", "for i in $(seq 1 30); do echo line$i; done; exit 3")
         self.assertNotEqual(r.returncode, 0)
         out = r.stdout + r.stderr
         self.assertIn("line30", out)

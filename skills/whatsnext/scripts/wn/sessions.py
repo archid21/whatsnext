@@ -1,4 +1,4 @@
-"""Claude Code's session files: where a transcript lives and when its last turn was (ADR-0008)."""
+"""Conversation readers for Claude Code and Codex; shared handoff facts (ADR-0017)."""
 
 import datetime
 import glob
@@ -24,7 +24,31 @@ def find_transcript(session_id, projects_dir=None):
         return None
     folder = projects_dir or os.path.join(claude_dir(), "projects")
     hits = sorted(glob.glob(os.path.join(glob.escape(folder), "*", session_id + ".jsonl")))
+    if not hits and projects_dir is None:
+        codex = os.environ.get("CODEX_HOME") or os.path.join(os.path.expanduser("~"), ".codex")
+        hits = sorted(glob.glob(os.path.join(glob.escape(codex), "sessions", "**",
+                                            "rollout-*-" + session_id + ".jsonl"), recursive=True))
     return hits[0] if hits else None
+
+
+def message_entry(item):
+    """Normalize only known message records. Tool output and injected context stay non-user data."""
+    payload = item.get("payload")
+    if not isinstance(payload, dict):
+        return item
+    if item.get("type") == "response_item" and payload.get("type") == "message":
+        role = payload.get("role")
+        if role not in ("user", "assistant"):
+            return item
+        content = payload.get("content")
+        blocks = [{"type": "text", "text": b["text"]} for b in content
+                  if isinstance(b, dict) and b.get("type") in ("input_text", "output_text")
+                  and isinstance(b.get("text"), str)] if isinstance(content, list) else content
+        return dict(item, type=role, message={"content": blocks})
+    if item.get("type") == "event_msg" and payload.get("type") in ("user_message", "agent_message"):
+        role = "user" if payload["type"] == "user_message" else "assistant"
+        return dict(item, type=role, message={"content": payload.get("message")})
+    return item
 
 
 def entries(path):
@@ -42,7 +66,8 @@ def entries(path):
 def transcript_cwd(path):
     """The first `cwd` the transcript records: the folder the session was started in."""
     for item in entries(path):
-        cwd = item.get("cwd")
+        payload = item.get("payload")
+        cwd = item.get("cwd") or (payload.get("cwd") if isinstance(payload, dict) else None)
         if isinstance(cwd, str) and cwd:
             return cwd
     return None
@@ -63,6 +88,7 @@ def parse_time(text):
 
 def prompt_text(item):
     """The text of a user prompt entry; None for a tool result, a meta entry or a non-user entry."""
+    item = message_entry(item)
     if item.get("type") != "user" or item.get("isMeta") or item.get("isSidechain"):
         return None
     content = (item.get("message") or {}).get("content")
@@ -82,7 +108,10 @@ def last_turn_time(path, skip_prompt=None):
     last = None
     skipping = False
     for item in entries(path):
+        item = message_entry(item)
         text = prompt_text(item)
+        if text is not None and not request_text(item):
+            continue  # injected Codex context is not a new user turn
         if text is not None:
             skipping = skip_prompt is not None and text.strip() == skip_prompt
         if item.get("type") not in ("user", "assistant") or item.get("isSidechain") or skipping:
@@ -94,7 +123,8 @@ def last_turn_time(path, skip_prompt=None):
 
 
 TAIL_BYTES = 1000000  # how much of the transcript's end `latest_request` reads
-NOT_A_REQUEST = ("<command-", "<local-command", "/compact", "<system-reminder", "<task-notification")
+NOT_A_REQUEST = ("<command-", "<local-command", "/compact", "<system-reminder", "<task-notification",
+                  "<environment_context>", "<external_codex_apps_", "# AGENTS.md instructions")
 
 
 def tail_entries(path, size=TAIL_BYTES):
@@ -119,6 +149,7 @@ def tail_entries(path, size=TAIL_BYTES):
 def request_text(item):
     """The user's own words in a prompt entry: each text block is checked on its own, and blocks that are
     slash-command or injected (NOT_A_REQUEST) are dropped before the rest are joined."""
+    item = message_entry(item)
     content = (item.get("message") or {}).get("content")
     blocks = [content] if isinstance(content, str) else \
         [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"] if isinstance(content, list) else []
@@ -153,6 +184,22 @@ def open_work(path, max_agents=5):
     for item in tail_entries(path):
         if item.get("isSidechain"):
             continue
+        payload = item.get("payload")
+        if item.get("type") == "response_item" and isinstance(payload, dict):
+            if payload.get("type") == "function_call":
+                try:
+                    data = json.loads(payload.get("arguments", "{}"))
+                except (ValueError, TypeError):
+                    continue
+                if not isinstance(data, dict):
+                    continue
+                name = str(payload.get("name", "")).split(".")[-1]
+                if name == "update_plan" and isinstance(data.get("plan"), list):
+                    todo = [p["step"] for p in data["plan"] if isinstance(p, dict)
+                            and p.get("status") == "in_progress" and isinstance(p.get("step"), str)]
+                # Spawn results mean 'started', not 'finished': do not infer completion from a tool result.
+                elif name == "spawn_agent":
+                    agents[payload.get("call_id")] = (str(data.get("task_name") or "agent"), "unknown status")
         content = (item.get("message") or {}).get("content")
         for block in content if isinstance(content, list) else []:
             if not isinstance(block, dict):
@@ -175,5 +222,6 @@ def open_work(path, max_agents=5):
                 tasks[str(data["taskId"])][1] = data["status"]
     if tasks:
         todo = [text for text, status in tasks.values() if status == "in_progress" and text]
-    shown = [(d, t, i not in results) for i, (d, t) in agents.items()][-max_agents:]
+    shown = [(d, t, None if t == "unknown status" else i not in results)
+             for i, (d, t) in agents.items()][-max_agents:]
     return {"agents": shown, "todo": todo}
