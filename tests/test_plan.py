@@ -1216,7 +1216,7 @@ class VerifyTests(PlanBase):
             self.assertFalse(self.has("ran.flag"))
         r = self.plan("done", "P-13", "--override-reason", "Approved test command", "--verify", "   ")
         self.assertEqual(r.returncode, 1)
-        self.assertIn("No single saved completion command", r.stderr)
+        self.assertIn("P-13 has no backticked command in done means", r.stderr)
 
     def test_unknown_or_done_items_do_not_run_the_command(self):
         self.assertEqual(self.plan("done", "P-99", "--override-reason", "Approved test command", "--verify", "touch ran.flag").returncode, 1)

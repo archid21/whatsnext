@@ -12,6 +12,7 @@ import re
 import sys
 
 from . import config as gwconfig
+from . import hook as gwhook
 from . import hooksinstall as gwhooksinstall
 from . import journal as gwjournal
 from . import sessions as gwsessions
@@ -19,6 +20,7 @@ from . import sessions as gwsessions
 CLAUDE_COMMAND = re.compile(r"whatsnext\.py[\"']?\s+hook\s+(\S+)\s+--agent\s+claude-code\b")
 CLAUDE_EVENTS = ("session-start", "plan-shown", "plan-approved", "prompt-submit", "stop", "pre-compact",
                  "post-compact", "pre-edit", "session-end")
+EXTRA_OBSERVED = ("handoff", "plan-capture")  # recorded by explicit observe() calls in hook.py, not by handle()
 PLUGIN_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), *([os.pardir] * 4)))  # wn -> scripts -> whatsnext -> skills -> plugin
 
 
@@ -190,7 +192,7 @@ def report(root):
     observed = observations(root)
     for agent, events in observed.items():
         lines.append("Runtime evidence (%s; this checkout):" % agent)
-        for event in ("session-start", "prompt-submit", "stop", "pre-compact", "session-end", "handoff", "plan-capture"):
+        for event in gwhook.OBSERVED_EVENTS + EXTRA_OBSERVED:
             record = events.get(event)
             lines.append("  %s: %s" % (event, "%s at %s%s" % (
                 record.get("status", "unverified"), record.get("time", "unknown"),

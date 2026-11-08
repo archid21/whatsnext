@@ -834,17 +834,23 @@ def done_verified(ctx, args):
         return fail("No item %s in %s." % (args.id, ctx.plan_rel))
     if item.checked:
         return fail("%s is already done." % args.id)
-    commands = re.findall(r"`([^`\n]+)`", item.done_means)
-    saved = commands[0].strip() if len(commands) == 1 else None
-    command = args.verify.strip() or saved
+    parts = [p.strip() for p in re.findall(r"`([^`\n]+)`", item.done_means) if p.strip()]
+    normalized = [" ".join(p.split()) for p in parts]
+    saved = parts[0] if len(parts) == 1 else None
+    typed = args.verify.strip()
+    command = typed or saved
     reason = clean(args.override_reason) if args.override_reason else None
     if not command:
-        return fail("No single saved completion command for %s. Supply --verify CMD and an approved --override-reason, "
+        if parts:
+            listing = "; ".join("`%s`" % p for p in parts)
+            return fail("%s has %d backticked commands in done means: %s. Pass one with --verify CMD, "
+                        "or use --evidence for a manual check." % (item.id, len(parts), listing))
+        return fail("%s has no backticked command in done means. Supply --verify CMD and an approved --override-reason, "
                     "or use --evidence for a manual check." % item.id)
-    if command != saved and not reason:
-        return ask(args.json, "verify_override", "The proposed command differs from %s's saved completion check. "
+    if " ".join(command.split()) not in normalized and not reason:
+        return ask(args.json, "verify_override", "The proposed command matches none of %s's saved completion checks. "
                    "Approve this replacement?" % item.id,
-                   context={"id": item.id, "saved_command": saved, "proposed_command": command},
+                   context={"id": item.id, "saved_command": saved, "saved_commands": parts, "proposed_command": command},
                    answer='--override-reason "<user-approved reason>"', free_text=True)
     if pipe_without_pipefail(command):
         print(PIPE_WARNING, file=sys.stderr)
@@ -1475,7 +1481,7 @@ def build_parser():
     p.add_argument("id")
     p.add_argument("--evidence", help="one line of evidence no command can check; the item shows as done* (not verified)")
     p.add_argument("--unverified", action="store_true")
-    p.add_argument("--verify", nargs="?", const="", metavar="CMD", help="run the saved completion command, or CMD when it matches; a different command needs --override-reason")
+    p.add_argument("--verify", nargs="?", const="", metavar="CMD", help="run the backticked command in done means (bare --verify, when there is exactly one), or CMD when it matches one of them (spacing ignored); any other command needs --override-reason")
     p.add_argument("--override-reason", help="user-approved reason for replacing the saved command; recorded with the evidence")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("add", help="add an item to the plan (the next free id, in the plan's format)")

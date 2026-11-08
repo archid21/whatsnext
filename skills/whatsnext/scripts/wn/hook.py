@@ -49,6 +49,9 @@ OPEN_WORK_CAP = 500  # characters for the subagents and todo line (P-25)
 REQUEST_CAP = 2000  # characters of the user's latest request kept verbatim (P-6)
 FACT_EVENTS = ("stop", "pre-compact", "session-end", "interrupt")  # these write the facts layer
 AGENTS = ("claude-code", "codex")
+# Events that leave runtime evidence (`health-<agent>-<event>.json`) for `whatsnext doctor`. The frequent events
+# (pre-edit, permission, plan-shown, idle-check, ...) write nothing, so a hook stays quiet on disk.
+OBSERVED_EVENTS = ("session-start", "prompt-submit", "stop", "pre-compact", "session-end", "interrupt")
 
 
 def is_project(root, effective):
@@ -414,7 +417,7 @@ def observe(root, agent, event, status="observed", detail=None):
 
 def handle(event, data, agent=None):
     result = handle_event(event, data, agent)
-    found = project(data) if isinstance(data, dict) else None
+    found = project(data) if event in OBSERVED_EVENTS and isinstance(data, dict) else None
     if found:
         try:
             observe(found[0], agent or "claude-code", event)

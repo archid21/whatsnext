@@ -15,7 +15,7 @@ All logic is in one script: `python3 scripts/whatsnext.py <command>` (Python 3.9
 |---|---|
 | "what's next?" | `plan next --json`. When `current` is present, show its unfinished step, next action and blockers first; resume it within the existing authorization. Check its holder before taking over. Show any handoff warnings and prefer current plan/progress over a conflicting handoff. When no task is active, show the handoff and then the ready candidates. Use the Start flow for new work |
 | "start P-13" | `plan start P-13 --agent <your name>` (Start flow below) |
-| "mark P-13 done" | When a command can prove it: `plan done P-13 --verify` (runs the single backticked command saved in done means from the project root; exit 0 ticks it as confirmed, a failure leaves it open and journals the last 20 output lines; do not combine with `--evidence`). Otherwise `plan done P-13 --evidence "<one line>"` (shows as `done*`, not verified) or `--unverified`; ask the user which |
+| "mark P-13 done" | When a command can prove it: `plan done P-13 --verify` (runs the backticked command saved in done means (when there is exactly one; with several, use `--verify "<part>"`) from the project root; exit 0 ticks it as confirmed, a failure leaves it open and journals the last 20 output lines; do not combine with `--evidence`). Otherwise `plan done P-13 --evidence "<one line>"` (shows as `done*`, not verified) or `--unverified`; ask the user which |
 | "keep working on P-12" (a stale item) | `plan keep P-12` |
 | "put P-12 back" (a stale item) | Update its progress file first, then `plan put-back P-12 --saved` |
 | "show the plan", "who has what?" | `plan list` (`--json` for data) |
@@ -55,7 +55,7 @@ A command that needs an answer prints a question and exits 4 (add `--json` for d
 
 ## Verification and status
 
-`plan done <id> --verify` runs the single command in backticks in the item's done means. An explicit `--verify "<cmd>"` must match it. With no single saved command, or a different command, show the saved and proposed checks and ask for approval before running `--override-reason "<user-approved reason>"`; the override is recorded in the evidence. A successful command proves that check only. Finish any separate manual acceptance criteria before marking the item done, or leave it open and report what remains.
+`plan done <id> --verify` runs the command in backticks in the item's done means when there is exactly one. With none or several, it fails and lists the parts: pass one with `--verify "<cmd>"`. A `--verify "<cmd>"` that matches any backticked part (spacing ignored) needs no override. Any other command: show the saved and proposed checks and ask for approval before running `--override-reason "<user-approved reason>"`; the override is recorded in the evidence. A successful command proves that check only. Finish any separate manual acceptance criteria before marking the item done, or leave it open and report what remains.
 
 After each meaningful step, report: **Completed; Current step; Next action; Blocker; Verification**. Update Done, Plan steps, In progress and Open questions in the task's progress file, set the next action with `progress next --auto`, then `progress stamp`. On a blocker, stamp `--state blocked` and record what would unblock it. Reuse this record after a chat or agent switch. A user-facing status update is a short summary, not a dump of the facts journal.
 

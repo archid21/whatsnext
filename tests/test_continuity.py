@@ -80,6 +80,39 @@ class ContinuityTests(PlanBase):
         self.put(PLAN_PATH, "## Now\n- [ ] P-13 Build · done means: `true` and `false`\n")
         self.assertEqual(self.plan("done", "P-13", "--verify").returncode, 1)
 
+    TWO_PARTS = ("## Now\n- [ ] P-13 Build · done means: `test -f result.txt` passes and the note mentions `/compact`\n")
+
+    def test_verify_accepts_any_backticked_part_without_an_override(self):
+        self.put(PLAN_PATH, self.TWO_PARTS)
+        self.put("result.txt", "done\n")
+        r = self.plan("done", "P-13", "--verify", "test -f result.txt")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("override", self.get(PLAN_PATH))
+
+    def test_bare_verify_with_several_parts_fails_and_lists_them(self):
+        self.put(PLAN_PATH, self.TWO_PARTS)
+        r = self.plan("done", "P-13", "--verify")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("`test -f result.txt`", r.stderr + r.stdout)
+        self.assertIn("`/compact`", r.stderr + r.stdout)
+        self.assertIn("--verify CMD", r.stderr + r.stdout)
+        self.assertIn("- [ ] P-13", self.get(PLAN_PATH))
+
+    def test_verify_ignores_extra_spaces_but_runs_the_typed_command(self):
+        self.saved_plan()
+        self.put("result.txt", "done\n")
+        r = self.plan("done", "P-13", "--verify", "  test   -f    result.txt ")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("override", self.get(PLAN_PATH))
+
+    def test_a_command_matching_no_part_still_asks_for_an_override(self):
+        self.put(PLAN_PATH, self.TWO_PARTS)
+        r, data = self.jplan("done", "P-13", "--verify", "touch bypass.txt")
+        self.assertEqual(r.returncode, 4)
+        self.assertEqual(data["context"]["saved_commands"], ["test -f result.txt", "/compact"])
+        self.assertIsNone(data["context"]["saved_command"])
+        self.assertFalse(self.has("bypass.txt"))
+
     def test_next_resumes_step_and_flags_completed_handoff(self):
         self.saved_plan()
         self.begin_task()

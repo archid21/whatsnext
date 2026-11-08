@@ -101,7 +101,7 @@ Before it adds anything, the agent shows you every item with its `blocked by` an
 
 Say `mark P-13 done`. The agent then picks one of two ways:
 
-- **Proved by a command.** The agent runs `plan done P-13 --verify`, which uses the single command saved in backticks in the item's done means. An explicit replacement command requires your approval and `--override-reason`, which is saved with the evidence. A passing command proves only the check it performs; separate manual acceptance criteria must also be completed. The command runs from the project root. Exit 0 ticks the item as **confirmed**. Any failure leaves it open and saves the last 20 lines of output.
+- **Proved by a command.** The agent runs `plan done P-13 --verify`, which runs the command saved in backticks in the item's done means. If done means has several backticked parts, the agent passes one with `--verify "<cmd>"`; a command that matches any backticked part (spacing ignored) needs no approval. Any other command requires your approval and `--override-reason`, which is saved with the evidence. A passing command proves only the check it performs; separate manual acceptance criteria must also be completed. The command runs from the project root. Exit 0 ticks the item as **confirmed**. Any failure leaves it open and saves the last 20 lines of output.
 - **Checked by a person.** For work no command can check, the agent ticks it with one line of evidence. It shows as `done*`, which means "not verified". The agent asks you which way to use.
 
 Tip: give every plan item a done means that is a command, such as `python3 -m unittest discover -s tests`.

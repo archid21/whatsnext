@@ -398,6 +398,20 @@ class FactsTests(HookBase):
         self.hook("stop", {"session_id": "s1"})
         self.assertFalse(self.has(JOURNAL))
 
+    def health(self):
+        folder = self.p(".whatsnext/sessions")
+        return sorted(n for n in os.listdir(folder) if n.startswith("health-")) if os.path.isdir(folder) else []
+
+    def test_only_observed_events_write_health_files(self):
+        self.assertEqual(wnhook.OBSERVED_EVENTS,
+                         ("session-start", "prompt-submit", "stop", "pre-compact", "session-end", "interrupt"))
+        for event in ("pre-edit", "permission", "plan-shown", "plan-approved", "idle-check", "post-compact"):
+            self.hook(event, {"session_id": "s1"})
+        self.assertEqual(self.health(), [])
+        self.hook("session-start", {"session_id": "s1"})
+        self.hook("stop", {"session_id": "s1"})
+        self.assertEqual(self.health(), ["health-claude-code-session-start.json", "health-claude-code-stop.json"])
+
     def test_an_active_item_on_another_branch_is_left_untouched(self):
         rel = self.task("P-2", branch="other", commit="deadbee")
         self.commit("add P-2")

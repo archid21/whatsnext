@@ -32,6 +32,15 @@ class DoctorTests(StatusBase):
         self.assertIn("  hooks: all 9 events are in the plugin's hooks/hooks.json", r.stdout)
         self.assertIn("1 gap found.", r.stdout)
 
+    def test_runtime_evidence_lists_every_observed_event_including_interrupt(self):
+        self.assertEqual(self.gw(["install-hooks", "--project"]).returncode, 0)
+        r = self.gw(["hook", "interrupt", "--agent", "codex"], stdin=json.dumps({"session_id": "c1", "cwd": self.proj}))
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+        out = self.doctor().stdout
+        self.assertRegex(out, r"  interrupt: observed at ")
+        for event in ("session-start", "prompt-submit", "stop", "pre-compact", "session-end", "handoff", "plan-capture"):
+            self.assertIn("  %s: " % event, out)
+
     def test_installed_codex_hooks_have_no_gap_and_a_changed_hook_is_named(self):
         self.assertEqual(self.gw(["install-hooks", "--project"]).returncode, 0)
         r = self.doctor()
