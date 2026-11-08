@@ -98,12 +98,34 @@ class ContinuityTests(PlanBase):
         self.assertIn("--verify CMD", r.stderr + r.stdout)
         self.assertIn("- [ ] P-13", self.get(PLAN_PATH))
 
-    def test_verify_ignores_extra_spaces_but_runs_the_typed_command(self):
+    def test_verify_spacing_changes_require_an_override(self):
         self.saved_plan()
         self.put("result.txt", "done\n")
         r = self.plan("done", "P-13", "--verify", "  test   -f    result.txt ")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertNotIn("override", self.get(PLAN_PATH))
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        self.assertIn("- [ ] P-13", self.get(PLAN_PATH))
+
+    def test_quoted_whitespace_changes_require_override_before_execution(self):
+        saved = "test 'a  b' = 'a b'; touch ran.flag"
+        typed = "test 'a b' = 'a b'; touch ran.flag"
+        self.put(PLAN_PATH, "## Now\n- [ ] P-13 Build · done means: `" + saved + "`\n")
+        r = self.plan("done", "P-13", "--verify", typed)
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        self.assertFalse(self.has("ran.flag"))
+        self.assertIn("- [ ] P-13", self.get(PLAN_PATH))
+
+    def test_newline_replacement_requires_override_before_execution(self):
+        self.put(PLAN_PATH, "## Now\n- [ ] P-13 Build · done means: `false # comment touch ran.flag`\n")
+        r = self.plan("done", "P-13", "--verify", "false # comment\ntouch ran.flag")
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        self.assertFalse(self.has("ran.flag"))
+        self.assertIn("- [ ] P-13", self.get(PLAN_PATH))
+
+    def test_exact_failing_saved_check_stays_open(self):
+        self.put(PLAN_PATH, "## Now\n- [ ] P-13 Build · done means: `test 'a  b' = 'a b'`\n")
+        r = self.plan("done", "P-13", "--verify", "test 'a  b' = 'a b'")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("- [ ] P-13", self.get(PLAN_PATH))
 
     def test_a_command_matching_no_part_still_asks_for_an_override(self):
         self.put(PLAN_PATH, self.TWO_PARTS)

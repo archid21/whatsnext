@@ -31,6 +31,7 @@ One line per item: `- [ ] P-N Title · done means: <how we know it is done>`.
 - [x] P-8 Verify records the code state · done means: `python3 -m unittest tests.test_plan -k verify_records_state` passes and `plan check` flags a verified item after a new commit · evidence: verified: python3 -m unittest tests.test_plan -k verify_records_state passed in 1.6 s (2026-11-06T19:20Z) at 1697bef t:f5191d98
 - [x] P-24 "Dead ends" line in the note and the compact text, with the reason each was dropped · done means: `python3 -m unittest tests.test_packet -k dead_ends` passes, the compact text keeps dead ends and their reasons within 300 characters, and the one-line `/compact` text no longer says to drop dead ends without an exception · evidence: verified: python3 -m unittest tests.test_packet -k dead_ends passed in 0.6 s (2026-11-06T20:10Z) at 87b1e14 t:7df5ed4d
 - [x] P-48 Fix Codex continuity and plan execution gaps · done means: `python3 -m unittest discover -s tests` · evidence: verified: python3 -m unittest discover -s tests passed in 246 s (2026-11-08T17:34Z) at 8d9e723 t:dfa516f9
+- [x] P-49 Preserve shell semantics in verification matching · done means: `python3 -m unittest discover -s tests` · evidence: verified: python3 -m unittest discover -s tests passed in 259 s (2026-11-08T19:27Z) at 7a522d8 t:7cbe7b4e
 
 ## Next
 
