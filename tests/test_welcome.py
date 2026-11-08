@@ -20,7 +20,7 @@ class TableTests(unittest.TestCase):
         self.text = welcome.render()
 
     def test_three_columns_with_the_five_to_learn_first_in_order_before_the_extras(self):
-        head = self.text.split("\n")[4]
+        head = next(line for line in self.text.split("\n") if line.startswith("Feature"))
         self.assertEqual([c.strip() for c in head.split("|")], ["Feature", "What it does", "How it works"])
         first = [n for n, _w, _h in welcome.ROWS][:5]
         self.assertEqual(first, ["Set up your plan", "Start work", "Change the plan", "Mark done with proof", "Save and resume"])
@@ -29,6 +29,12 @@ class TableTests(unittest.TestCase):
         rule = self.text.index("\n-----", self.text.index("Save and resume"))
         self.assertLess(rule, self.text.index("Smart compact"))
         self.assertLess(self.text.index("Save and resume"), rule)
+
+    def test_short_summary_comes_before_the_table(self):
+        at = self.text.index("The short version:")
+        self.assertLess(at, self.text.index("Feature "))
+        for phrase in ("set up whatsnext in this repo", "wrap up", "what's next?"):
+            self.assertIn(phrase, self.text[at:self.text.index("Feature ")])
 
     def test_every_line_fits_in_a_terminal_and_rows_do_not_lose_words(self):
         for line in self.text.split("\n"):

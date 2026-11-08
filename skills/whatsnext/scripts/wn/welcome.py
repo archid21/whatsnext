@@ -86,7 +86,11 @@ def render():
     """The whole welcome as plain text."""
     rule = "-+-".join("-" * w for w in WIDTHS)
     out = ["whatsnext: one plan, one next step, for every coding agent", "",
-           "A plan checklist, check-offs and a resume note, kept as plain files in your repo.", ""]
+           "A plan checklist, check-offs and a resume note, kept as plain files in your repo.", "",
+           "The short version:",
+           "  1. Say \"set up whatsnext in this repo\" and make a plan.",
+           "  2. Work. Say \"wrap up\" before you step away or clear the chat.",
+           "  3. Come back and say \"what's next?\". You pick up where you left off.", ""]
     out += _row(HEAD) + [rule]
     for n, row in enumerate(ROWS):
         out += _row(row)
