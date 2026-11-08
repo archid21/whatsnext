@@ -1,6 +1,6 @@
 {
   "name": "whatsnext",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "One plan, one next step, for every coding agent. Check items off with a command that must pass, resume a session from a short note, and hand off with one prompt. Plain files in your repository.",
   "author": {
     "name": "Archi Dubey"

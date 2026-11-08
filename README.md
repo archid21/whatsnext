@@ -4,9 +4,52 @@
 
 whatsnext is a plugin for Claude Code and Codex. It keeps a plan checklist, check-offs and a short resume note as plain files in your repository, so a new session, or a second agent, starts from where the last one stopped.
 
-**Status: 0.1.0, the first public release.**
+**Status: 0.2.0.** See [New in 0.2](#new-in-02).
 
 MIT license · Python 3.9+, standard library only · no database, no background process
+
+## Install
+
+Claude Code:
+
+```
+claude plugin marketplace add archid21/whatsnext
+claude plugin install whatsnext@whatsnext
+```
+
+Codex: from a checkout, run `python3 skills/whatsnext/scripts/whatsnext.py install-hooks`, then review the new hooks in Settings > Hooks (desktop) or `/hooks` (CLI).
+
+## Key steps
+
+1. Say **"set up whatsnext in this repo"** and make a plan.
+2. Work. Say **"wrap up"** before you step away or clear the chat.
+3. Come back and say **"what's next?"**. You pick up where you left off.
+
+When an item is finished, say **"mark P-13 done"**. It is ticked only if its test command passes.
+
+## Features
+
+| Feature | What it does |
+|---|---|
+| Set up your plan | `PLAN.md`, a checklist in your repo. "what's next?" shows the first open item. |
+| Start work | "start P-13" asks a few questions, then you run all steps or one at a time. Another agent cannot take an item you hold. |
+| Change the plan | "add an item", "drop P-16", "move P-14 to Later", or import a plan from any spec or task file. |
+| Mark done with proof | The item is ticked only when its test command exits 0. Otherwise it stays open with the last 20 lines of output. |
+| Save and resume | "wrap up" writes your goal, next step and decisions to `docs/project/HANDOFF.md`. A short resume note loads at session start, after `/clear` and after a compact. |
+| Smart compact | The `/compact` text is built from your handoff, so the summary keeps your goal. |
+| Auto wrap-up | Opt-in. After 45 idle minutes, your handoff is saved before Claude Code's own idle compact. |
+| Task progress files | One file per task: goal, what is done, the exact next step, and a journal of commits and files changed. |
+| Tips | Claude Code only. A hint bar teaches the phrases above, one at a time. |
+| Claude Code and Codex | Both agents read and write the same plain files. Switching between them is experimental. |
+
+## New in 0.2
+
+- **Edit and import the plan:** `plan add`, `plan drop` and `plan move`, and import a plan from any spec or task file.
+- **Run the whole item:** at start, choose to run all steps, then verify and mark done.
+- **Stricter proof:** `--verify` runs the item's saved test command. A different command needs your approval, recorded with the evidence.
+- **Better resume:** after a compact, the resume note repeats your latest request. `plan next` puts the work in progress in this checkout first.
+- **Codex continuity:** `wrap up`, forked chats, interruptions and session end now work in Codex. `doctor` shows which hooks each agent has actually run.
+- **Opt-in auto wrap-up, a tip bar and a welcome table** after install.
 
 **New here? Read the [user guide](docs/GUIDE.md):** what to say to save a session, resume it, pick work and mark it done.
 
