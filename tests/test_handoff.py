@@ -4,6 +4,7 @@
 Run: python3 -m unittest discover -s tests
 """
 
+import datetime
 import hashlib
 import json
 import os
@@ -209,6 +210,36 @@ class ResumeNoteTests(HandoffBase):
     def test_no_note_no_line(self):
         self.assertIn("Handoff: none, facts only.", self.start("s1"))
 
+    def ago(self, hours):
+        when = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=hours)
+        return when.strftime("%Y-%m-%dT%H:%MZ")
+
+    def test_no_task_a_recent_unrelated_none_note_gives_its_goal_and_next(self):
+        os.remove(self.p("%s/P-13.md" % STATUS))
+        self.put(HANDOFF, note(session="s2", task="none", written=self.ago(1), goal="Ship the forms.",
+                               next_action="Run the form tests."))
+        out = self.start("s1")
+        self.assertIn("Goal (handoff ", out)
+        self.assertIn("Next (handoff ", out)
+        self.assertIn("Ship the forms.", out)
+        self.assertIn("Run the form tests.", out)
+        self.assertIn("(another session's note)", out)
+        self.assertLessEqual(len(out), 1199)
+
+    def test_no_task_an_old_none_note_gives_neither_line(self):
+        os.remove(self.p("%s/P-13.md" % STATUS))
+        self.put(HANDOFF, note(session="s2", task="none", written=self.ago(30)))
+        out = self.start("s1")
+        self.assertNotIn("Goal (handoff", out)
+        self.assertNotIn("Next (handoff", out)
+
+    def test_no_task_a_note_with_a_task_id_gives_neither_line(self):
+        os.remove(self.p("%s/P-13.md" % STATUS))
+        self.put(HANDOFF, note(session="s2", task="P-13", written=self.ago(1)))
+        out = self.start("s1")
+        self.assertNotIn("Goal (handoff", out)
+        self.assertNotIn("Next (handoff", out)
+
     def test_the_note_stays_within_its_cap(self):
         self.task(next_action="word " * 200, note="confirmed (2026-10-27T14:05Z)")
         self.put(HANDOFF, note(session="s1", next_action="x " * 300))
@@ -308,7 +339,7 @@ class CompactLineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             subprocess.run(["git", "init", "-q", tmp], check=True)
             effective = wnwrapup.gwconfig.load(tmp)
-            out = wnwrapup.instructions(tmp, effective, session_id="abc")
+            out = wnwrapup.instructions(tmp, effective, session_id="abc", agent="codex")
         self.assertIn("/compact Keep:", out)
         self.assertIn("Goal: <goal, at most 200 characters>", out)
         self.assertIn("Next: <next action, at most 400 characters>", out)
@@ -320,6 +351,19 @@ class CompactLineTests(unittest.TestCase):
         self.assertEqual(len(template), 1)
         self.assertEqual(out.splitlines()[-1], "or `/clear` for a fresh start")
         self.assertEqual(out.splitlines()[-2], template[0])
+
+    def test_the_claude_code_prompt_ends_with_the_compact_hint_not_a_template(self):
+        import tempfile, subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            effective = wnwrapup.gwconfig.load(tmp)
+            out = wnwrapup.instructions(tmp, effective, session_id="abc")
+        lines = out.splitlines()
+        self.assertFalse([l for l in lines if l.startswith("/compact ")])
+        self.assertNotIn("MAX_LINE_CHARS", out)
+        self.assertTrue(lines[-2].startswith("Handoff written: docs/project/HANDOFF.md"), lines[-2])
+        self.assertEqual(lines[-1], "Run `/compact` to keep it in this session (the handoff is added to the compact "
+                                    "for you), or `/clear` for a fresh start.")
 
 
 class CompactJsonLineTests(CompactBase):

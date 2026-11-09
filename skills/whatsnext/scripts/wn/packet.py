@@ -20,7 +20,9 @@ command with plain arguments. Commit subjects are quoted and file names have con
 
 One Next line: when this session's handoff note (or the active task's) was written after the confirmed Next
 action, the line is `Next (handoff <UTC>): ...`; with such a note it is `Next (confirmed <UTC>): ...` otherwise.
-Without a related handoff note it stays `Next: ...`. A note another session wrote is only pointed to.
+Without a related handoff note it stays `Next: ...`. A note another session wrote is only pointed to, with one
+exception (ADR-0019): when no task is active and the note has `Task: none` and was written in the last 24 hours,
+its Goal and Next action follow the Handoff line as `Goal (handoff <UTC>): ...` and `Next (handoff <UTC>): ...`.
 
 When no task is active the note says so (the old behavior; recommending the next open PLAN.md
 item is `plan next`). Nothing here calls a model.
@@ -49,6 +51,9 @@ MAX_CHECK = 160
 MAX_SUBJECT = 60
 MAX_FILE_NAME = 60
 STALE_DAYS = 7
+RECENT_HANDOFF_HOURS = 24  # a `Task: none` note this young may steer a session that has no active task (ADR-0019)
+GOAL_MAX = 200
+NEXT_MAX = 400
 NO_TASK = 'No active task. Ask "what\'s next?" to pick one.'
 BULLET_RE = re.compile(r"^(?:[-*+]|\d+[.)])\s+(.*)$")
 VERIFY_RE = re.compile(r"^verify\s*:\s*(.*)$", re.I)
@@ -376,6 +381,36 @@ def utc_text(when):
     return when.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
 
 
+def recent_handoff_lines(root, effective, info, room):
+    """`Goal (handoff <UTC>): ...` and `Next (handoff <UTC>): ...` for a handoff note with `Task: none` written in
+    the last RECENT_HANDOFF_HOURS, shown when no task is active (ADR-0019). The note's text is repository data:
+    cleaned and clipped. Lines whose text is empty are left out; `room` is the characters left in the note.
+    Returns [] for any other note."""
+    if now_utc() - info["written"] >= datetime.timedelta(hours=RECENT_HANDOFF_HOURS):
+        return []
+    path = gwwrapup.handoff_path(root, effective)
+    if (gwwrapup.read_header(path)["task"] or "none").strip().lower() != "none":
+        return []
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            body = f.read()
+    except OSError:
+        return []
+    when = utc_text(info["written"])
+    found = [("Goal", clean(gwwrapup.section_text(body, ("Goal",))), GOAL_MAX),
+             ("Next", clean(gwwrapup.handoff_next(path)), NEXT_MAX)]
+    out = []
+    for label, text, limit in found:
+        prefix = "%s (handoff %s): " % (label, when)
+        allowed = min(limit, room - len(prefix) - 1)  # one more for the line break
+        if not text or allowed < 1:
+            continue
+        line = prefix + clip(text, allowed)
+        out.append(line)
+        room -= len(line) + 1
+    return out
+
+
 def next_line(task, limit, handoff=None):
     """The Next line. With a related handoff note that has a Next action, the newer of the two is shown,
     labeled `Next (confirmed <UTC>)` or `Next (handoff <UTC>)`; otherwise `Next: <text>`."""
@@ -426,6 +461,8 @@ def build(root, effective, compacted=False, session_id=None):
         info = handoff_info(root, effective, None, session_id)
         if info:
             lines.append(handoff_line(info))
+            room = cap - len("\n".join(lines)) - 1
+            lines += recent_handoff_lines(root, effective, info, room)
         return {"text": "\n".join(lines)[:cap], "included": ["first"], "pointed": []}
 
     now = now_utc()

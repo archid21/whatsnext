@@ -460,7 +460,7 @@ def handle_event(event, data, agent=None):
             resume = ""
             if agent == "codex" and gwwrapup.take_resume_marker(root, data.get("session_id")):
                 resume = session_start(root, effective, dict(data, source="compact"), agent)
-            return resume + gwwrapup.begin(root, effective, data)
+            return resume + gwwrapup.begin(root, effective, data, agent)
         if agent == "codex":  # Codex: only the once-after-compact resume note (P-22)
             if gwwrapup.take_resume_marker(root, data.get("session_id")):
                 return session_start(root, effective, dict(data, source="compact"), agent)

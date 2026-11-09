@@ -389,8 +389,9 @@ def line_template():
     return "/compact " + LINE_BASE + " " + slots
 
 
-def instructions(root, effective, now=None, session_id=None):
-    """The text the hook adds to the prompt `wrap up`."""
+def instructions(root, effective, now=None, session_id=None, agent=None):
+    """The text the hook adds to the prompt `wrap up`. Codex (`agent == "codex"`) also gets the `/compact` line:
+    Claude Code gets its PreCompact hook instead, so its reply ends with the handoff path and a plain `/compact` hint."""
     handoff = handoff_path(root, effective)
     rel = gwconfig.display_path(handoff, root)
     local, utc = pacific_now(now)
@@ -426,15 +427,23 @@ def instructions(root, effective, now=None, session_id=None):
     ]
     if task is not None:
         lines.append("Do not run commands to update the progress file's Next action: whatsnext copies it from your note.")
-    lines += [
-        "",
-        "End your reply with these three lines. The second is one line: copy it, and replace each <slot> with the text of the "
-        "note's section of that name, cut to its limit. Next action and Constraints must fit as written. Change no other word. "
-        "The whole line stays at most %d characters." % MAX_LINE_CHARS,
-        "Handoff written: %s" % rel,
-        line_template(),
-        "or `/clear` for a fresh start",
-    ]
+    if agent == "codex":
+        lines += [
+            "",
+            "End your reply with these three lines. The second is one line: copy it, and replace each <slot> with the text of the "
+            "note's section of that name, cut to its limit. Next action and Constraints must fit as written. Change no other word. "
+            "The whole line stays at most %d characters." % MAX_LINE_CHARS,
+            "Handoff written: %s" % rel,
+            line_template(),
+            "or `/clear` for a fresh start",
+        ]
+    else:  # Claude Code: the PreCompact hook carries the handoff into the compact, so no /compact template is printed
+        lines += [
+            "",
+            "End your reply with exactly these two lines and nothing after them:",
+            "Handoff written: %s" % rel,
+            "Run `/compact` to keep it in this session (the handoff is added to the compact for you), or `/clear` for a fresh start.",
+        ]
     return "\n".join(lines) + "\n"
 
 
@@ -493,7 +502,7 @@ def archive_handoff(root, effective, keep=ARCHIVE_KEEP):
     return path
 
 
-def begin(root, effective, data):
+def begin(root, effective, data, agent=None):
     """Remember the request, save the old note, and return the instructions to print."""
     try:
         archive_handoff(root, effective)
@@ -508,7 +517,7 @@ def begin(root, effective, data):
                 f.write("\n")
         except OSError:  # the event is lost, the note is not
             pass
-    return instructions(root, effective, session_id=data.get("session_id"))
+    return instructions(root, effective, session_id=data.get("session_id"), agent=agent)
 
 
 def settle(root, effective, data, agent=None):

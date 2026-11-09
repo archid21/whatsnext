@@ -214,7 +214,9 @@ class DeadEndsPromptTests(HookBase):
         self.assertIn("these eight `##` sections", out)
         self.assertIn("8. `## Dead ends`", out)
         self.assertIn("with the reason", out)
-        self.assertIn("Dead ends: <dead ends, at most 300 characters>", out)
+        self.assertNotIn("/compact Keep:", out)  # Claude Code: the PreCompact hook carries the note (ADR-0019)
+        codex = self.hook("prompt-submit", {"prompt": "wrap up", "session_id": "s2", "cwd": self.proj}, agent="codex")
+        self.assertIn("Dead ends: <dead ends, at most 300 characters>", codex)
 
 
 if __name__ == "__main__":

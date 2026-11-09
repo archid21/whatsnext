@@ -22,3 +22,4 @@ Dates are UTC. This list is the current set of decisions for whatsnext. Earlier 
 | 0016 | 2026-11-07T07:52Z | An opt-in idle timer submits `wrap up` before Claude Code's idle compact | accepted (user) | [ADR-0016](ADR-0016-idle-wrap-up.md) |
 | 0017 | 2026-11-08T17:15Z | One execution contract for Codex and Claude Code | accepted (user) | [ADR-0017](ADR-0017-cross-agent-execution-contract.md) |
 | 0018 | 2026-11-09T06:53Z | SessionStart removes the state files of sessions idle for 14 days | accepted (user) | [ADR-0018](ADR-0018-prune-session-files.md) |
+| 0019 | 2026-11-09T18:30Z | Claude Code wrap-up ends without a /compact template; a recent unrelated handoff steers a new session | accepted (user) | [ADR-0019](ADR-0019-wrap-up-ending-and-recent-handoff.md) |

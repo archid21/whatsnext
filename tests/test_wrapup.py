@@ -200,7 +200,9 @@ class WrapUpHookTests(HookBase):
         self.assertIn("work the user asked for that is not done", out)
         self.assertIn("At most 400 characters in all.", out)
         self.assertLess(out.index("`Verify:"), out.index("`If it fails:"))
-        self.assertIn("Next: <next action, at most 400 characters>", out)
+        self.assertNotIn("/compact Keep:", out)  # Claude Code: the PreCompact hook carries the note (ADR-0019)
+        codex = self.hook("prompt-submit", {"prompt": "wrap up", "session_id": "s2", "cwd": self.proj}, agent="codex")
+        self.assertIn("Next: <next action, at most 400 characters>", codex)
 
     def test_template_exact_the_longest_line_still_fits_and_next_is_not_cut(self):
         from wn import wrapup as wnwrapup

@@ -22,12 +22,12 @@ Use this when you stop work, or the context window is full.
 
 1. Type `wrap up`. Type exactly these two words as the whole prompt.
 2. Wait for the reply to end with `Handoff written: <path>`.
-3. Type `/clear`.
+3. Type `/clear` for a fresh start. Or type `/compact` to stay in this session; the handoff is added to the compact for you.
 4. In the new session, type `what's next?`.
 
 **What happens at step 1.** The agent writes `docs/project/HANDOFF.md` and overwrites the old one. The note holds: Goal, Next action (with a `Verify:` line), State, What changed, Decisions, Constraints, Open questions and blockers. The old note is archived first.
 
-**What you see at step 2.** A summary of the session, then three lines: the path, a one-line `/compact` text you can paste, and "or `/clear` for a fresh start".
+**What you see at step 2.** A summary of the session, then the path (`Handoff written: <path>`) and one line that says to run `/compact` or `/clear`. In Codex, the reply also has a one-line `/compact` text you can paste.
 
 **What you see at step 3.** A one-line banner appears at the top of the new session by itself: "whatsnext: resume note loaded. Next: …". The full resume note goes to the agent, not to your screen. The agent uses it in its first reply, and `what's next?` shows it to you. The note says what was done, what is next, which test command to run, and what changed in git since the note. It is at most 1,200 characters. In Codex there is no banner.
 
@@ -262,7 +262,7 @@ Every command takes `--help`.
 
 ## Known gaps
 
-- **After `/clear`, the resume note may call the handoff "another session's note".** The new session has a new id. The note is marked "read it first" only when its `Task:` matches the active task. With `Task: none`, it never matches. The resume note then shows only a pointer to the handoff. `what's next?` shows the handoff's Next action and open questions whoever wrote it.
+- **After `/clear`, the resume note may call the handoff "another session's note".** The new session has a new id. The note is marked "read it first" only when its `Task:` matches the active task. With `Task: none` and no active task, the resume note shows the Goal and Next action when the handoff is less than 24 hours old. An older `Task: none` note shows only a pointer to the handoff. `what's next?` shows the handoff's Next action and open questions whoever wrote it.
 - **`what's next?` shows the handoff even if it is old.** Check the written time it prints.
 
 ## Compatibility checks
