@@ -152,7 +152,7 @@ A handoff written by a different session is never put into a compact. The text n
 Claude Code and Codex read the same plain files, so one can pick up where the other stopped.
 
 - `plan start` refuses an item another agent holds. It asks if you want to take it over.
-- A claim is a note, not a lock. Two agents that ask at the same moment might both get it.
+- A claim is a lock on one machine: of two agents that ask at the same moment, only one gets it. A claim that `plan put-back` or `plan done` released stays released. It still goes stale after `plan.staleAfter`.
 - Claims in sibling git worktrees are read when those folders are accessible, including Codex fallback claims. Separate clones and machines do not share claims.
 - Claims belong to the repository, not to one plan file. A test run that points `paths.plan` at a scratch plan in the same repository leaves its claims behind; `plan check` names a claim on a done item, and `plan put-back <id>` removes it without changing the item.
 - A handoff note is read first only by the session that wrote it, or one working the same task.

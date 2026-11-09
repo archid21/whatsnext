@@ -110,5 +110,57 @@ class SiblingWorktreeTests(PlanBase):
         self.assertEqual(claims.sibling_roots(self.tmp.name), [])
 
 
+
+class AtomicClaimTests(PlanBase):
+    """P-53: claims are locks on one machine, and a released claim stays released."""
+
+    def test_atomic_claim_new_file_is_created_with_o_excl(self):
+        path = os.path.join(self.tmp.name, "c", "X-1.json")
+        self.assertTrue(claims._write_new(path, {"id": "X-1"}))
+        self.assertFalse(claims._write_new(path, {"id": "X-1", "other": True}))
+        with open(path, encoding="utf-8") as f:
+            self.assertNotIn("other", json.load(f))
+
+    def test_atomic_claim_parallel_claims_have_one_holder(self):
+        import threading
+        results = []
+        barrier = threading.Barrier(8)
+
+        def go(n):
+            barrier.wait()
+            results.append(claims.claim(self.proj, "P-13", "agent-%d" % n)[0])
+
+        threads = [threading.Thread(target=go, args=(n,)) for n in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(len([r for r in results if r]), 1)
+
+    def test_atomic_claim_touch_after_release_does_not_bring_it_back(self):
+        mine, _ = claims.claim(self.proj, "P-13", "claude")
+        self.assertTrue(mine)
+        self.assertTrue(claims.release(self.proj, "P-13"))
+        self.assertIsNone(claims.touch(self.proj, "P-13"))
+        self.assertIsNone(claims.update(self.proj, "P-13", branch="x"))
+        self.assertIsNone(claims.read(self.proj, "P-13"))
+
+    def test_atomic_claim_update_keeps_a_claim_that_changed_hands(self):
+        claims.claim(self.proj, "P-13", "claude")
+        claims.claim(self.proj, "P-13", "codex", takeover=True)
+        self.assertEqual(claims.touch(self.proj, "P-13")["agent"], "codex")
+
+    def test_atomic_claim_stale_lock_is_removed_and_no_lock_is_left(self):
+        folder = claims.claims_dir(self.proj)
+        os.makedirs(folder, exist_ok=True)
+        lock = os.path.join(folder, "P-13.lock")
+        with open(lock, "w") as f:
+            f.write("1")
+        old = os.path.getmtime(lock) - claims.LOCK_STALE - 5
+        os.utime(lock, (old, old))
+        self.assertTrue(claims.claim(self.proj, "P-13", "claude")[0])
+        self.assertFalse(os.path.exists(lock))
+        self.assertEqual(sorted(claims.read_all(self.proj)), ["P-13"])
+
 if __name__ == "__main__":
     unittest.main()

@@ -67,7 +67,7 @@ A compact does not fix this. It keeps whatever the model thinks matters, which m
 
 ## What you get
 
-**A plan every agent reads.** `PLAN.md` is a checklist in your repository. `plan next` shows what is next; `plan start` asks a few questions first and refuses an item another agent has checked out. A claim is a note, not a lock: two agents requesting the same item around the same time might both claim it.
+**A plan every agent reads.** `PLAN.md` is a checklist in your repository. `plan next` shows what is next; `plan start` asks a few questions first and refuses an item another agent has checked out. A claim is a lock on one machine: of two agents requesting the same item at once, only one gets it.
 
 **"Done" means a command passed.** `plan done P-13 --verify` runs the backticked command saved in the item (when it has exactly one); with several, pass one with `--verify CMD`. Any command that matches a backticked part (exact text, including whitespace) runs the matched saved command. Any other command requires an explicit approved `--override-reason`, recorded with the evidence. Exit 0 ticks the item. Anything else leaves it open and saves the last 20 lines of output. An item no command can check is ticked with `--evidence` and shows as `done*`, so you can tell the two apart.
 

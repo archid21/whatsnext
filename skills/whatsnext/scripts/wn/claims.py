@@ -7,21 +7,29 @@ fallback when the git folder cannot be written (Codex's sandbox protects `.git`)
 that fails there is repeated in `<root>/.whatsnext/claims/`, which holds its own `.gitignore`
 so the claims never show up as changes. Reads look in both; the git folder wins.
 
-A claim is a note, not a lock. To avoid a race the claim is written with a fresh
-random token, read back, and counts only if the token is still ours.
+A claim is a lock on one machine (P-53). A new claim file is created with
+O_CREAT|O_EXCL, so of two `plan start` calls at once only one creates it. Every change
+to an existing claim (update, touch, release) runs under a short per-item lock file
+(`<ID>.lock`, also O_EXCL, removed when older than LOCK_STALE seconds), and update and
+touch rewrite the file only while it still holds the same token, so a Stop hook can
+never bring back a claim that `plan put-back` or `plan done` released.
 """
 
 import datetime
 import json
 import os
 import re
+import contextlib
 import stat
+import time
 import uuid
 
 from . import status as gwstatus
 from .util import now_utc, parse_date
 
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+LOCK_STALE = 10.0  # seconds after which a leftover lock file is removed
+LOCK_WAIT = 5.0  # seconds to wait for another process's lock
 STALE_RE = re.compile(r"^([1-9][0-9]*)([mh])$")
 
 
@@ -226,30 +234,57 @@ def _write_replace(path, data):
 
 
 def _write_new(path, data):
-    """Create the file only when it does not exist. False when someone else created it first."""
+    """Create the file with O_CREAT|O_EXCL. False when someone else created it first."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = "%s.%s.tmp" % (path, uuid.uuid4().hex[:8])
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
+    body = (json.dumps(data, indent=2) + "\n").encode("utf-8")
     try:
-        os.link(tmp, path)  # atomic: fails when the file exists
-        return True
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
     except FileExistsError:
         return False
-    except OSError:  # no hard links on this file system
-        try:
-            with open(path, "x", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-                f.write("\n")
-            return True
-        except FileExistsError:
-            return False
+    try:
+        os.write(fd, body)
+        os.fsync(fd)
     finally:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
+        os.close(fd)
+    return True
+
+
+@contextlib.contextmanager
+def _locked(root, item_id):
+    """Hold `<ID>.lock` (O_EXCL) in the claims folder while a claim changes. Best effort when no folder can be written."""
+    held = None
+    deadline = time.time() + LOCK_WAIT
+    for folder in (claims_dir(root), fallback_dir(root)):
+        path = os.path.join(folder, item_id + ".lock")
+        while held is None:
+            try:
+                os.makedirs(folder, exist_ok=True)
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+                os.write(fd, str(os.getpid()).encode("ascii"))
+                os.close(fd)
+                held = path
+            except FileExistsError:
+                try:
+                    if time.time() - os.stat(path).st_mtime > LOCK_STALE:
+                        os.remove(path)
+                        continue
+                except OSError:
+                    continue
+                if time.time() > deadline:
+                    break
+                time.sleep(0.02)
+            except OSError:
+                break  # this folder cannot be written: try the fallback
+        if held:
+            break
+    try:
+        yield
+    finally:
+        if held:
+            try:
+                os.remove(held)
+            except OSError:
+                pass
 
 
 def is_ours(claim, agent, root):
@@ -262,6 +297,11 @@ def claim(root, item_id, agent, session=None, branch=None, takeover=False):
 
     An existing claim by someone else is replaced only with `takeover`.
     """
+    with _locked(root, item_id):
+        return _claim(root, item_id, agent, session, branch, takeover)
+
+
+def _claim(root, item_id, agent, session, branch, takeover):
     path = claim_path(root, item_id)
     existing = read(root, item_id)
     now = stamp()
@@ -312,18 +352,27 @@ def _drop_mine(root, item_id, token):
 
 
 def update(root, item_id, **fields):
-    """Change fields of an existing claim. Returns it, or None when there is none."""
-    data = read(root, item_id)
-    if data is None:
-        return None
-    data.update(fields)
-    _put(root, item_id, _write_replace, claim_path(root, item_id), data)
-    return data
+    """Change fields of an existing claim. Returns it, or None when there is none.
+
+    Under the item lock, and only while the file still holds the token read first:
+    a claim released in the meantime stays released.
+    """
+    with _locked(root, item_id):
+        data = read(root, item_id)
+        if data is None:
+            return None
+        token = data.get("token")
+        data.update(fields)
+        now = read(root, item_id)
+        if now is None or now.get("token") != token:
+            return None
+        _put(root, item_id, _write_replace, claim_path(root, item_id), data)
+        return data
 
 
 def touch(root, item_id):
     """Refresh `updated` and clear `asked_at`. Does nothing when there is no claim."""
-    return update(root, item_id, updated=stamp(), asked_at=None) if read(root, item_id) else None
+    return update(root, item_id, updated=stamp(), asked_at=None)
 
 
 def mark_asked(root, item_id):
@@ -333,12 +382,13 @@ def mark_asked(root, item_id):
 def release(root, item_id):
     """Remove the claim from both folders. True when one was removed."""
     removed = False
-    for folder in (claims_dir(root), fallback_dir(root)):
-        try:
-            os.remove(os.path.join(folder, item_id + ".json"))
-            removed = True
-        except OSError:
-            pass
+    with _locked(root, item_id):
+        for folder in (claims_dir(root), fallback_dir(root)):
+            try:
+                os.remove(os.path.join(folder, item_id + ".json"))
+                removed = True
+            except OSError:
+                pass
     return removed
 
 
