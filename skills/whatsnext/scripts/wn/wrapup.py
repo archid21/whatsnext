@@ -93,9 +93,9 @@ def pacific_now(now=None):
 
 
 def parse_header(text):
-    """{'session', 'task', 'written'} from the `Session:`, `Task:` and `Written:` lines near the top of a
-    handoff note. A missing line is None."""
-    found = dict.fromkeys(("session", "task", "written"))
+    """{'session', 'task', 'written', 'branch'} from the `Session:`, `Task:`, `Written:` and `Branch:` lines near
+    the top of a handoff note. A missing line is None (notes written before P-54 have no `Branch:`)."""
+    found = dict.fromkeys(("session", "task", "written", "branch"))
     for line in text.splitlines()[:HEADER_LINES]:
         name, sep, value = line.partition(":")
         key = name.strip().lower()
@@ -409,10 +409,11 @@ def instructions(root, effective, now=None, session_id=None, agent=None):
                      "fold those lines into the note, then delete that section from the progress file." % (task.id, task.rel))
     lines += [
         "",
-        "Write the file as a `# Handoff` title, then these three header lines exactly as shown, then these eight `##` sections, in this order. Short lines, plain words, no filler:",
+        "Write the file as a `# Handoff` title, then these four header lines exactly as shown, then these eight `##` sections, in this order. Short lines, plain words, no filler:",
         "Session: %s" % (session_id if isinstance(session_id, str) and session_id.strip() else "unknown"),
         "Task: %s" % (task.id if task is not None else "none"),
         "Written: %s" % utc,
+        "Branch: %s" % (gwstatus.current_branch(root) or "none"),
         "",
         "1. `## Goal`: what the work is for, one or two lines (at most 200 characters).",
         "2. `## Next action`: the exact next step, one or two lines, with the command to run. Then a line `Verify: <the command or check that proves it worked>`, then a line `If it fails: <what to check or try next>`. Write paths relative to the repository root; never an absolute path, a home folder or the plugin's script path, because this file is committed and shared. At most 400 characters in all.",

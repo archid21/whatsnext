@@ -19,3 +19,7 @@ Builds on ADR-0008 and ADR-0009 (point 1, for Claude Code).
 
 - An unrelated recent note can steer a new window. The label names the handoff time, so the agent and the user can see how old it is. The 24-hour limit keeps old notes out.
 - The Claude Code reply has one `/compact` hint, not a paste-ready template. A user who wants the template runs `compact-instructions`.
+
+## Later change (P-54, 2026-11-09)
+
+The handoff note has a fourth header line, `Branch:`. A `Task: none` note whose `Branch:` is this checkout's branch and that was written within `plan.staleAfter` is the user's own: the resume note says "read it first" for it, also after `/clear` gives a new session id. Older notes without `Branch:` keep the rule above.

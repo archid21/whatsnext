@@ -24,8 +24,10 @@ WRITTEN = "2026-11-05T05:03Z"
 
 
 def note(session="s1", task="P-13", written=WRITTEN, next_action="Run the form tests.", constraints="Do not touch auth.",
-         goal="Ship the forms.", decisions="none", blockers="none", header=True):
+         goal="Ship the forms.", decisions="none", blockers="none", header=True, branch=None):
     head = "# Handoff\n" + ("Session: %s\nTask: %s\nWritten: %s\n" % (session, task, written) if header else "")
+    if header and branch:
+        head += "Branch: %s\n" % branch
     return (head + "\n## Goal\n%s\n\n## Next action\n%s\nVerify: python3 -m unittest\n\n## State\nState on x (Pacific): ok\n\n"
             "## What changed\nnone\n\n## Decisions\n%s\n\n## Constraints\n%s\n\n## Open questions and blockers\n%s\n"
             % (goal, next_action, decisions, constraints, blockers))
@@ -79,8 +81,8 @@ class HeaderAndSidecarTests(HandoffBase):
         self.assertFalse(os.path.exists(os.path.join(self.proj, ".whatsnext", "sessions", "s1.handoff.json")))
 
     def test_parse_header(self):
-        self.assertEqual(wnwrapup.parse_header(note()), {"session": "s1", "task": "P-13", "written": WRITTEN})
-        self.assertEqual(wnwrapup.parse_header(note(header=False)), {"session": None, "task": None, "written": None})
+        self.assertEqual(wnwrapup.parse_header(note()), {"session": "s1", "task": "P-13", "written": WRITTEN, "branch": None})
+        self.assertEqual(wnwrapup.parse_header(note(header=False)), {"session": None, "task": None, "written": None, "branch": None})
         self.assertEqual(wnwrapup.parse_header("# Handoff\n" * 2 + "\n" * 20 + "Session: late\n")["session"], None)
 
 
@@ -225,6 +227,43 @@ class ResumeNoteTests(HandoffBase):
         self.assertIn("Run the form tests.", out)
         self.assertIn("(another session's note)", out)
         self.assertLessEqual(len(out), 1199)
+
+    def branch(self):
+        import subprocess
+        return subprocess.run(["git", "-C", self.proj, "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True,
+                              text=True, check=True).stdout.strip()
+
+    def test_p54_a_fresh_none_note_from_this_branch_says_read_it_first_after_clear(self):
+        os.remove(self.p("%s/P-13.md" % STATUS))
+        self.put(HANDOFF, note(session="before-clear", task="none", written=self.ago(1), branch=self.branch()))
+        out = self.start("after-clear", source="clear")
+        self.assertIn("(read it first)", out)
+        self.assertNotIn("another session's note", out)
+
+    def test_p54_a_none_note_from_another_branch_is_another_sessions(self):
+        os.remove(self.p("%s/P-13.md" % STATUS))
+        self.put(HANDOFF, note(session="before-clear", task="none", written=self.ago(1), branch="some-other-branch"))
+        self.assertIn("(another session's note)", self.start("after-clear", source="clear"))
+
+    def test_p54_a_none_note_older_than_stale_after_is_another_sessions(self):
+        os.remove(self.p("%s/P-13.md" % STATUS))
+        self.put(HANDOFF, note(session="before-clear", task="none", written=self.ago(5), branch=self.branch()))
+        self.assertIn("(another session's note)", self.start("after-clear", source="clear"))  # default staleAfter 4h
+
+    def test_p54_a_none_note_without_a_branch_line_is_another_sessions(self):
+        os.remove(self.p("%s/P-13.md" % STATUS))
+        self.put(HANDOFF, note(session="before-clear", task="none", written=self.ago(1)))
+        self.assertIn("(another session's note)", self.start("after-clear", source="clear"))
+
+    def test_p54_a_task_note_from_this_branch_keeps_the_task_rule(self):
+        os.remove(self.p("%s/P-13.md" % STATUS))
+        self.put(HANDOFF, note(session="before-clear", task="P-99", written=self.ago(1), branch=self.branch()))
+        self.assertIn("(another session's note)", self.start("after-clear", source="clear"))
+
+    def test_p54_the_wrap_up_prompt_asks_for_a_branch_line(self):
+        out = self.prompt("wrap up", session="s1")
+        self.assertIn("Branch: %s" % self.branch(), out)
+        self.assertIn("four header lines", out)
 
     def test_no_task_an_old_none_note_gives_neither_line(self):
         os.remove(self.p("%s/P-13.md" % STATUS))

@@ -354,18 +354,33 @@ def cut_line(task, facts, state):
 
 def handoff_info(root, effective, task, session_id):
     """The handoff note as {"rel", "related", "next", "written"}, or None when there is no file.
-    `related`: its `Session:` is this session, or its `Task:` is the active task. `written`: the `Written:` time
-    (else the file's time) as an aware datetime. `next` is its Next action section, as one line."""
+    `related`: its `Session:` is this session, or its `Task:` is the active task, or (P-54) it has `Task: none`, a
+    `Branch:` equal to this checkout's branch, and was written within `plan.staleAfter`: after `/clear` the new
+    session id differs, but such a note is the user's own. `written`: the `Written:` time (else the file's time) as
+    an aware datetime. `next` is its Next action section, as one line."""
     path = gwwrapup.handoff_path(root, effective)
     if not os.path.isfile(path):
         return None
     header = gwwrapup.read_header(path)
-    related = bool((session_id and header["session"] == session_id) or (task is not None and header["task"] == task.id))
     written = gwclaims.to_dt(header["written"])
     if written is None:
         written = datetime.datetime.fromtimestamp(os.path.getmtime(path), datetime.timezone.utc)
+    related = bool((session_id and header["session"] == session_id) or (task is not None and header["task"] == task.id)
+                   or own_branch_note(root, effective, header, written))
     return {"rel": gwconfig.display_path(path, root), "related": related,
             "next": gwwrapup.handoff_next(path) if related else "", "written": written}
+
+
+def own_branch_note(root, effective, header, written):
+    """P-54: a `Task: none` note from this checkout's branch, written within `plan.staleAfter`. The note file lives in
+    this checkout, so the branch is what tells it apart; a note without a `Branch:` line never matches."""
+    if (header["task"] or "none").strip().lower() != "none" or not header["branch"]:
+        return False
+    branch = gwstatus.current_branch(root)
+    if not branch or header["branch"].strip() != branch:
+        return False
+    age = now_utc() - written
+    return datetime.timedelta(0) <= age < gwclaims.stale_delta(effective.get("plan.staleAfter"))
 
 
 def handoff_line(info):
