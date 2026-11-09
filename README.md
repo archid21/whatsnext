@@ -92,7 +92,7 @@ whatsnext does plan, check-off and handoff in one repository. It does not rememb
 | What it keeps | Rules you write | Facts and summaries from past sessions | One handoff note per session | Plan, progress per task, handoff |
 | Recording needs a model call | No | Usually | Yes, the agent writes the note | Only the handoff note (the journal needs none) |
 | Check-off proved by a command | No | No | No | Yes |
-| Stops two agents taking one item | No | No | No | Yes, except when both ask around the same time |
+| Stops two agents taking one item | No | No | No | Yes, on one machine |
 | Works in Claude Code and Codex | Yes | Varies | Mostly Claude Code | Yes\* |
 
 \* Switching between agents on one plan, or running two at once, is experimental: it has not been extensively tested (see [Known limits](#known-limits)).
@@ -125,7 +125,7 @@ In Claude Code (terminal and desktop app only), a tip band above the prompt teac
 ## Known limits
 
 - **Using more than one agent on a plan is experimental.** Handing a plan from one agent to another works through the files, but it has not been extensively tested.
-- **Claims are notes, not locks.** Two agents requesting the same item around the same time might both claim it.
+- **Claims lock one machine only.** Of two agents asking for the same item at once on one machine, only one gets it. Agents in separate clones or on other machines do not see each other's claims.
 - **In Codex's default sandbox,** a claim falls back to `.whatsnext/claims/` when `.git` is read-only. Sibling worktrees can read it when accessible; separate clones cannot.
 - **Agents can skip the commands.** In our Codex runs the agent sometimes edited `PLAN.md` by hand or mistyped the script path. `plan check` finds items ticked without evidence.
 - **Codex support is new.** Run `install-hooks`, trust the hooks in `/hooks`, and expect some rough edges. Plan capture on Codex may stop working after a Codex update (ADR-0005).
