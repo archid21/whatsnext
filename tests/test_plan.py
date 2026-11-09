@@ -902,6 +902,42 @@ class DriftTests(PlanBase):
         note = self.gw(["progress", "resume-note"]).stdout
         self.assertIn("continue P-13 Add single sign-on", note)
 
+    def leftover_claim_on_done_item(self):
+        """P-13 done the normal way, then its claim written back (a harness run on a scratch plan, say)."""
+        self.started()
+        path = claims.claim_path(self.proj, "P-13")
+        saved = self.get(os.path.relpath(path, self.proj))
+        r = self.plan("done", "P-13", "--evidence", "tests pass")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(saved)
+        self.assertTrue(self.has_claim("P-13"))
+        return self.get("%s/P-13.md" % STATUS)
+
+    def test_leftover_claim_on_a_done_item_is_named_as_such(self):
+        self.leftover_claim_on_done_item()
+        out = self.check()
+        self.assertIn("P-13 is done but still claimed. Run `plan put-back P-13`", out)
+        self.assertNotIn("ticked by hand", out)
+
+    def test_put_back_on_a_done_item_removes_only_the_claim(self):
+        before = self.leftover_claim_on_done_item()
+        r = self.plan("put-back", "P-13")  # no save-first question: there is nothing left to save
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("it stays done", r.stdout)
+        self.assertFalse(self.has_claim("P-13"))
+        after = self.get("%s/P-13.md" % STATUS)
+        self.assertEqual(after, before)
+        self.assertIn("- **State:** done", after)
+        self.assertNotIn("not in progress", self.check())
+
+    def test_start_ignores_a_leftover_claim_on_a_done_item(self):
+        self.leftover_claim_on_done_item()
+        r = self.start("P-14", "--json", "--branch", "stay")
+        self.assertNotIn("current_item", r.stdout)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(self.has_claim("P-14"))
+
     def test_orphan_claim_a_quiet_plan_has_no_drift_warning(self):
         self.started()
         out = self.check()

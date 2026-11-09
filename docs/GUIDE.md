@@ -154,6 +154,7 @@ Claude Code and Codex read the same plain files, so one can pick up where the ot
 - `plan start` refuses an item another agent holds. It asks if you want to take it over.
 - A claim is a note, not a lock. Two agents that ask at the same moment might both get it.
 - Claims in sibling git worktrees are read when those folders are accessible, including Codex fallback claims. Separate clones and machines do not share claims.
+- Claims belong to the repository, not to one plan file. A test run that points `paths.plan` at a scratch plan in the same repository leaves its claims behind; `plan check` names a claim on a done item, and `plan put-back <id>` removes it without changing the item.
 - A handoff note is read first only by the session that wrote it, or one working the same task.
 
 This is experimental. See the README's [Known limits](../README.md#known-limits).

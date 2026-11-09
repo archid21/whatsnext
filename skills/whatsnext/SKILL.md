@@ -18,6 +18,7 @@ All logic is in one script: `python3 scripts/whatsnext.py <command>` (Python 3.9
 | "mark P-13 done" | When a command can prove it: `plan done P-13 --verify` (runs the backticked command saved in done means (when there is exactly one; with several, use `--verify "<part>"`) from the project root; exit 0 ticks it as confirmed, a failure leaves it open and journals the last 20 output lines; do not combine with `--evidence`). Otherwise `plan done P-13 --evidence "<one line>"` (shows as `done*`, not verified) or `--unverified`; ask the user which |
 | "keep working on P-12" (a stale item) | `plan keep P-12` |
 | "put P-12 back" (a stale item) | Update its progress file first, then `plan put-back P-12 --saved` |
+| `plan check` says "P-12 is done but still claimed" | `plan put-back P-12` (removes only the claim; the item and its progress file stay done) |
 | "show the plan", "who has what?" | `plan list` (`--json` for data) |
 | "check the plan" | `plan check` (finds items without done means or evidence, and duplicate ids) |
 | "start a task", "track this task" | `progress new <task-id> --title "<title>"`, then fill in the sections |

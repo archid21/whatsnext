@@ -543,15 +543,19 @@ def check(ctx):
 def drift_warnings(ctx, items):
     """P-27: what the claims and progress files say against what PLAN.md says now."""
     by_id = {it.id: it for it in items}
+    tasks = ctx.tasks()
     out = []
     for item_id, claim in sorted(gwclaims.read_all(ctx.root).items()):
         item = by_id.get(item_id)
         if item is None:
             out.append("claim for %s, not in plan (%s). Run `plan put-back %s` or restore the item." % (item_id, ctx.plan_rel, item_id))
+        elif item.checked and getattr(tasks.get(item_id), "state", None) == "done":
+            out.append("%s is done but still claimed. Run `plan put-back %s` to remove the claim; the item stays done."
+                       % (item_id, item_id))
         elif item.checked:
             out.append("%s ticked by hand but still claimed. Run `plan done %s --verify \"<cmd>\"` or `plan put-back %s`."
                        % (item_id, item_id, item_id))
-    for task_id, task in sorted(ctx.tasks().items()):
+    for task_id, task in sorted(tasks.items()):
         item = by_id.get(task_id)
         if task.state == "done":
             continue
@@ -688,10 +692,18 @@ def record_left_at(ctx, item_id, holder):
     return line
 
 
+def is_checked(ctx, item_id):
+    return any(it.id == item_id and it.checked for it in ctx.items())
+
+
 def release_claim(ctx, item_id):
     holder = gwclaims.read(ctx.root, item_id)
     if holder is None:
         return False, "%s is not in progress." % item_id
+    if is_checked(ctx, item_id):  # a done item keeps its progress file as it is: only the leftover claim goes
+        gwclaims.release(ctx.root, item_id)
+        ctx.emit("task.release", {"id": item_id, "agent": holder.get("agent")})
+        return True, "Removed the leftover claim on %s; it stays done." % item_id
     line = record_left_at(ctx, item_id, holder)
     gwclaims.release(ctx.root, item_id)
     ctx.emit("task.release", {"id": item_id, "agent": holder.get("agent")})
@@ -911,7 +923,8 @@ def cmd_keep(ctx, args):
 
 
 def cmd_release(ctx, args):
-    if not args.saved and gwclaims.read(ctx.root, args.id) is not None and os.path.isfile(gwstatus.task_path(ctx.folder, args.id)):
+    if not args.saved and gwclaims.read(ctx.root, args.id) is not None and \
+            os.path.isfile(gwstatus.task_path(ctx.folder, args.id)) and not is_checked(ctx, args.id):
         return ask_save_first(args.json, ctx, args.id, "--saved")
     ok, message = release_claim(ctx, args.id)
     return report(args, ok, message, {"id": args.id, "put_back": ok})
@@ -1214,7 +1227,9 @@ def cmd_start(ctx, args):
                 len(dirty), "" if len(dirty) == 1 else "s"), context={"id": item.id, "files": dirty})
         # 5. Another item in progress from this worktree.
         mine = gwclaims.worktree_root(ctx.root)
-        others = [c for i, c in sorted(gwclaims.read_all(ctx.root).items()) if i != item.id and c.get("worktree") == mine]
+        done = {it.id for it in ctx.items() if it.checked}  # a leftover claim on a done item is not work in progress
+        others = [c for i, c in sorted(gwclaims.read_all(ctx.root).items())
+                  if i != item.id and i not in done and c.get("worktree") == mine]
         if others:
             current = others[0]
             cur_item = next((it for it in ctx.items() if it.id == current["id"]), None)
