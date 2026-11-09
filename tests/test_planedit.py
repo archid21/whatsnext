@@ -113,7 +113,29 @@ class PlanEditTests(PlanBase):
     def test_drop_removes_one_line(self):
         before = self.text().split("\n")
         self.assertEqual(self.plan("drop", "P-16").returncode, 0)
-        self.assertEqual(self.text().split("\n"), [l for l in before if "P-16" not in l])
+        after = [l for l in self.text().split("\n") if not l.startswith("Retired ids")]
+        self.assertEqual([l for l in after if l != ""], [l for l in before if "P-16" not in l and l != ""])
+        self.check_clean()
+
+    def test_drop_records_the_retired_id_and_add_never_reuses_it(self):
+        self.assertEqual(self.plan("drop", "P-16").returncode, 0)
+        self.assertIn("Retired ids (never reuse): P-16\n", self.text())
+        self.assertNotIn("P-16", self.ids())
+        r, data = self.jplan("add", "New", "--done-means", "`true`")
+        self.assertEqual((r.returncode, data["id"]), (0, "P-17"))
+        self.assertEqual(self.plan("drop", "P-17").returncode, 0)
+        self.assertIn("Retired ids (never reuse): P-16, P-17\n", self.text())
+        self.assertEqual(self.text().count("Retired ids"), 1)
+        r, data = self.jplan("add", "Again", "--done-means", "`true`")
+        self.assertEqual(data["id"], "P-18")
+        self.check_clean()
+
+    def test_add_refuses_a_retired_id(self):
+        self.plan("drop", "P-16")
+        r = self.plan("add", "X", "--done-means", "`true`", "--id", "P-16")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("retired", r.stderr)
+        self.assertNotIn("P-16", self.ids())
 
     def test_drop_refuses_an_item_in_progress(self):
         self.set_claim("P-14")

@@ -245,7 +245,7 @@ You rarely type these. The agent runs them from your words. All commands start w
 |---|---|
 | `plan list`, `plan next`, `plan check` | See the plan |
 | `plan start <id>`, `plan keep <id>`, `plan put-back <id>` | Move an item |
-| `plan add`, `plan drop <id>`, `plan move <id>` | Change the plan |
+| `plan add`, `plan drop <id>`, `plan move <id>` | Change the plan. A dropped id is retired (listed in PLAN.md) and never reused |
 | `plan done <id> --verify "<cmd>"` or `--evidence "<text>"` | Mark done |
 | `progress new/next/stamp/show/list` | Task progress files |
 | `progress capture`, `progress resume-note` | Store a plan, print the resume note |

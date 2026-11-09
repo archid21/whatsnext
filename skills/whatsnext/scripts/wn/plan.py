@@ -1062,8 +1062,38 @@ def end_of_section(lines, items, name):
     return i + 1
 
 
-def next_free_id(items, prefix):
-    numbers = [int(m.group(1)) for it in items for m in [re.match(r"^%s-(\d+)$" % re.escape(prefix), it.id)] if m]
+RETIRED_LABEL = "Retired ids (never reuse):"
+RETIRED_RE = re.compile(r"^\s*Retired ids \(never reuse\):(.*)$")
+
+
+def retired_ids(lines):
+    """Ids that `plan drop` retired (P-52): (line index or None, ids in order)."""
+    for i, raw in enumerate(lines):
+        m = RETIRED_RE.match(raw.rstrip("\r"))
+        if m:
+            return i, [x for x in m.group(1).replace(",", " ").split() if ID_RE.match(x)]
+    return None, []
+
+
+def retire_id(lines, item_id):
+    """Add `item_id` to the retired-ids line, creating it before the first `## ` heading."""
+    at, ids = retired_ids(lines)
+    if item_id not in ids:
+        ids.append(item_id)
+    line = RETIRED_LABEL + " " + ", ".join(ids)
+    if at is not None:
+        lines[at] = line
+        return
+    first = next((i for i, raw in enumerate(lines) if raw.startswith("## ")), None)
+    if first is None:
+        lines.extend(["", line])
+    else:
+        lines[first:first] = [line, ""]
+
+
+def next_free_id(items, prefix, retired=()):
+    numbers = [int(m.group(1)) for x in [it.id for it in items] + list(retired)
+               for m in [re.match(r"^%s-(\d+)$" % re.escape(prefix), x)] if m]
     return "%s-%d" % (prefix, max(numbers or [0]) + 1)
 
 
@@ -1091,6 +1121,7 @@ def cmd_add(ctx, args):
                    context={"title": title}, answer='--done-means "<text>"', free_text=True)
     lines, items = parse_text(read_plan(ctx.plan_path))
     ids = {it.id for it in items}
+    _at, retired = retired_ids(lines)
     if args.prefix and not PREFIX_RE.match(args.prefix):
         return fail("--prefix is capital letters and digits, for example SK.")
     if args.id:
@@ -1098,9 +1129,11 @@ def cmd_add(ctx, args):
             return fail("%s is not an item id. Use letters, a dash and a number, for example P-12." % args.id)
         if args.id in ids:
             return fail("%s is already in %s. Pick another id, or leave --id out for the next free one." % (args.id, ctx.plan_rel))
+        if args.id in retired:
+            return fail("%s was dropped and is retired: ids are never reused. Pick another id, or leave --id out for the next free one." % args.id)
         item_id = args.id
     else:
-        item_id = next_free_id(items, args.prefix or DEFAULT_PREFIX)
+        item_id = next_free_id(items, args.prefix or DEFAULT_PREFIX, retired)
     blocked = []
     for raw in (args.blocked_by or "").replace(",", " ").split():
         if raw not in ids:
@@ -1127,8 +1160,9 @@ def cmd_drop(ctx, args):
     if waiting:
         return fail("%s is named in `blocked by:` on %s. Move or edit those first." % (args.id, ", ".join(waiting)))
     del lines[item.index]
+    retire_id(lines, args.id)
     write_atomic(ctx.plan_path, "\n".join(lines))
-    return report(args, True, "Dropped %s: %s" % (args.id, item.title), {"id": args.id})
+    return report(args, True, "Dropped %s: %s. Its id is retired and will not be reused." % (args.id, item.title), {"id": args.id, "retired": True})
 
 
 def cmd_move(ctx, args):
