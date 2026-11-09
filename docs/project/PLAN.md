@@ -38,7 +38,7 @@ One line per item: `- [ ] P-N Title · done means: <how we know it is done>`.
 - [x] P-53 Claims are atomic locks on one machine, not notes · done means: the claim file is created with O_EXCL so two plan start calls at once get one holder; tests/soak_two_agents.py passes; `python3 -m unittest discover -s tests` · evidence: verified: python3 -m unittest discover -s tests passed in 309 s (2026-11-09T20:01Z) at 075aec3 t:473db875
 - [ ] P-54 After /clear the resume note treats a Task: none handoff from this checkout and branch as the user's own · done means: resume note says read it first for such a note within plan.staleAfter; `python3 -m unittest discover -s tests`
 - [ ] P-55 One whatsnext status --json call returns current item, handoff state, ready items and warnings · done means: SKILL.md uses status for what's next? and where did we leave off?; `python3 -m unittest discover -s tests`
-- [ ] P-56 Release 0.3.0 to the marketplace and update the installed copy · done means: plugin.json and marketplace.json say 0.3.0, README New in 0.3 written, claude plugin validate passes; `python3 -m unittest discover -s tests` · blocked by: P-50, P-51, P-52, P-53, P-54, P-55
+- [ ] P-56 Release 0.3.0 to the marketplace and update the installed copy · done means: plugin.json and marketplace.json say 0.3.0, README New in 0.3 written, docs/FEATURES.md lists every 0.3 feature with Since 0.3 and Current release: 0.3.0, claude plugin validate passes; `python3 -m unittest discover -s tests` · blocked by: P-50, P-51, P-52, P-53, P-54, P-55
 
 ## Next
 

@@ -42,6 +42,8 @@ When an item is finished, say **"mark P-13 done"**. It is ticked only if its tes
 | Tips | Claude Code only. A hint bar teaches the phrases above, one at a time. |
 | Claude Code and Codex | Both agents read and write the same plain files. Switching between them is experimental. |
 
+Every feature, how it works, its value and the release that added it: [docs/FEATURES.md](docs/FEATURES.md).
+
 ## New in 0.2
 
 - **Edit and import the plan:** `plan add`, `plan drop` and `plan move`, and import a plan from any spec or task file.
