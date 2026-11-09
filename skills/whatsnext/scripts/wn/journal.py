@@ -14,6 +14,8 @@ import hashlib
 import json
 import os
 import re
+import stat
+import time
 
 from . import status as gwstatus
 
@@ -22,6 +24,50 @@ LINE_RE = re.compile(r"^- \S+ \S+ (?P<commit>[0-9a-fA-F]{4,40}|%s) \S+ dirty=\d+
 STATE_RE = re.compile(r"^- \S+ \S+ \S+ \S+ dirty=(?P<count>\d+)(?: set=(?P<set>[0-9a-f]{6}))?")
 SESSIONS_DIR = os.path.join(".whatsnext", "sessions")
 SESSION_ID_MAX = 100
+
+
+SESSION_KEEP_DAYS = 14  # a session's state files go once none of them has changed for this long (ADR-0018)
+# Only the files the hooks write per session: `<id>.json`, `<id>.handoff.json`, `<id>.summary.md.bak` and so on.
+# `health-*.json` (doctor's evidence) and any other name are never pruned.
+SESSION_FILE_RE = re.compile(r"^(?P<id>[A-Za-z0-9_-]+)"
+                             r"(?:\.(?:handoff|compact|idle|resume|wrapup|summary))?(?:\.json|\.summary\.md(?:\.bak)?)$")
+
+
+def prune_sessions(root, keep_session=None, days=SESSION_KEEP_DAYS, now=None):
+    """Remove the per-session files of sessions with no file changed in `days` days. A session is kept whole while
+    any of its files is newer; `keep_session` (the running one) is always kept. Never follows or removes a link.
+    Returns the number of files removed."""
+    folder = os.path.join(root, SESSIONS_DIR)
+    if os.path.islink(folder) or os.path.islink(os.path.dirname(folder)) or not os.path.isdir(folder):
+        return 0
+    keep = safe_session_id(keep_session)
+    cutoff = (time.time() if now is None else now) - days * 86400
+    groups, fresh = {}, set()
+    for name in os.listdir(folder):
+        m = SESSION_FILE_RE.match(name)
+        if not m or name.startswith("health-"):
+            continue
+        sid = m.group("id")
+        try:
+            info = os.lstat(os.path.join(folder, name))
+        except OSError:
+            continue
+        if not stat.S_ISREG(info.st_mode):
+            continue
+        groups.setdefault(sid, []).append(name)
+        if info.st_mtime >= cutoff:
+            fresh.add(sid)
+    removed = 0
+    for sid, names in groups.items():
+        if sid == keep or sid in fresh:
+            continue
+        for name in names:
+            try:
+                os.remove(os.path.join(folder, name))
+                removed += 1
+            except OSError:
+                pass
+    return removed
 
 
 def safe_session_id(value):

@@ -14,7 +14,7 @@ whatsnext is Python 3.9+, standard library only. It makes no network calls, runs
 | `docs/project/HANDOFF.md` (or `paths.handoff`) | The handoff note | the agent writes it when you type `wrap up` |
 | `AGENTS.md` | One block between `<!-- whatsnext:start -->` and `<!-- whatsnext:end -->`, appended, never replacing text | `init`; `init --undo` removes it |
 | `.gitignore` | The line `.whatsnext/sessions/` | `init` |
-| `.whatsnext/sessions/` (git-ignored) | Per-session state, handoff sidecars, compaction carryover and per-agent hook observations | hooks |
+| `.whatsnext/sessions/` (git-ignored) | Per-session state, handoff sidecars, compaction carryover and per-agent hook observations. SessionStart removes a session's files once none has changed for 14 days ([ADR-0018](decisions/ADR-0018-prune-session-files.md)) | hooks |
 
 `init --dry-run` prints every change and writes nothing. `init` never overwrites a file.
 

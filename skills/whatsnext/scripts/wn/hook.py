@@ -212,6 +212,10 @@ def command_line():
 
 
 def session_start(root, effective, data, agent=None):
+    try:  # old sessions' state files (ADR-0018); a failed prune never stops the resume note
+        gwjournal.prune_sessions(root, keep_session=data.get("session_id"))
+    except Exception:
+        pass
     if data.get("source") == "compact":
         gwwrapup.take_resume_marker(root, data.get("session_id"))  # SessionStart said it: the prompt need not
     result = gwpacket.build(root, effective, compacted=(data.get("source") == "compact"),
