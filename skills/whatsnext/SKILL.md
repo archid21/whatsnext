@@ -20,7 +20,7 @@ All logic is in one script: `python3 scripts/whatsnext.py <command>` (Python 3.9
 | "put P-12 back" (a stale item) | Update its progress file first, then `plan put-back P-12 --saved` |
 | `plan check` says "P-12 is done but still claimed" | `plan put-back P-12` (removes only the claim; the item and its progress file stay done) |
 | "show the plan", "who has what?" | `plan list` (`--json` for data) |
-| "check the plan" | `plan check` (finds items without done means or evidence, and duplicate ids) |
+| "check the plan" | `plan check` (finds items without done means or evidence, duplicate ids, and items that block each other through `blocked by:`) |
 | "start a task", "track this task" | `progress new <task-id> --title "<title>"`, then fill in the sections |
 | "where did we leave off?" | `progress show` (active task) or `progress show <task-id>`; `progress list` for all tasks |
 | "the next step is now …", "set the next action" | `progress next <task-id> "<text>"` (marked confirmed). For a guess you wrote, add `--auto`: it goes under `## Since wrap-up` when the Next action is confirmed |

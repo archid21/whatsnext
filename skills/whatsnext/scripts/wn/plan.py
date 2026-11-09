@@ -398,9 +398,78 @@ def candidates(views, limit):
     return out[:max(limit, 0)]
 
 
-def handoff_block(ctx):
+def blocked_cycles(items):
+    """P-51: cycles among open items' `blocked by:` fields, each as a list of ids starting at its smallest id,
+    for example ["P-1", "P-3"] when P-1 waits for P-3 and P-3 waits for P-1. A done item blocks nothing."""
+    open_ids = {it.id for it in items if not it.checked}
+    graph = {it.id: [b for b in it.blocked_by if b in open_ids and b != it.id] for it in items if not it.checked}
+    found, seen = [], set()
+    for start in sorted(graph, key=id_key):
+        stack = [(start, [start])]
+        while stack:
+            node, path = stack.pop()
+            for nxt in graph.get(node, []):
+                if nxt == start:
+                    cycle = tuple(sorted(path, key=id_key))
+                    if cycle not in seen and min(path, key=id_key) == start:
+                        seen.add(cycle)
+                        found.append(path)
+                elif nxt not in path and id_key(nxt) > id_key(start):
+                    stack.append((nxt, path + [nxt]))
+    return found
+
+
+def id_key(item_id):
+    m = re.match(r"^([A-Za-z]+)-(\d+)$", item_id)
+    return (m.group(1), int(m.group(2))) if m else (item_id, 0)
+
+
+def cycle_text(cycle):
+    return " -> ".join(cycle + [cycle[0]])
+
+
+def and_list(ids):
+    return ids[0] if len(ids) == 1 else ", ".join(ids[:-1]) + (", and " if len(ids) > 2 else " and ") + ids[-1]
+
+
+def waiting_text(views, items):
+    """P-51: why nothing is ready: each waiting item and what it waits for, then any cycle and how to break it."""
+    waiting = [v for v in views if v.get("blocked_on") and v["status"] == "open" and v["section"] in ("Now", "Next")]
+    if not waiting:
+        return "Nothing open in Now or Next."
+    parts = ["%s waits for %s" % (v["id"], ", ".join(v["blocked_on"])) for v in waiting]
+    text = "Nothing ready in Now or Next: %s (`blocked by:`)." % "; ".join(parts)
+    cycles = blocked_cycles(items)
+    if cycles:
+        text += " %s block each other (%s): remove one `blocked by:` to continue." % (
+            "; ".join(and_list(c) for c in cycles), "; ".join(cycle_text(c) for c in cycles))
+    return text
+
+
+def handoff_task_status(task, views, recommended):
+    """P-51: one phrase on how the handoff's task relates to what `plan next` shows, or None for `Task: none`."""
+    if not task:
+        return None
+    if task == recommended:
+        return "recommended"
+    view = next((v for v in views if v["id"] == task), None)
+    if view is None:
+        return "not in the plan"
+    if view["status"] == "done":
+        return "done"
+    if view.get("blocked_on"):
+        return "blocked by " + ", ".join(view["blocked_on"])
+    if view["section"] not in ("Now", "Next"):
+        return "in " + view["section"]
+    if view["status"] == "in progress":
+        return "in progress (%s)" % describe_claim(view["claim"])
+    return "open, not recommended"
+
+
+def handoff_block(ctx, views=None, recommended=None):
     """P-32: the handoff note's Next action and open questions, for `plan next`, or None when there is no note or
-    it has neither. It is shown whoever wrote it: after `/clear` the session id is new and never matches."""
+    it has neither. It is shown whoever wrote it: after `/clear` the session id is new and never matches.
+    P-51: `task` names the note's task and `task_status` says how it relates to the recommended item."""
     path = gwwrapup.handoff_path(ctx.root, ctx.effective)
     try:
         with open(path, encoding="utf-8", errors="replace") as f:
@@ -419,9 +488,12 @@ def handoff_block(ctx):
     if header_task:
         mentioned.add(header_task)
     completed = [it.id for it in ctx.items() if it.checked and it.id in mentioned] if ctx.has_plan() else []
+    task = header_task if header_task and header_task.lower() != "none" else None
+    status = handoff_task_status(task, views, recommended) if views is not None else None
     return {"path": gwconfig.display_path(path, ctx.root),
             "written": when.strftime("%Y-%m-%dT%H:%MZ") if when else None,
             "written_pacific": gwwrapup.pacific_now(when)[0] if when else None,
+            "task": task, "task_status": status,
             "next_action": next_action, "open_questions": questions,
             "warnings": ["Handoff references completed work: %s. Use current plan/progress before resuming." %
                          ", ".join(completed)] if completed else []}
@@ -431,7 +503,14 @@ def print_handoff(block):
     if not block:
         return
     when = " (%s)" % block["written_pacific"] if block["written_pacific"] else ""
-    print("Handoff: %s, written %s%s" % (block["path"], block["written"] or "at an unknown time", when))
+    about = ""
+    if block.get("task"):
+        about = ", for %s" % block["task"]
+        if block.get("task_status"):
+            about += " (%s)" % block["task_status"]
+    elif block.get("task_status") is None and "task" in block:
+        about = ", for no plan item"
+    print("Handoff: %s, written %s%s%s" % (block["path"], block["written"] or "at an unknown time", when, about))
     for warning in block.get("warnings", []):
         print("  Warning: " + warning)
     if block["next_action"]:
@@ -475,16 +554,16 @@ def cmd_next(ctx, args):
     found = candidates([v for v in views if not active or v["id"] != active["id"]], args.limit)
     if active:
         found = ([active] + found)[:max(args.limit, 0)]
-    waiting = [v["id"] for v in views if v.get("blocked_on") and v["status"] == "open" and v["section"] in ("Now", "Next")]
-    empty = "Nothing open in Now or Next." if not waiting else \
-        "Nothing ready in Now or Next: %s wait%s for open items (`blocked by:`)." % (", ".join(waiting), "s" if len(waiting) == 1 else "")
+    empty = waiting_text(views, ctx.items())
+    recommended = found[0]["id"] if found else None
+    handoff = handoff_block(ctx, views, recommended)
     if args.json:
-        print(json.dumps({"candidates": found, "current": active, "recommended": found[0]["id"] if found else None,
-                          "message": "" if found else empty, "handoff": handoff_block(ctx)}, indent=2))
+        print(json.dumps({"candidates": found, "current": active, "recommended": recommended,
+                          "message": "" if found else empty, "handoff": handoff}, indent=2))
         return 0
     if not found:
         print(empty)
-        print_handoff(handoff_block(ctx))
+        print_handoff(handoff)
         return 0
     print("Next up:")
     for n, v in enumerate(found, 1):
@@ -505,7 +584,7 @@ def cmd_next(ctx, args):
             print("   Next: " + (v.get("step") or v.get("next_action") or "Review the progress file."))
             if v.get("blockers"):
                 print("   Blockers: " + v["blockers"])
-    print_handoff(handoff_block(ctx))
+    print_handoff(handoff)
     return 0
 
 
@@ -536,6 +615,9 @@ def check(ctx):
                 warnings.append("%s is blocked by itself." % it.id)
             elif other not in known:
                 warnings.append("%s is blocked by %s, which is not in the plan." % (it.id, other))
+    for cycle in blocked_cycles(items):  # P-51
+        warnings.append("%s block each other (%s), so none of them can start. Remove one `blocked by:`." % (
+            and_list(cycle), cycle_text(cycle)))
     warnings.extend(drift_warnings(ctx, items))
     return errors, warnings
 

@@ -31,7 +31,7 @@ Use this when you stop work, or the context window is full.
 
 **What you see at step 3.** A one-line banner appears at the top of the new session by itself: "whatsnext: resume note loaded. Next: …". The full resume note goes to the agent, not to your screen. The agent uses it in its first reply, and `what's next?` shows it to you. The note says what was done, what is next, which test command to run, and what changed in git since the note. It is at most 1,200 characters. In Codex there is no banner.
 
-**What `what's next?` does at step 4.** It shows the handoff's Next action and open questions, with the file path and the time it was written. It flags references to completed tasks and prefers current plan/progress over a conflicting handoff. Current work comes first; otherwise it offers ready items from the plan checklist (`PLAN.md`). If the plan has no open items, it says so and still shows the handoff.
+**What `what's next?` does at step 4.** It shows the handoff's Next action and open questions, with the file path, the time it was written, and which plan item the note is for and how that item stands now (recommended, blocked by another item, done, or not in the plan). It flags references to completed tasks and prefers current plan/progress over a conflicting handoff. Current work comes first; otherwise it offers ready items from the plan checklist (`PLAN.md`). If the plan has no open items, it says so and still shows the handoff. If every open item waits for another one, it says which item waits for which, and names any items that block each other so you can remove one `blocked by:`.
 
 **Use `wrap up` before:** closing the laptop, switching agent, ending the day, or a `/clear`.
 

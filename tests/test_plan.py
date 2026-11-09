@@ -1051,8 +1051,52 @@ class BlockedByTests(PlanBase):
     def test_blocked_by_says_so_when_everything_waits_and_list_json_has_the_fields(self):
         self.put(PLAN_PATH, "# Plan\n\n## Now\n\n- [ ] P-1 A · blocked by: P-2\n- [ ] P-2 B · blocked by: P-1\n")
         r = self.plan("next")
-        self.assertIn("Nothing ready in Now or Next: P-1, P-2 wait for open items", r.stdout)
+        self.assertIn("Nothing ready in Now or Next: P-1 waits for P-2; P-2 waits for P-1 (`blocked by:`). "
+                      "P-1 and P-2 block each other (P-1 -> P-2 -> P-1): remove one `blocked by:` to continue.", r.stdout)
         self.assertIn('"blocked_on"', self.plan("list", "--json").stdout)
+
+    def test_blocked_by_check_reports_a_cycle_and_next_explains_a_plain_wait(self):  # P-51
+        self.put(PLAN_PATH, "# Plan\n\n## Now\n\n- [ ] P-1 A · done means: `true` · blocked by: P-3\n"
+                 "- [ ] P-2 B · done means: `true` · blocked by: P-1\n- [ ] P-3 C · done means: `true` · blocked by: P-2\n"
+                 "- [ ] P-4 D · done means: `true` · blocked by: P-1\n")
+        out = self.plan("check").stdout
+        self.assertIn("warning: P-1, P-3, and P-2 block each other (P-1 -> P-3 -> P-2 -> P-1), so none of them can start. "
+                      "Remove one `blocked by:`.", out)
+        self.assertEqual(out.count("block each other"), 1)
+        r = self.plan("next")
+        self.assertIn("Nothing ready in Now or Next: P-1 waits for P-3; P-2 waits for P-1; P-3 waits for P-2; P-4 waits for P-1 "
+                      "(`blocked by:`). P-1, P-3, and P-2 block each other", r.stdout)
+        # a done item breaks the cycle and blocks nothing
+        self.plan("done", "P-3", "--unverified")
+        self.assertNotIn("block each other", self.plan("check").stdout)
+        self.assertEqual(self.ids(), ["P-1"])  # P-2 and P-4 still wait for P-1
+        self.assertNotIn("block each other", self.plan("next").stdout)
+
+    def test_next_names_the_handoff_task_and_how_it_relates(self):  # P-51
+        def handoff(task):
+            self.put("docs/project/HANDOFF.md", "# Handoff\n\nSession: s\nTask: %s\nWritten: 2026-11-06T22:56Z\n\n"
+                     "## Next action\n\nDo the thing.\n" % task)
+        handoff("P-1")
+        r = self.plan("next")
+        self.assertIn("Handoff: docs/project/HANDOFF.md, written 2026-11-06T22:56Z (Fri 2026-11-06 2:56 PM PST), "
+                      "for P-1 (recommended)", r.stdout)
+        handoff("P-2")
+        _r, data = self.jplan("next")
+        self.assertEqual((data["handoff"]["task"], data["handoff"]["task_status"]), ("P-2", "blocked by P-1"))
+        handoff("P-5")
+        self.assertIn("for P-5 (open, not recommended)", self.plan("next").stdout)  # P-9 is not in the plan, so it blocks nothing
+        handoff("P-77")
+        self.assertIn("for P-77 (not in the plan)", self.plan("next").stdout)
+        self.plan("done", "P-1", "--unverified")
+        handoff("P-1")
+        self.assertIn("for P-1 (done)", self.plan("next").stdout)
+        handoff("P-4")
+        self.assertIn("for P-4 (open, not recommended)", self.plan("next").stdout)
+        handoff("none")
+        r = self.plan("next")
+        self.assertIn("for no plan item", r.stdout)
+        _r, data = self.jplan("next")
+        self.assertEqual((data["handoff"]["task"], data["handoff"]["task_status"]), (None, None))
 
     def test_blocked_by_check_reports_an_id_that_is_not_in_the_plan(self):
         out = self.plan("check").stdout
