@@ -44,6 +44,14 @@ When an item is finished, say **"mark P-13 done"**. It is ticked only if its tes
 
 Every feature, how it works, its value and the release that added it: [docs/FEATURES.md](docs/FEATURES.md).
 
+## New in 0.3
+
+- **One status call:** `whatsnext status` answers "what's next?" and "where did we leave off?": the current item, the handoff, the ready items and the warnings.
+- **Two chats in one folder:** Start asks for a new worktree when another session has work in progress here. Claims and the active task belong to a session.
+- **Your own note after `/clear`:** a recent `Task: none` handoff from this branch says "read it first".
+- **Safer plan:** claims are atomic locks, a dropped id is never reused, and `plan check` reports blocked-by cycles.
+- **Simpler wrap-up in Claude Code:** the reply ends with one `/compact` hint, and a recent handoff steers a new session.
+
 ## New in 0.2
 
 - **Edit and import the plan:** `plan add`, `plan drop` and `plan move`, and import a plan from any spec or task file.
