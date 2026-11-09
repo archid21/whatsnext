@@ -4,7 +4,7 @@
 
 whatsnext is a plugin for Claude Code and Codex. It keeps a plan checklist, check-offs and a short resume note as plain files in your repository, so a new session, or a second agent, starts from where the last one stopped.
 
-**Status: 0.2.0.** See [New in 0.2](#new-in-02).
+**Status: 0.3.0.** See [New in 0.3](#new-in-03).
 
 MIT license · Python 3.9+, standard library only · no database, no background process
 
@@ -32,7 +32,9 @@ When an item is finished, say **"mark P-13 done"**. It is ticked only if its tes
 | Feature | What it does |
 |---|---|
 | Set up your plan | `PLAN.md`, a checklist in your repo. "what's next?" shows the first open item. |
-| Start work | "start P-13" asks a few questions, then you run all steps or one at a time. Another agent cannot take an item you hold. |
+| One status call | "what's next?" and "where did we leave off?" run `whatsnext status`: the current item, the handoff, the ready items and any warnings. |
+| Start work | "start P-13" asks a few questions, then you run all steps or one at a time. Another agent or session cannot take an item you hold. |
+| Two chats in one folder | When another session has work in progress here, Start asks whether to use a new worktree. Each chat resumes its own item. |
 | Change the plan | "add an item", "drop P-16", "move P-14 to Later", or import a plan from any spec or task file. |
 | Mark done with proof | The item is ticked only when its test command exits 0. Otherwise it stays open with the last 20 lines of output. |
 | Save and resume | "wrap up" writes your goal, next step and decisions to `docs/project/HANDOFF.md`. A short resume note loads at session start, after `/clear` and after a compact. |
