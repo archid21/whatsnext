@@ -143,6 +143,7 @@ From a checkout, in a git repository:
 
 ```
 python3 skills/whatsnext/scripts/whatsnext.py init --dry-run
+python3 skills/whatsnext/scripts/whatsnext.py status --json
 python3 skills/whatsnext/scripts/whatsnext.py plan next
 python3 skills/whatsnext/scripts/whatsnext.py plan done P-13 --verify "python3 -m unittest discover -s tests"
 ```
@@ -155,6 +156,7 @@ Claude Code loads `hooks/hooks.json` with the plugin. For Codex, run `install-ho
 
 
 - **Plan:** list the plan items, show what is next, and start an item. Start asks a few questions first (takeover, done means, uncommitted changes, the item already in progress, and the branch). An agent does not start an item another agent has checked out.
+- **Status:** `whatsnext status` (`--json` for data) answers "what's next?" and "where did we leave off?" in one call: the current item with its step, next action and blockers; the handoff note and whether to read it first; up to 3 ready items with the recommended one; and every warning from `plan check` and stale checkouts, with verify-drift warnings folded into one line. It writes nothing.
 - **Check off:** `plan done <id> --verify "<cmd>"` runs the command from the project root. Exit 0 ticks the item and marks it confirmed. Any other result leaves it open and journals the last 20 output lines. `--evidence "<text>"` ticks an item that no command can check; it shows as `done*` (checked by a person, not verified).
 - **Progress:** create and stamp a progress file per task, show it, and print the resume note. Every progress file starts with `format: 2`. Its header has a Note trust mark: `confirmed`, `auto` (a model's guess) or `facts` (written by the hooks from git). `progress next <id> "<text>"` sets the Next action as confirmed. With `--auto`, a guess never replaces a confirmed Next action; it goes under `## Since wrap-up`.
 - **Facts journal:** the Stop, PreCompact and SessionEnd hooks add one line per event to `docs/project/progress/journal/<item>.md`: time, event, commit, branch, dirty file count and files changed. No model call. Per-session state lives in the git-ignored `.whatsnext/sessions/`; SessionStart removes a session's files once none has changed for 14 days ([ADR-0018](docs/decisions/ADR-0018-prune-session-files.md)).
@@ -166,7 +168,7 @@ Claude Code loads `hooks/hooks.json` with the plugin. For Codex, run `install-ho
 - **Init:** `whatsnext init` (git repositories only) creates what is missing: `PLAN.md`, `.whatsnext/config.json`, the progress and journal folders, the `.whatsnext/sessions/` line in `.gitignore`, and a block in `AGENTS.md` between `<!-- whatsnext:start -->` and `<!-- whatsnext:end -->`. `--dry-run` prints the plan and writes nothing. `--undo` removes only the `AGENTS.md` block.
 - **Hooks:** the resume note at session start, after `/clear` and after compaction; plan capture when the agent shows a plan; the facts journal. Claude Code loads `hooks/hooks.json` with the plugin. For Codex, run `install-hooks` (it also links the skill into `~/.agents/skills/whatsnext`), then review changed hooks in Settings > Hooks (desktop) or `/hooks` (CLI). See [ADR-0005](docs/decisions/ADR-0005-hooks-and-journal.md).
 
-Commands: `plan`, `progress`, `config show`, `config set --user`, `init`, `install-hooks` and `compact-instructions`. The script is `skills/whatsnext/scripts/whatsnext.py`.
+Commands: `status`, `plan`, `progress`, `config show`, `config set --user`, `init`, `install-hooks` and `compact-instructions`. The script is `skills/whatsnext/scripts/whatsnext.py`.
 
 ```
 python3 skills/whatsnext/scripts/whatsnext.py plan next

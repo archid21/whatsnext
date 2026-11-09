@@ -13,7 +13,7 @@ All logic is in one script: `python3 scripts/whatsnext.py <command>` (Python 3.9
 
 | The user says | Run |
 |---|---|
-| "what's next?" | `plan next --json`. When `current` is present, show its unfinished step, next action and blockers first; resume it within the existing authorization. Check its holder before taking over. Show any handoff warnings and prefer current plan/progress over a conflicting handoff. When no task is active, show the handoff and then the ready candidates. Use the Start flow for new work |
+| "what's next?" | `status --json` (one call: `current`, `handoff` with `label` "read it first" or "another session's note", `ready`, `recommended`, `warnings`). When `current` is present, show its unfinished step, next action and blockers first; resume it within the existing authorization. Check its holder before taking over. Show any handoff warnings and prefer current plan/progress over a conflicting handoff. When no task is active, show the handoff and then the `ready` items. Show `warnings` in one short list. Use the Start flow for new work |
 | "start P-13" | `plan start P-13 --agent <your name>` (Start flow below) |
 | "mark P-13 done" | When a command can prove it: `plan done P-13 --verify` (runs the backticked command saved in done means (when there is exactly one; with several, use `--verify "<part>"`) from the project root; exit 0 ticks it as confirmed, a failure leaves it open and journals the last 20 output lines; do not combine with `--evidence`). Otherwise `plan done P-13 --evidence "<one line>"` (shows as `done*`, not verified) or `--unverified`; ask the user which |
 | "keep working on P-12" (a stale item) | `plan keep P-12` |
@@ -22,7 +22,7 @@ All logic is in one script: `python3 scripts/whatsnext.py <command>` (Python 3.9
 | "show the plan", "who has what?" | `plan list` (`--json` for data) |
 | "check the plan" | `plan check` (finds items without done means or evidence, duplicate ids, and items that block each other through `blocked by:`) |
 | "start a task", "track this task" | `progress new <task-id> --title "<title>"`, then fill in the sections |
-| "where did we leave off?" | `progress show` (active task) or `progress show <task-id>`; `progress list` for all tasks |
+| "where did we leave off?" | `status --json`: `current` (step, next action, blockers, progress file) and `handoff` (read it first when `read_first` is true). For the full record, `progress show` (active task) or `progress show <task-id>`; `progress list` for all tasks |
 | "the next step is now …", "set the next action" | `progress next <task-id> "<text>"` (marked confirmed). For a guess you wrote, add `--auto`: it goes under `## Since wrap-up` when the Next action is confirmed |
 | after editing a progress file | `progress stamp <task-id>` (add `--state active\|blocked\|parked\|done` or `--files a,b` when they changed). It keeps a confirmed or auto Note mark; otherwise it sets `facts` |
 | "set up whatsnext in this repo" (git only) | `init --dry-run`, show the plan, then `init` on the user's OK. `init --undo` removes only the `AGENTS.md` block |
@@ -39,7 +39,7 @@ All logic is in one script: `python3 scripts/whatsnext.py <command>` (Python 3.9
 
 A command that needs an answer prints a question and exits 4 (add `--json` for data: `ask`, `question`, `options`, `recommended`, `context`, `answer_flag`). Ask it as one pop-up, recommended option first. Then run the same command again with all earlier flags plus the answer flag. Exit 0 is done, 1 is an error.
 
-1. Run `plan next --json`. If `current` is present, read its progress file and resume within the existing authorization; show the next unfinished step and blockers. Ask before taking over another agent's task. Otherwise ask one pop-up with up to 3 items (first = recommended; mark stale ones). Run `plan start <id>` for the pick. If nothing is open in Now or Next, say so.
+1. Run `status --json`. If `current` is present, read its progress file and resume within the existing authorization; show the next unfinished step and blockers. Ask before taking over another agent's task. Otherwise ask one pop-up with up to 3 items (first = recommended; mark stale ones). Run `plan start <id>` for the pick. If nothing is open in Now or Next, say so.
 2. Start questions come in this order:
    - `takeover`: someone else has the item.
    - `done_means`: the item has no done means.
