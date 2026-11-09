@@ -41,7 +41,7 @@ class Sandbox(unittest.TestCase):
             subprocess.run(["git", "init", "-q", self.proj], check=True)
         self.env = dict(os.environ, HOME=self.home, XDG_CONFIG_HOME=self.xdg)
         # The invoking agent must not change a test's default identity.
-        for key in ("WHATSNEXT_AGENT", "GROUNDWORK_AGENT"):
+        for key in ("WHATSNEXT_AGENT", "GROUNDWORK_AGENT", "WHATSNEXT_SESSION", "CLAUDE_ENV_FILE"):
             self.env.pop(key, None)
         old = {k: os.environ.get(k) for k in ("HOME", "XDG_CONFIG_HOME")}
         os.environ["HOME"], os.environ["XDG_CONFIG_HOME"] = self.home, self.xdg

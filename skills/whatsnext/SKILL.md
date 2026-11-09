@@ -43,6 +43,7 @@ A command that needs an answer prints a question and exits 4 (add `--json` for d
 2. Start questions come in this order:
    - `takeover`: someone else has the item.
    - `done_means`: the item has no done means.
+   - `concurrent`: another session holds an item in this folder. `--concurrent worktree|stay`. See "Another session in this folder" below.
    - `uncommitted`: `--dirty commit` means commit first, then run Start again.
    - `current_item`: `--current done|keep|put-back`. Done also needs `--evidence "<text>"` or `--unverified`. Put-back asks you to update that item's progress file first, then add `--saved`.
    - `branch`: `--branch branch|stay|worktree`. Add `--always` when the user says "always do this".
@@ -53,6 +54,24 @@ A command that needs an answer prints a question and exits 4 (add `--json` for d
    - **Change the steps.** The user edits the list first; ask again.
    A step that needs a permission the user has not given, a decision the user must make, or a failure you cannot fix stops the run: say which step and why, and wait. Never skip the verify step to finish sooner.
    Reuse authorization already given in this chat instead of asking again. For a new worktree, tell the user to open the folder it printed.
+
+## Another session in this folder
+
+When Start asks `concurrent` ("P-3 is in progress in another session here. Where should P-4 go?"), show it as one pop-up with **New worktree (recommended)** first and **Stay on this branch** second. Run Start again with `--concurrent worktree` or `--concurrent stay`.
+
+- **worktree**: Start uses the worktree path and prints the folder. Tell the user to open it in the second chat. The worktree starts from the last commit, so uncommitted work of the other session is not in it.
+- **stay**: Start prints a warning (`concurrent.warning` in `--json`): "P-3 is in progress in another session in this folder. Edits and commits will mix." Relay it to the user as it is. The other session's files are never stashed or committed.
+
+The setting `plan.concurrentStart` is `ask` (default), `worktree` or `stay`. With `worktree` or `stay`, Start does not ask. Set it with `config set --user plan.concurrentStart <value>` or the `--always` flag below. It is separate from `plan.branchOnStart`.
+
+After the user gives the same worktree answer twice in a row, Start returns `always_offer` (the text form has an `Offer:` line). Offer it once:
+
+- Claude Code: show a non-blocking band or one short line with "Always use a new worktree when another session is working here?" and the answers Always or Keep asking. Do not stop the work to wait for it.
+- Codex: end the reply with that question as one line.
+
+If the user says "always", run the command in `always_offer.answer` (`plan start <id> --concurrent worktree --always`); it saves `plan.concurrentStart = worktree` and takes no new takeover question. No answer means keep asking. Never offer "always stay": `stay` is saved only when the user asks for it in chat (`config set --user plan.concurrentStart stay`) or edits the config.
+
+Hooks write only to the item this session started. A second session in the same folder never takes over the first session's item silently.
 
 ## Verification and status
 

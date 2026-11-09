@@ -287,21 +287,41 @@ def _locked(root, item_id):
                 pass
 
 
-def is_ours(claim, agent, root):
-    """Same agent in the same worktree: a re-run, not a takeover."""
-    return bool(claim) and claim.get("agent") == agent and claim.get("worktree") == worktree_root(root)
+def other_session(claim, session):
+    """True when both the claim and the caller name a session and the two differ (ADR-0020)."""
+    theirs = (claim or {}).get("session")
+    return bool(session) and bool(theirs) and theirs != session
 
 
-def claim(root, item_id, agent, session=None, branch=None, takeover=False):
+def is_ours(claim, agent, root, session=None, stale_after=None, task_updated=None, now=None):
+    """Same agent in the same worktree: a re-run, not a takeover. When both sides carry a session id (ADR-0020),
+    the session must match too: a claim by another session in this worktree is a conflict while it is live,
+    that is, idle for less than `stale_after` (a stale one keeps the old rule, so the stale-claim question
+    still applies). No session id on either side: the old rule. `stale_after` left out counts the claim as live."""
+    if not (claim and claim.get("agent") == agent and claim.get("worktree") == worktree_root(root)):
+        return False
+    if other_session(claim, session):
+        return stale_after is not None and is_stale(claim, task_updated, stale_after, now)
+    return True
+
+
+def is_rival(claim, root, session, stale_after, task_updated=None, now=None):
+    """A live claim in this worktree held by another session (any agent): the case ADR-0020 asks about."""
+    return bool(claim) and claim.get("worktree") == worktree_root(root) and other_session(claim, session) \
+        and not is_stale(claim, task_updated, stale_after, now)
+
+
+def claim(root, item_id, agent, session=None, branch=None, takeover=False, stale_after=None):
     """Claim an item. Returns (claim, None) when it is ours, or (None, other claim) when not.
 
-    An existing claim by someone else is replaced only with `takeover`.
+    An existing claim by someone else is replaced only with `takeover`. Someone else includes another
+    live session of the same agent in this worktree (`is_ours`, ADR-0020).
     """
     with _locked(root, item_id):
-        return _claim(root, item_id, agent, session, branch, takeover)
+        return _claim(root, item_id, agent, session, branch, takeover, stale_after)
 
 
-def _claim(root, item_id, agent, session, branch, takeover):
+def _claim(root, item_id, agent, session, branch, takeover, stale_after=None):
     path = claim_path(root, item_id)
     existing = read(root, item_id)
     now = stamp()
@@ -319,7 +339,7 @@ def _claim(root, item_id, agent, session, branch, takeover):
             _put(root, item_id, _write_replace, path, mine)
         elif not _put(root, item_id, _write_new, path, mine):
             return None, read(root, item_id) or {"id": item_id, "agent": "unknown"}
-    elif is_ours(existing, agent, root):
+    elif is_ours(existing, agent, root, session, stale_after):
         mine["since"] = existing.get("since") or now
         mine["session"] = session or existing.get("session")
         _put(root, item_id, _write_replace, path, mine)

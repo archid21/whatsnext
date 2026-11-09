@@ -396,7 +396,8 @@ def instructions(root, effective, now=None, session_id=None, agent=None):
     rel = gwconfig.display_path(handoff, root)
     local, utc = pacific_now(now)
     folder = gwstatus.status_folder(root, effective)
-    task = gwstatus.branch_task(gwstatus.load_tasks(root, folder), gwstatus.current_branch(root))
+    task = gwstatus.branch_task(gwstatus.load_tasks(root, folder), gwstatus.current_branch(root),
+                                session_id if isinstance(session_id, str) else None, root)
     lines = [
         "whatsnext: the user typed `%s`. Write the project's handoff note now. Ask nothing." % PROMPT,
         "",
@@ -540,7 +541,9 @@ def settle(root, effective, data, agent=None):
     if requested is None or not os.path.isfile(handoff) or os.path.getmtime(handoff) < requested - 1:
         return False
     folder = gwstatus.status_folder(root, effective)
-    task = gwstatus.branch_task(gwstatus.load_tasks(root, folder), gwstatus.current_branch(root))
+    sid = data.get("session_id")
+    task = gwstatus.branch_task(gwstatus.load_tasks(root, folder), gwstatus.current_branch(root),
+                                sid if isinstance(sid, str) else None, root)
     payload = {"session": data.get("session_id"), "handoff": gwconfig.display_path(handoff, root),
                "task": task.id if task else None, "agent": agent or "claude-code"}
     try:

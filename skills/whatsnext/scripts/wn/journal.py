@@ -211,7 +211,8 @@ def record(root, effective, event, data=None):
         return None
     folder = gwstatus.status_folder(root, effective)
     branch = gwstatus.current_branch(root)
-    task = gwstatus.branch_task(gwstatus.load_tasks(root, folder), branch)
+    session = data.get("session_id") if isinstance(data, dict) and isinstance(data.get("session_id"), str) else None
+    task = gwstatus.branch_task(gwstatus.load_tasks(root, folder), branch, session, root)
     if task is None or not gwstatus.ID_RE.match(task.id):
         return None
     journal = os.path.join(folder, "journal", task.id + ".md")

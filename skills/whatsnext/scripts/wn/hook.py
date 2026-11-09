@@ -69,16 +69,23 @@ def project(data):
     return root, effective
 
 
-def branch_task(root, effective):
-    """The active task recorded on the current branch, or None (no fallback; see status.branch_task)."""
+def session_of(data):
+    """The hook's session id as text, or None."""
+    value = data.get("session_id") if isinstance(data, dict) else None
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def branch_task(root, effective, session=None):
+    """The active task recorded on the current branch, or None (no fallback; see status.branch_task). With a
+    session id, the item that session claimed comes first (ADR-0020)."""
     return gwstatus.branch_task(gwstatus.load_tasks(root, gwstatus.status_folder(root, effective)),
-                                gwstatus.current_branch(root))
+                                gwstatus.current_branch(root), session, root)
 
 
-def capture(root, effective, status, agent, text=None):
+def capture(root, effective, status, agent, text=None, session=None):
     """`progress capture` on this branch's active task, silently. Its exit code does not matter to a hook.
     No active task on this branch: nothing is written (another branch's item is never touched)."""
-    task = branch_task(root, effective)
+    task = branch_task(root, effective, session)
     if task is None:
         return 0
     args = argparse.Namespace(task_id=task.id, status=status, agent=agent, file=None, text=text)
@@ -86,9 +93,9 @@ def capture(root, effective, status, agent, text=None):
         return gwcapture.run(root, gwstatus.status_folder(root, effective), effective, args)
 
 
-def plan_status(root, effective):
+def plan_status(root, effective, session=None):
     """This branch's active task's captured plan status text, or None."""
-    task = branch_task(root, effective)
+    task = branch_task(root, effective, session)
     return gwcapture.plan_field(task)[1] if task else None
 
 
@@ -188,8 +195,8 @@ def codex_stop(root, effective, data):
         note_capture_health(root, False, "cannot read the transcript (%s)" % (e.strerror or "error"))
         return
     if found:
-        result = capture(root, effective, found[0], "codex", found[1])
-        if branch_task(root, effective) is not None and result == 0:
+        result = capture(root, effective, found[0], "codex", found[1], session_of(data))
+        if branch_task(root, effective, session_of(data)) is not None and result == 0:
             observe(root, "codex", "plan-capture", "observed", "captured " + found[0])
     if known:
         note_capture_health(root, True)
@@ -204,11 +211,30 @@ def codex_stop(root, effective, data):
 # ---- events ----------------------------------------------------------------
 
 
-def command_line():
-    """The line that tells an agent with no plugin folder how to run whatsnext (Codex)."""
+SAFE_SESSION_RE = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
+
+
+def export_session(session_id):
+    """Claude Code: put `WHATSNEXT_SESSION=<id>` in the session's env file ($CLAUDE_ENV_FILE), so every Bash command
+    of this session, `plan start` among them, knows the session without a flag (ADR-0020). Best effort."""
+    path = os.environ.get("CLAUDE_ENV_FILE")
+    if not path or not isinstance(session_id, str) or not SAFE_SESSION_RE.match(session_id):
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write("export WHATSNEXT_SESSION=%s\n" % session_id)
+    except OSError:
+        pass
+
+
+def command_line(session_id=None):
+    """The line that tells an agent with no plugin folder how to run whatsnext (Codex). A session id adds a
+    sentence that names it, for `plan start --session` (ADR-0020)."""
     script = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "whatsnext.py"))
+    extra = (" Your session id is %s: pass --session %s to `plan start`." % (session_id, session_id)
+             if isinstance(session_id, str) and SAFE_SESSION_RE.match(session_id) else "")
     return ('whatsnext command: WHATSNEXT_AGENT=codex python3 "%s" <command>. Run `plan start <id>` and `plan done <id> --verify "<cmd>"` '
-            "with it, and start the item before you create files; do not tick PLAN.md by hand." % script)
+            "with it, and start the item before you create files; do not tick PLAN.md by hand." % script) + extra
 
 
 def session_start(root, effective, data, agent=None):
@@ -216,6 +242,8 @@ def session_start(root, effective, data, agent=None):
         gwjournal.prune_sessions(root, keep_session=data.get("session_id"))
     except Exception:
         pass
+    if agent != "codex":
+        export_session(data.get("session_id"))
     if data.get("source") == "compact":
         gwwrapup.take_resume_marker(root, data.get("session_id"))  # SessionStart said it: the prompt need not
     result = gwpacket.build(root, effective, compacted=(data.get("source") == "compact"),
@@ -224,7 +252,7 @@ def session_start(root, effective, data, agent=None):
     if not text:
         return ""
     if agent == "codex":  # Codex has no plugin folder to resolve `whatsnext` against; the note is not committed
-        text += "\n" + command_line()
+        text += "\n" + command_line(data.get("session_id"))
         return text + "\n"
     return claude_session_start(text, result)
 
@@ -305,10 +333,10 @@ def precompact(root, effective, data, agent=None):
     note (the resume note shows it after the compact). Claude Code: returns plain text, at most PRECOMPACT_CAP
     characters: the compact instructions and a facts block, or the facts block alone when the user typed
     `/compact <text>`. Codex ignores PreCompact output, so it gets no text."""
-    task = branch_task(root, effective)
+    session_id = data.get("session_id") if isinstance(data.get("session_id"), str) else None
+    task = branch_task(root, effective, session_id)
     if task is None:  # no active task on this branch: nothing to carry, nothing written
         return ""
-    session_id = data.get("session_id") if isinstance(data.get("session_id"), str) else None
     transcript = data.get("transcript_path") if isinstance(data.get("transcript_path"), str) else None
     state = gwwrapup.handoff_state(gwwrapup.handoff_path(root, effective), transcript, session_id, root)
     when = gwstatus.stamp_time() if state["stale"] else None
@@ -451,9 +479,9 @@ def handle_event(event, data, agent=None):
         tool_input = data.get("tool_input")
         text = tool_input.get("plan") if isinstance(tool_input, dict) else None
         if isinstance(text, str) and text.strip():
-            capture(root, effective, "shown", agent or "claude-code", text)
+            capture(root, effective, "shown", agent or "claude-code", text, session_of(data))
     elif event == "plan-approved":
-        capture(root, effective, "approved", agent or "claude-code")
+        capture(root, effective, "approved", agent or "claude-code", session=session_of(data))
     elif event == "prompt-submit":
         prompt = data.get("prompt")
         if isinstance(prompt, str) and prompt.strip() == gwwrapup.PROMPT:
@@ -467,8 +495,8 @@ def handle_event(event, data, agent=None):
             return ""
         mode = data.get("permission_mode")
         if agent != "codex" and isinstance(mode, str) and mode != "plan" and \
-                plan_status(root, effective) == gwcapture.STATUS_TEXT["shown"]:
-            capture(root, effective, "unapproved", agent or "claude-code")
+                plan_status(root, effective, session_of(data)) == gwcapture.STATUS_TEXT["shown"]:
+            capture(root, effective, "unapproved", agent or "claude-code", session=session_of(data))
     elif event == "pre-compact":
         try:
             out = precompact(root, effective, data, agent)
@@ -496,7 +524,7 @@ def handle_event(event, data, agent=None):
             out = ""
     elif event == "post-compact":
         try:  # keep the summary and say how much of the plan it kept (P-21); never break the session
-            gwwrapup.save_summary(root, data.get("session_id"), data.get("compact_summary"), branch_task(root, effective))
+            gwwrapup.save_summary(root, data.get("session_id"), data.get("compact_summary"), branch_task(root, effective, session_of(data)))
         except Exception:
             pass
     elif event == "stop":

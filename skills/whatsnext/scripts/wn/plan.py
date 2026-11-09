@@ -21,6 +21,7 @@ import time
 from . import backend as gwbackend
 from . import capture as gwcapture
 from . import claims as gwclaims
+from . import concurrent as gwconcurrent
 from . import config as gwconfig
 from . import journal as gwjournal
 from . import redact as gwredact
@@ -1267,8 +1268,8 @@ def dirty_paths(ctx, folder=None):
     return paths
 
 
-def save_always(ctx, choice):
-    """Save plan.branchOnStart in .whatsnext/config.local.json, keeping the other keys."""
+def save_always(ctx, choice, key="branchOnStart"):
+    """Save plan.<key> (default branchOnStart) in .whatsnext/config.local.json, keeping the other keys."""
     path = os.path.join(ctx.root, ".whatsnext", "config.local.json")
     data = {}
     if os.path.isfile(path):
@@ -1278,13 +1279,13 @@ def save_always(ctx, choice):
             if not isinstance(data, dict):
                 raise ValueError("not an object")
         except (OSError, ValueError) as e:
-            print("warning: not saving plan.branchOnStart: cannot read %s: %s" % (gwconfig.display_path(path, ctx.root), e),
+            print("warning: not saving plan.%s: cannot read %s: %s" % (key, gwconfig.display_path(path, ctx.root), e),
                   file=sys.stderr)
             return False
     plan = data.get("plan")
     if not isinstance(plan, dict):
         plan = data["plan"] = {}
-    plan["branchOnStart"] = choice
+    plan[key] = choice
     write_atomic(path, json.dumps(data, indent=2) + "\n", newline=None)
     return True
 
@@ -1309,7 +1310,17 @@ def cmd_start(ctx, args):
         return fail("%s is blocked. The blocker is in %s." % (
             item.id, gwconfig.display_path(gwstatus.task_path(ctx.folder, item.id), ctx.root)))
     agent = agent_name(args)
-    ours = gwclaims.is_ours(existing, agent, ctx.root)
+    session = args.session = clean(args.session) or gwstatus.env_session()
+    task_now = tasks.get(item.id)
+    updated_now = task_now.field("updated") if task_now is not None else None
+    ours = gwclaims.is_ours(existing, agent, ctx.root, session, ctx.stale_after, updated_now)
+    if args.always and args.concurrent and existing and session and existing.get("session") == session and not args.takeover:
+        # "Always", said after the offer: this session already started the item (possibly in a new worktree).
+        if not save_always(ctx, args.concurrent, "concurrentStart"):
+            return 1
+        print("Saved plan.concurrentStart = %s in %s." % (args.concurrent, gwconfig.display_path(
+            os.path.join(ctx.root, ".whatsnext", "config.local.json"), ctx.root)))
+        return 0
     # 2. In progress with someone else.
     if existing and not ours and not args.takeover:
         info = view["claim"]
@@ -1327,9 +1338,31 @@ def cmd_start(ctx, args):
                    context={"id": item.id, "title": item.title}, answer='--done-means "<text>"', free_text=True)
     # 4 and 5 apply to a new Start; an item this agent already holds is being resumed.
     dirty, current = [], None
+    concurrent, concurrent_asked, other_item = None, False, None
     if not ours:
-        # 4. Uncommitted changes from other work.
-        dirty = dirty_paths(ctx) if gwstatus.in_git(ctx.root) else []
+        mine = gwclaims.worktree_root(ctx.root)
+        done = {it.id for it in ctx.items() if it.checked}  # a leftover claim on a done item is not work in progress
+        held = [c for i, c in sorted(gwclaims.read_all(ctx.root).items())
+                if i != item.id and i not in done and c.get("worktree") == mine]
+        # ADR-0020: a live claim of another session is not this session's to mark done or put back.
+        # 4a (ADR-0020). Another live session holds an item in this checkout: a new worktree or stay.
+        rivals = [c for c in held if gwclaims.is_rival(c, ctx.root, session, ctx.stale_after,
+                                                       _task_updated(tasks, c["id"]), ctx.now)]
+        others = [c for c in held if c not in rivals]
+        if rivals:
+            rival = rivals[0]
+            if not gwstatus.in_git(ctx.root):
+                concurrent, concurrent_asked = "stay", False  # no worktree without git: only the warning
+            else:
+                setting = ctx.effective.get("plan.concurrentStart")
+                concurrent = args.concurrent or (setting if setting != "ask" else None)
+                concurrent_asked = bool(args.concurrent)
+                if not concurrent:
+                    return ask_concurrent(as_json, ctx, item, rival, tasks)
+            other_item = rival["id"]
+        # 4. Uncommitted changes from other work. With another live session here they are its work, not ours to
+        # commit or stash.
+        dirty = dirty_paths(ctx) if gwstatus.in_git(ctx.root) and not rivals else []
         if dirty and not args.dirty:
             shown = ", ".join(dirty[:5]) + (" and %d more" % (len(dirty) - 5) if len(dirty) > 5 else "")
             return ask(as_json, "uncommitted", "There are %d uncommitted change%s from other work (%s). What should happen to %s before %s starts?" % (
@@ -1341,11 +1374,7 @@ def cmd_start(ctx, args):
         if dirty and args.dirty == "commit":
             return ask(as_json, "commit_first", "Commit the uncommitted changes first (%d file%s), then run the same command again." % (
                 len(dirty), "" if len(dirty) == 1 else "s"), context={"id": item.id, "files": dirty})
-        # 5. Another item in progress from this worktree.
-        mine = gwclaims.worktree_root(ctx.root)
-        done = {it.id for it in ctx.items() if it.checked}  # a leftover claim on a done item is not work in progress
-        others = [c for i, c in sorted(gwclaims.read_all(ctx.root).items())
-                  if i != item.id and i not in done and c.get("worktree") == mine]
+        # 5. Another item in progress from this worktree (not one a live session holds).
         if others:
             current = others[0]
             cur_item = next((it for it in ctx.items() if it.id == current["id"]), None)
@@ -1377,8 +1406,9 @@ def cmd_start(ctx, args):
     if args.done_means and not item.done_means:
         text = done_means
         rewrite_item(ctx.plan_path, item.id, lambda line: with_field(line, "done means: " + text))
-    mine_claim, other = gwclaims.claim(ctx.root, item.id, agent, session=args.session,
-                                       branch=gwstatus.current_branch(ctx.root), takeover=bool(existing and not ours))
+    mine_claim, other = gwclaims.claim(ctx.root, item.id, agent, session=session,
+                                       branch=gwstatus.current_branch(ctx.root), takeover=bool(existing and not ours),
+                                       stale_after=ctx.stale_after)
     if mine_claim is None:
         return fail("%s was just taken by %s. Pick another item, or ask the user to take it over." % (
             item.id, (other or {}).get("agent") or "someone else"))
@@ -1386,8 +1416,16 @@ def cmd_start(ctx, args):
         ctx.emit("task.start", {"id": item.id, "agent": agent, "branch": gwstatus.current_branch(ctx.root)})
     earlier = earlier_work(ctx, item.id)
     status_rel = start_status_file(ctx, item, done_means, agent, keep_parked=bool(earlier))
+    # ADR-0020: "always" saves the setting; an answer to the question is counted, and two equal worktree answers
+    # in a row bring the offer. Config-driven choices are not answers.
+    offer = None
+    if concurrent and args.always and args.concurrent:
+        save_always(ctx, concurrent, "concurrentStart")
+        args.always = False  # not also plan.branchOnStart
+    elif concurrent and concurrent_asked and gwconcurrent.record_answer(ctx.root, concurrent):
+        offer = gwconcurrent.offer_info(item.id)
     # Branch.
-    result = start_branch(ctx, args, item, agent, status_rel, earlier)
+    result = start_branch(ctx, args, item, agent, status_rel, earlier, concurrent=concurrent)
     if isinstance(result, int):
         return result
     if earlier and result["action"] != "worktree":
@@ -1397,6 +1435,13 @@ def cmd_start(ctx, args):
             "file_overlap": [{"id": o, "files": f} for o, f in overlaps], "suggest": item.suggest,
             "progress_file": result["progress_file"], "branch": result["branch"], "branch_action": result["action"],
             "worktree": result["worktree"], "earlier_work": earlier, "next_step": NEXT_STEP}
+    warning = None
+    if concurrent == "stay":
+        warning = CONCURRENT_WARNING % other_item
+    if concurrent:
+        info["concurrent"] = {"answer": concurrent, "other_item": other_item, "warning": warning}
+    if offer:
+        info["always_offer"] = offer
     if as_json:
         print(json.dumps(info, indent=2))
         return 0
@@ -1414,8 +1459,38 @@ def cmd_start(ctx, args):
     if overlaps:
         print("warning: " + overlap_text(item.id, overlaps) + " Two agents may edit the same files; ask the user, or pick other files.",
               file=sys.stderr)
+    if warning:
+        print("warning: " + warning, file=sys.stderr)
     print("Next: " + NEXT_STEP)
+    if offer:
+        print(offer["line"])
     return 0
+
+
+CONCURRENT_WARNING = "%s is in progress in another session in this folder. Edits and commits will mix."
+
+
+def _task_updated(tasks, item_id):
+    task = tasks.get(item_id)
+    return task.field("updated") if task is not None else None
+
+
+def ask_concurrent(as_json, ctx, item, rival, tasks):
+    """ADR-0020: the question when another live session holds an item here."""
+    name = item_branch(item.id, item.title)
+    wt = worktree_path(ctx.root, item.id)
+    current = gwstatus.current_branch(ctx.root)
+    other = rival["id"]
+    return ask(as_json, "concurrent", "%s is in progress in another session here. Where should %s go?" % (other, item.id),
+               options=[option("worktree", "New worktree (recommended)",
+                               "New worktree at %s on branch %s. Files, commits and test runs stay apart; open that folder in this chat." % (wt, name)),
+                        option("stay", "Stay on this branch",
+                               "Stay on %s. Edits and commits of the two sessions will mix." % (current or "this branch"))],
+               recommended="worktree",
+               context={"id": item.id, "title": item.title, "other_item": other, "other_session": rival.get("session"),
+                        "other_agent": rival.get("agent"), "branch_name": name, "current": current, "worktree_path": wt,
+                        "setting": "plan.concurrentStart"},
+               answer="--concurrent worktree|stay [--always: worktree only, saves plan.concurrentStart]")
 
 
 def file_overlaps(ctx, item_id):
@@ -1478,8 +1553,9 @@ def start_status_file(ctx, item, done_means, agent, keep_parked=False):
     return rel
 
 
-def start_branch(ctx, args, item, agent, status_rel, earlier=None):
-    """Step 9. Returns a result dict, or an exit code (4 when the user must choose)."""
+def start_branch(ctx, args, item, agent, status_rel, earlier=None, concurrent=None):
+    """Step 9. Returns a result dict, or an exit code (4 when the user must choose). `concurrent` (ADR-0020,
+    `worktree` or `stay`) decides the choice instead of `--branch` and plan.branchOnStart."""
     root = ctx.root
     result = {"progress_file": status_rel, "branch": gwstatus.current_branch(root), "action": "skipped", "worktree": None}
     if not gwstatus.in_git(root):
@@ -1490,7 +1566,7 @@ def start_branch(ctx, args, item, agent, status_rel, earlier=None):
         if args.always and args.branch:
             save_always(ctx, args.branch)
         return result
-    choice = args.branch or (ctx.effective.get("plan.branchOnStart") if ctx.effective.get("plan.branchOnStart") != "ask" else None)
+    choice = concurrent or args.branch or (ctx.effective.get("plan.branchOnStart") if ctx.effective.get("plan.branchOnStart") != "ask" else None)
     base = default_branch(root)
     if not choice:
         others = [c for i, c in gwclaims.read_all(root).items()
@@ -1607,7 +1683,8 @@ def build_parser():
     p.add_argument("--saved", action="store_true", help="with --current put-back: its progress file is up to date")
     p.add_argument("--unverified", action="store_true", help="mark --current done as checked by a person, not verified")
     p.add_argument("--branch", choices=BRANCH_CHOICES, help="where the work runs")
-    p.add_argument("--always", action="store_true", help="with --branch: save the choice as plan.branchOnStart")
+    p.add_argument("--concurrent", choices=("worktree", "stay"), help="where the work runs when another session is live in this checkout (ADR-0020)")
+    p.add_argument("--always", action="store_true", help="with --branch: save the choice as plan.branchOnStart; with --concurrent: as plan.concurrentStart")
     p.add_argument("--json", action="store_true")
 
     p = sub.add_parser("done", help="mark an item done with a passing command (--verify) or a person's evidence")

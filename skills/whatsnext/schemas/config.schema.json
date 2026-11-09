@@ -49,6 +49,11 @@
           "default": "ask",
           "description": "What Start does about the git branch (ADR-0002): ask each time, always create a new branch, always stay on the current branch, or always create a worktree."
         },
+        "concurrentStart": {
+          "enum": ["ask", "worktree", "stay"],
+          "default": "ask",
+          "description": "What Start does when another live session already has an item in progress in this checkout (ADR-0020): ask each time, always create a new worktree, or always stay on the current branch (the edits of the two sessions then mix). Separate from branchOnStart, which does not decide this case."
+        },
         "tickGuard": {
           "enum": ["warn", "off", "deny"],
           "default": "warn",

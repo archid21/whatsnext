@@ -452,7 +452,7 @@ def build(root, effective, compacted=False, session_id=None):
     cap = NOTE_CAP - 1  # the hook adds a final newline
 
     task = gwstatus.active_task(gwstatus.load_tasks(root, gwstatus.status_folder(root, effective)),
-                                gwstatus.current_branch(root))
+                                gwstatus.current_branch(root), session_id if isinstance(session_id, str) else None, root)
     if task is None:
         lines = ["whatsnext: where we left off."]
         if compacted:

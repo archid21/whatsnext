@@ -187,24 +187,46 @@ def load_tasks(root, folder):
     return out
 
 
-def active_task(tasks, branch):
-    """The active task for this checkout: branch match first, then the latest Updated."""
+def env_session():
+    """The session id `WHATSNEXT_SESSION` names (the Claude Code SessionStart hook exports it), or None."""
+    value = os.environ.get("WHATSNEXT_SESSION", "").strip()
+    return value or None
+
+
+def session_ids(root, session):
+    """The ids of the items whose claim names `session` (ADR-0020). Empty without a session or a root."""
+    if not session or not root:
+        return set()
+    from . import claims as gwclaims  # claims imports this module
+    return {i for i, c in gwclaims.read_all(root).items() if c.get("session") == session}
+
+
+def active_task(tasks, branch, session=None, root=None):
+    """The active task for this checkout: the active item this session claimed first (ADR-0020), else the branch
+    match, then the latest Updated. Without a session id, or when this session holds no active item, only the
+    branch rule applies."""
     active = [t for t in tasks if t.state == "active"]
     if not active:
         return None
-    return sorted(active, key=lambda t: (branch is not None and t.field("branch") == branch,
-                                         t.field("updated"), t.id))[-1]
+    mine_ids = session_ids(root, session)
+    mine = [t for t in active if t.id in mine_ids]
+    pool = mine or active
+    return sorted(pool, key=lambda t: (branch is not None and t.field("branch") == branch,
+                                       t.field("updated"), t.id))[-1]
 
 
-def branch_task(tasks, branch):
+def branch_task(tasks, branch, session=None, root=None):
     """The active task whose recorded Branch is `branch`, or None. Unlike `active_task` there is no
     fallback to another branch's item: a hook that writes must only touch its own branch's item.
-    A missing or `none` Branch never matches."""
+    A missing or `none` Branch never matches. Among those, the item this session claimed comes first
+    (ADR-0020), else the latest Updated."""
     if not branch:
         return None
-    mine = [t for t in tasks if t.state == "active" and t.field("branch") not in ("", NONE)
-            and t.field("branch") == branch]
-    return sorted(mine, key=lambda t: (t.field("updated"), t.id))[-1] if mine else None
+    found = [t for t in tasks if t.state == "active" and t.field("branch") not in ("", NONE)
+             and t.field("branch") == branch]
+    mine_ids = session_ids(root, session) if found else set()
+    pool = [t for t in found if t.id in mine_ids] or found
+    return sorted(pool, key=lambda t: (t.field("updated"), t.id))[-1] if pool else None
 
 
 # ---- freshness (S1) --------------------------------------------------------
@@ -518,7 +540,7 @@ def cmd_show(root, folder, effective, args):
             print("no progress file for %s." % args.task_id, file=sys.stderr)
             return 1
     else:
-        task = active_task(tasks, current_branch(root))
+        task = active_task(tasks, current_branch(root), env_session(), root)
         if task is None:
             print("No active task.")
             return 0

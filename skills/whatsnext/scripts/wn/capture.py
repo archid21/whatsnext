@@ -212,8 +212,8 @@ def write_progress(task, plan_rel, status, steps=None):
 # ---- command ---------------------------------------------------------------
 
 
-def find_task(root, folder, task_id):
-    """(task, error message)."""
+def find_task(root, folder, task_id, session=None):
+    """(task, error message). `session` (or $WHATSNEXT_SESSION) makes the active item that session claimed come first."""
     if task_id:
         problem = gwstatus.bad_id(task_id)
         if problem:
@@ -222,7 +222,8 @@ def find_task(root, folder, task_id):
         if task is None:
             return None, "no progress file for %s. Create it: `progress new %s --title \"...\"`." % (task_id, task_id)
         return task, None
-    task = gwstatus.active_task(gwstatus.load_tasks(root, folder), gwstatus.current_branch(root))
+    task = gwstatus.active_task(gwstatus.load_tasks(root, folder), gwstatus.current_branch(root),
+                                session or gwstatus.env_session(), root)
     if task is None:
         return None, "no active task. Name one: `progress capture <task-id> ...`."
     return task, None
@@ -289,7 +290,7 @@ def capture_status(root, effective, task, args):
 
 
 def run(root, folder, effective, args):
-    task, problem = find_task(root, folder, args.task_id)
+    task, problem = find_task(root, folder, args.task_id, getattr(args, "session", None))
     if problem:
         print(problem, file=sys.stderr)
         return 1

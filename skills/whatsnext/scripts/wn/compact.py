@@ -88,7 +88,7 @@ def cmd_instructions(argv):
     handoff = gwwrapup.handoff_path(root, effective)
     state = gwwrapup.handoff_state(handoff, transcript, args.session, root)
     line = None
-    task = gwhook.branch_task(root, effective) if gwhook.is_project(root, effective) else None
+    task = gwhook.branch_task(root, effective, args.session) if gwhook.is_project(root, effective) else None
     facts = facts_line(root, effective, task) if task else None
     if state["exists"] and not state["foreign"]:
         with open(handoff, encoding="utf-8", errors="replace") as f:
