@@ -635,6 +635,25 @@ def cmd_resume(root, folder, effective, args):
     return 0
 
 
+def cmd_pr_body(root, folder, effective, args):
+    """P-61: a PR description from the progress file, PLAN.md and git. No model call."""
+    from . import prbody
+
+    problem = bad_id(args.task_id)
+    if problem:
+        print(problem, file=sys.stderr)
+        return 1
+    result = prbody.build(root, effective, args.task_id, args.trailer)
+    if result is None:
+        print("no progress file for %s. Run `whatsnext progress list` to see the tasks." % args.task_id, file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        sys.stdout.write("# %s\n\n%s\n" % (result["title"], result["body"]) if result["body"] else "# %s\n" % result["title"])
+    return 0
+
+
 def cmd_capture(root, folder, effective, args):
     from . import capture
 
@@ -668,6 +687,10 @@ def build_parser():
     capture.add_argument("--file", help="the plan text (default: stdin); only for --status shown")
     resume = sub.add_parser("resume", help="print the resume note for one task, from its newest handoff")
     resume.add_argument("task_id")
+    body = sub.add_parser("pr-body", help="print a PR description from the progress file, PLAN.md and git (no model call)")
+    body.add_argument("task_id")
+    body.add_argument("--trailer", help="a last line to add, for example a PR footer")
+    body.add_argument("--json", action="store_true", help="title, body and section names as JSON")
     note = sub.add_parser("resume-note", help="print the resume note the session-start hook adds")
     note.add_argument("--json", action="store_true")
     return parser
@@ -679,7 +702,7 @@ def run(argv, cwd=None):
     effective = gwconfig.load(root)
     folder = status_folder(root, effective)
     handler = {"new": cmd_new, "stamp": cmd_stamp, "show": cmd_show, "list": cmd_list, "next": cmd_next, "capture": cmd_capture,
-               "resume-note": cmd_packet, "resume": cmd_resume}
+               "resume-note": cmd_packet, "resume": cmd_resume, "pr-body": cmd_pr_body}
     try:
         return handler[args.action](root, folder, effective, args)
     except FormatError as e:
