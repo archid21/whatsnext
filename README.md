@@ -4,7 +4,7 @@
 
 whatsnext is a plugin for Claude Code and Codex. It keeps a plan checklist, check-offs and a short resume note as plain files in your repository, so a new session, or a second agent, starts from where the last one stopped.
 
-**Status: 0.3.0.** See [New in 0.3](#new-in-03).
+**Status: 0.3.1.** See [New in 0.3.1](#new-in-031).
 
 MIT license · Python 3.9+, standard library only · no database, no background process
 
@@ -45,6 +45,10 @@ When an item is finished, say **"mark P-13 done"**. It is ticked only if its tes
 | Claude Code and Codex | Both agents read and write the same plain files. Switching between them is experimental. |
 
 Every feature, how it works, its value and the release that added it: [docs/FEATURES.md](docs/FEATURES.md).
+
+## New in 0.3.1
+
+- **Star ask:** once, after your first verified `mark done`, the tip band asks for a GitHub star. One click stars it with your `gh` sign-in; **No thanks** hides it for good. With rightsize installed, one ask covers both.
 
 ## New in 0.3
 
@@ -130,7 +134,7 @@ The first time a session starts after install, whatsnext shows a table of what i
 
 ## Tips
 
-In Claude Code (terminal and desktop app only), a tip band above the prompt teaches the three phrases that matter: `wrap up`, `what's next?` and `mark P-13 done`. It shows one tip at a time, only when the tip applies, and never at startup. **Next tip** moves on, **Stop tips** hides the band for good, and `/whatsnext-tips` brings it back. See [the guide](docs/GUIDE.md#tips).
+In Claude Code (terminal and desktop app only), a tip band above the prompt teaches the three phrases that matter: `wrap up`, `what's next?` and `mark P-13 done`. It shows one tip at a time, only when the tip applies, and never at startup. **Next tip** moves on, **Stop tips** hides the band for good, and `/whatsnext-tips` brings it back. Once, after your first verified `mark done`, the band also asks for a GitHub star. See [the guide](docs/GUIDE.md#tips).
 
 ## Known limits
 

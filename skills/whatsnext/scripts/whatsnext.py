@@ -16,7 +16,7 @@ import sys
 # Make the wn package importable however the script is started.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 
 # Subcommands and a one-line description of each.
 COMMANDS = {

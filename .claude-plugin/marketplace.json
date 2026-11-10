@@ -7,7 +7,7 @@
       "name": "whatsnext",
       "source": "./",
       "description": "One plan, one next step, for every coding agent. Check items off with a command that must pass, resume a session from a short note, and hand off with one prompt. Plain files in your repository.",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "author": { "name": "Archi Dubey" },
       "license": "MIT"
     }

@@ -2,7 +2,7 @@
 
 Every whatsnext feature: what it is, how it works and what it gives you.
 
-Current release: 0.3.0
+Current release: 0.3.1
 
 **Since** is the release that added the feature. `Unreleased` means it is on `main` but not in a release yet.
 
@@ -68,3 +68,4 @@ Current release: 0.3.0
 | Doctor | `doctor` shows which hooks each agent has configured and which it has actually run. | Find a broken setup in one command. | 0.2 |
 | Welcome table | The first session after install shows what whatsnext does; `/whatsnext-welcome` shows it again. | New users learn the three phrases at once. | 0.2 |
 | Tips | Claude Code only. A band above the prompt teaches `wrap up`, `what's next?` and `mark P-13 done`, one tip at a time. | Users learn by doing, without reading docs. | 0.2 |
+| Star ask | Claude Code only. Once, at a turn end after the first verified `mark done`, the tip band asks for a GitHub star if `gh` says you have not starred whatsnext. **Star on GitHub** stars it with your `gh` sign-in, or opens the page; **No thanks** hides it for good. It is also the last tip **Next tip** reaches. With rightsize installed, one ask covers both (`~/.config/archid21/stars.json`, ADR-0021). | Asks once, at a calm moment, and never nags. | 0.3.1 |
