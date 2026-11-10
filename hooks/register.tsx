@@ -1,6 +1,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import { IDLE_MS, WRAP_UP, minTokens, saveTipKind, skipReason, type IdleFacts } from './idle'
+import { ME, REPOS, SHARED_PATH, askText, blockedByClaim, parseShared, readStarCheck, reposToAsk, type Shared } from './star'
 import { GUIDE, TIPS, loadState, markSeen, nextTip, restartTips, stopTips, type Tip } from './tips'
 
 // whatsnext tips band (P-36). One tip shows above the prompt, with Next tip and Stop tips.
@@ -20,6 +21,152 @@ const PROGRESS_FOLDER = 'docs/project/progress'
 let idleTimer: { cancel: () => void } | undefined
 let askedThisPeriod = false
 const SCRIPT = 'skills/whatsnext/scripts/whatsnext.py'
+
+// GitHub star ask (P-65, ADR-0021). `star` in `$.store` says a verified done has happened (the milestone). The shared
+// file (./star.ts) says whether rightsize is installed, what is starred, and whether the person answered.
+const STAR_KEY = 'star'
+let starRepos: string[] | undefined // the repos the star tip names while it shows
+let starTried = false // the automatic ask runs its checks at most once per session
+
+async function sharedPath($: EngineInterface) {
+  const home = await $.env.get('HOME')
+
+  return home ? `${home}/${SHARED_PATH}` : undefined
+}
+
+async function readShared($: EngineInterface): Promise<Shared> {
+  const path = await sharedPath($)
+  if (!path) return parseShared(undefined)
+  try {
+    return parseShared(await $.fs.read(path))
+  } catch {
+    return parseShared(undefined)
+  }
+}
+
+// false when the file cannot be written: then no ask shows, because its answer could not be kept.
+async function writeShared($: EngineInterface, shared: Shared) {
+  const path = await sharedPath($)
+  if (!path) return false
+  try {
+    await $.fs.write(path, `${JSON.stringify(shared, null, 2)}\n`)
+
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function nowIso($: EngineInterface) {
+  return new Date(await $.clock.now()).toISOString()
+}
+
+// Say this plugin is installed, so rightsize's ask can name it too.
+async function noteInstalled($: EngineInterface) {
+  try {
+    const shared = await readShared($)
+    if (shared.installed[ME]) return
+    shared.installed[ME] = await nowIso($)
+    await writeShared($, shared)
+  } catch {
+    // the other plugin's ask names only its own repo
+  }
+}
+
+async function gh($: EngineInterface, args: string[]) {
+  try {
+    return await $.process.run(['gh', 'api', ...args], { cwd: await $.session.cwd(), timeoutMs: 15_000 })
+  } catch {
+    return undefined
+  }
+}
+
+// The automatic ask: tips on and star not seen, the person has not answered, rightsize has not claimed the ask in
+// the last 7 days, GitHub says this repo is not starred. An unknown answer from GitHub skips it for this session.
+async function offerStar($: EngineInterface) {
+  const state = await loadState($)
+  if (state.tipsOff || state.seen.includes('star')) return false
+  const shared = await readShared($)
+  if (shared.answered || blockedByClaim(shared, await $.clock.now())) return false
+  for (const repo of reposToAsk(shared)) {
+    const check = readStarCheck(await gh($, [`user/starred/${repo}`]))
+    if (check === 'unknown') return false
+    if (check === 'starred') shared.starred[repo] = true
+  }
+  const repos = reposToAsk(shared)
+  if (!repos.includes(REPOS[ME])) {
+    await writeShared($, shared)
+    await markSeen($, 'star')
+
+    return false
+  }
+  shared.claim = { by: ME, at: await nowIso($) }
+  if (!(await writeShared($, shared))) return false
+  // Both plugins may claim at the same moment: the one whose claim stayed in the file asks.
+  if ((await readShared($)).claim?.by !== ME) return false
+  starRepos = repos
+
+  return offer($, 'star')
+}
+
+async function maybeOfferStar($: EngineInterface) {
+  if (starTried || current) return
+  const earned = ((await $.store.get(STAR_KEY)) as { earned?: unknown } | undefined)?.earned === true
+  if (!earned) return
+  starTried = true
+  try {
+    await offerStar($)
+  } catch {
+    // no ask this session
+  }
+}
+
+// Open a page in the person's browser: macOS `open`, then Linux `xdg-open`.
+async function openPage($: EngineInterface, url: string) {
+  for (const opener of ['open', 'xdg-open']) {
+    try {
+      if ((await $.process.run([opener, url], { timeoutMs: 10_000 })).exitCode === 0) return true
+    } catch {
+      // try the next one
+    }
+  }
+
+  return false
+}
+
+// Star on GitHub: star each repo the tip names with the person's own `gh` sign-in. A repo that could not be starred
+// opens in the browser, and the line names its link.
+async function pressStar($: EngineInterface, tip: Tip) {
+  const repos = starRepos ?? [REPOS[ME]]
+  const failed: string[] = []
+  const shared = await readShared($)
+  for (const repo of repos) {
+    const ran = await gh($, ['-X', 'PUT', `user/starred/${repo}`])
+    if (ran?.exitCode === 0) shared.starred[repo] = true
+    else failed.push(repo)
+  }
+  shared.answered = await nowIso($)
+  await writeShared($, shared)
+  await markSeen($, tip.id)
+  current = undefined
+  starRepos = undefined
+  if (failed.length === 0) {
+    notice = 'Thanks for the star!'
+  } else {
+    const links = failed.map(r => `https://github.com/${r}`)
+    await openPage($, links[0])
+    notice = `Could not star from here. Star it on GitHub: ${links.join(' ')}`
+  }
+  $.ui.invalidate('ui.render')
+}
+
+async function declineStar($: EngineInterface, tip: Tip) {
+  const shared = await readShared($)
+  shared.answered = await nowIso($)
+  await writeShared($, shared)
+  starRepos = undefined
+  await declineTip($, tip)
+}
 
 // Show `id` if tips are on, it was not seen, and nothing else is showing. A plain function declaration at the top
 // of the file, because the engine follows `$` only into those.
@@ -144,9 +291,11 @@ async function declineTip($: EngineInterface, tip: Tip) {
 async function afterTurn($: EngineInterface) {
   turns += 1
   if (turns >= LONG_SESSION_TURNS && (await offerSave($))) return
-  if (hasCheckedTask) return
-  hasCheckedTask = true
-  if ((await hasActiveTask($)) === false) await offer($, 'pick')
+  if (!hasCheckedTask) {
+    hasCheckedTask = true
+    if ((await hasActiveTask($)) === false && (await offer($, 'pick'))) return
+  }
+  await maybeOfferStar($)
 }
 
 async function restart($: EngineInterface) {
@@ -155,12 +304,24 @@ async function restart($: EngineInterface) {
   shown.clear()
   turns = 0
   hasCheckedTask = false
+  starTried = false
+  starRepos = undefined
   $.ui.invalidate('ui.render')
 }
 
+// Next tip. The walk skips the star tip once this repo is starred; when it lands on the star tip, the tip names the
+// repos still to star.
 async function advance($: EngineInterface, tip: Tip) {
   const state = await markSeen($, tip.id)
-  current = nextTip(state.seen, tip.id)
+  let shared: Shared | undefined
+  try {
+    shared = await readShared($)
+  } catch {
+    shared = undefined
+  }
+  const skip = shared?.starred[REPOS[ME]] ? ['star'] : []
+  current = nextTip(state.seen, tip.id, skip)
+  if (current?.id === 'star') starRepos = shared ? reposToAsk(shared) : undefined
   $.ui.invalidate('ui.render')
 }
 
@@ -174,6 +335,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'whatsnext-tips', description: 'Show the whatsnext tips again' })
     await $.command.register({ name: 'whatsnext-welcome', description: 'Show what whatsnext does, as a table' })
+    await noteInstalled($)
 
     return next(e)
   })
@@ -237,6 +399,7 @@ export const register: Register = on => {
     const isVerifiedDone = /whatsnext\.py"?\s+plan\s+done\b/.test(e.command) && /--verify\b/.test(e.command)
     if (isVerifiedDone && !result.deny && !result.isError && /Marked \S+ done/.test(JSON.stringify(result.result))) {
       await offer($, 'done')
+      await $.store.set(STAR_KEY, { earned: true }).catch(() => undefined)
     }
 
     return result
@@ -255,6 +418,25 @@ export const register: Register = on => {
       )
     }
     const tip = current
+    if (tip.action === 'star') {
+      return (
+        <Box>
+          <Text>
+            {starRepos && starRepos.length > 0 ? askText(starRepos) : tip.text} <Text dimColor>{tip.link}</Text>{' '}
+          </Text>
+          <Button
+            key="star"
+            label="Star on GitHub"
+            onPress={() => pressStar($, tip)}
+          />
+          <Button
+            key="no-thanks"
+            label="No thanks"
+            onPress={() => declineStar($, tip)}
+          />
+        </Box>
+      )
+    }
     if (tip.action === 'turn-on-idle') {
       return (
         <Box>

@@ -2,13 +2,14 @@ import { expect, test } from 'claude-code/testing'
 
 import { GUIDE, TIPS, loadState, markSeen, nextTip, restartTips, stopTips } from './tips'
 
-test('three tips in order, then two that are only offered; each has the exact phrase and a guide link', () => {
-  expect(TIPS.filter(t => !t.offerOnly).map(t => t.say)).toEqual(['wrap up', "what's next?", 'mark P-13 done'])
-  expect(TIPS.map(t => t.id)).toEqual(['save', 'pick', 'done', 'idle', 'manual'])
+test('three phrase tips and the star tip in order, then two that are only offered; each has its phrase and a guide link', () => {
+  expect(TIPS.filter(t => !t.offerOnly).map(t => t.say)).toEqual(['wrap up', "what's next?", 'mark P-13 done', undefined])
+  expect(TIPS.map(t => t.id)).toEqual(['save', 'pick', 'done', 'star', 'idle', 'manual'])
   expect(TIPS.filter(t => t.offerOnly).map(t => t.id)).toEqual(['idle', 'manual'])
+  expect(TIPS.find(t => t.id === 'star')?.action).toBe('star')
 
   for (const tip of TIPS) {
-    expect(tip.text).toContain(tip.say)
+    if (tip.say !== undefined) expect(tip.text).toContain(tip.say)
     expect(tip.link.startsWith(GUIDE)).toBe(true)
     expect(tip.link).toContain('docs/GUIDE.md')
   }
@@ -56,6 +57,9 @@ test('nextTip walks the list and skips seen tips', () => {
   expect(nextTip([])?.id).toBe('save')
   expect(nextTip(['save'])?.id).toBe('pick')
   expect(nextTip(['save'], 'pick')?.id).toBe('done')
-  expect(nextTip(['save', 'pick', 'done'])).toBeUndefined()
-  expect(nextTip([], 'done')).toBeUndefined()
+  expect(nextTip([], 'done')?.id).toBe('star')
+  expect(nextTip(['save', 'pick', 'done'])?.id).toBe('star')
+  expect(nextTip(['save', 'pick', 'done', 'star'])).toBeUndefined()
+  // A starred repo skips the star tip.
+  expect(nextTip([], 'done', ['star'])).toBeUndefined()
 })

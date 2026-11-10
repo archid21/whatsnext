@@ -61,6 +61,7 @@ One line per item: `- [ ] P-N Title · done means: <how we know it is done>`.
 - [ ] P-59 Edit and reopen a task with history: plan edit keeps the id, plan reopen keeps old evidence and requires a fresh check when done means changes · done means: plan edit and plan reopen exist, old evidence stays in the progress file; `python3 -m unittest discover -s tests`
 - [ ] P-60 plan check flags done items whose branch is not merged into main · done means: plan check prints done, not merged for such items using git branch --merged; `python3 -m unittest discover -s tests`
 - [ ] P-61 progress pr-body <id> prints a PR description from the progress file: goal, done steps, decisions, verify evidence · done means: command exists, no model call; `python3 -m unittest discover -s tests`
+- [ ] P-65 GitHub star ask in the tips band, shared with rightsize through ~/.config/archid21/stars.json (ADR-0021) · done means: proposed ADR-0021 accepted; star tip offered once after a verified done and reachable by Next tip; `claude plugin test /Users/home/Projects/whatsnext` and `python3 -m unittest discover -s tests` pass
 
 ## Later
 

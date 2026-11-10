@@ -5,11 +5,11 @@ export const GUIDE = 'https://github.com/archid21/whatsnext/blob/main/docs/GUIDE
 
 export type Tip = {
   id: string
-  say: string // the exact words to type
+  say?: string // the exact words to type (none for a tip whose button does the work)
   text: string // the one line the band shows
   link: string // where the guide explains it
   offerOnly?: boolean // shown only when something offers it (never by Next tip)
-  action?: 'turn-on-idle' // the band shows Turn on and No thanks, not Next tip and Stop tips
+  action?: 'turn-on-idle' | 'star' // the band shows this tip's own two buttons, not Next tip and Stop tips
 }
 
 // Order matters: Next tip walks this list.
@@ -31,6 +31,14 @@ export const TIPS: readonly Tip[] = [
     say: 'mark P-13 done',
     text: 'To close a plan item, say "mark P-13 done" (use your item\'s id). A passing command is the proof.',
     link: `${GUIDE}#mark-work-done`,
+  },
+  {
+    // Last in the Next tip walk, so a person who said No thanks can still find it (P-65, ADR-0021). Also offered once
+    // after the first verified done. The band replaces this text with the repos still to star.
+    id: 'star',
+    text: 'Finding whatsnext useful? Star it on GitHub so other people can find it.',
+    link: `${GUIDE}#tips`,
+    action: 'star',
   },
   {
     id: 'idle',
@@ -103,9 +111,10 @@ export async function restartTips($: StoreHost): Promise<TipsState> {
   return next
 }
 
-// The first tip in list order that is not seen, starting after `afterId` when given and wrapping no further.
-export function nextTip(seen: readonly string[], afterId?: string): Tip | undefined {
+// The first tip in list order that is not seen and not skipped, starting after `afterId` when given and wrapping no
+// further. `skip` holds tips that do not apply now (the star tip once the repo is starred).
+export function nextTip(seen: readonly string[], afterId?: string, skip: readonly string[] = []): Tip | undefined {
   const start = afterId === undefined ? 0 : TIPS.findIndex(t => t.id === afterId) + 1
 
-  return TIPS.slice(start).find(t => !t.offerOnly && !seen.includes(t.id))
+  return TIPS.slice(start).find(t => !t.offerOnly && !seen.includes(t.id) && !skip.includes(t.id))
 }

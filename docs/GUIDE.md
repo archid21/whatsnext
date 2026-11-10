@@ -222,6 +222,7 @@ A short tip band shows above the prompt in Claude Code, in the terminal and the 
 - **`mark P-13 done`:** after a plan item's `--verify` command passes.
 - **Turn on auto wrap-up:** at the same moments as `wrap up`, when Claude's auto-compact is on, the context is big, and `wrapup.autoIdle` is off. The tip says Claude's auto-compact keeps what it thinks matters, not your goal, so a handoff saved first keeps your goal and next step. **Turn on** sets `wrapup.autoIdle` for you (in your user settings, `~/.config/whatsnext/config.json`) and says so. **No thanks** hides this tip for good.
 - **`wrap up` before `/clear` or `/compact`:** the same moments, when Claude's auto-compact is off. Nothing saves your goal for you then, so the tip says to type `wrap up` first. It has no setting to turn on.
+- **Star on GitHub:** once, at the end of a turn after your first verified `mark done`, if GitHub says you have not starred whatsnext. **Star on GitHub** stars it with your `gh` sign-in (or opens the page if that fails). **No thanks** hides it for good. With rightsize installed too, one tip asks for both, and your answer counts for both. It is also the last tip **Next tip** reaches, so `/whatsnext-tips` finds it later.
 
 Press **Next tip** to mark the tip seen and see the next one. Press **Stop tips** to hide the band for good, in every session. Type `/whatsnext-tips` to turn the tips back on and show them all again. A tip you have seen does not return, and no tip shows twice in one session.
 
