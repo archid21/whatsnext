@@ -81,6 +81,18 @@ async function gh($: EngineInterface, args: string[]) {
   }
 }
 
+// Ask GitHub about each repo the tip would name, and note the starred ones in `shared`. false when GitHub cannot say
+// for one of them (no gh, not signed in, no network).
+async function checkStars($: EngineInterface, shared: Shared) {
+  for (const repo of reposToAsk(shared)) {
+    const check = readStarCheck(await gh($, [`user/starred/${repo}`]))
+    if (check === 'unknown') return false
+    if (check === 'starred') shared.starred[repo] = true
+  }
+
+  return true
+}
+
 // The automatic ask: tips on and star not seen, the person has not answered, rightsize has not claimed the ask in
 // the last 7 days, GitHub says this repo is not starred. An unknown answer from GitHub skips it for this session.
 async function offerStar($: EngineInterface) {
@@ -88,11 +100,7 @@ async function offerStar($: EngineInterface) {
   if (state.tipsOff || state.seen.includes('star')) return false
   const shared = await readShared($)
   if (shared.answered || blockedByClaim(shared, await $.clock.now())) return false
-  for (const repo of reposToAsk(shared)) {
-    const check = readStarCheck(await gh($, [`user/starred/${repo}`]))
-    if (check === 'unknown') return false
-    if (check === 'starred') shared.starred[repo] = true
-  }
+  if (!(await checkStars($, shared))) return false
   const repos = reposToAsk(shared)
   if (!repos.includes(REPOS[ME])) {
     await writeShared($, shared)
@@ -309,19 +317,26 @@ async function restart($: EngineInterface) {
   $.ui.invalidate('ui.render')
 }
 
-// Next tip. The walk skips the star tip once this repo is starred; when it lands on the star tip, the tip names the
-// repos still to star.
+// Next tip. When the walk lands on the star tip, GitHub is asked first, as for the automatic ask: the tip names only
+// repos not starred, and is skipped once this repo is starred. When GitHub cannot say, the tip names the repos the
+// shared file does not list as starred (the person chose to walk the tips).
 async function advance($: EngineInterface, tip: Tip) {
   const state = await markSeen($, tip.id)
-  let shared: Shared | undefined
-  try {
-    shared = await readShared($)
-  } catch {
-    shared = undefined
+  current = nextTip(state.seen, tip.id)
+  if (current?.id === 'star') {
+    try {
+      const shared = await readShared($)
+      if (await checkStars($, shared)) await writeShared($, shared)
+      if (shared.starred[REPOS[ME]]) {
+        await markSeen($, 'star')
+        current = nextTip([...state.seen, 'star'], 'star')
+      } else {
+        starRepos = reposToAsk(shared)
+      }
+    } catch {
+      starRepos = undefined
+    }
   }
-  const skip = shared?.starred[REPOS[ME]] ? ['star'] : []
-  current = nextTip(state.seen, tip.id, skip)
-  if (current?.id === 'star') starRepos = shared ? reposToAsk(shared) : undefined
   $.ui.invalidate('ui.render')
 }
 

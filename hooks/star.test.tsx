@@ -211,3 +211,27 @@ test('Next tip from mark done shows nothing when the shared file says starred', 
   await press($, 'next')
   expect((await look($)).ask).toBe(false)
 })
+
+test('Next tip asks GitHub first: a repo already starred is not named', async ($, on) => {
+  const w = world(on, {
+    shared: { installed: { rightsize: '2026-11-01T00:00:00Z' } },
+    starred: { 'archid21/rightsize': 'starred' },
+    stored: { tips: { tipsOff: false, seen: [] } },
+  })
+  await $.tool.call({ tool: 'Bash', command: DONE })
+  await press($, 'next')
+  const seen = await look($)
+  expect(seen.ask).toBe(true)
+  expect(seen.both).toBe(false)
+  expect(w.file().starred).toEqual({ 'archid21/rightsize': true })
+  await press($, 'star')
+  expect(puts(w.ran)).toEqual(['user/starred/archid21/whatsnext'])
+})
+
+test('Next tip skips the star tip when GitHub says this repo is starred', async ($, on) => {
+  const w = world(on, { starred: { 'archid21/whatsnext': 'starred' }, stored: { tips: { tipsOff: false, seen: [] } } })
+  await $.tool.call({ tool: 'Bash', command: DONE })
+  await press($, 'next')
+  expect((await look($)).ask).toBe(false)
+  expect(w.file().starred).toEqual({ 'archid21/whatsnext': true })
+})
