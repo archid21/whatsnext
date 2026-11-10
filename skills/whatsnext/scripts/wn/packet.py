@@ -352,13 +352,14 @@ def cut_line(task, facts, state):
     return "cut: %s. Full: progress show" % ", ".join(parts) if parts else None
 
 
-def handoff_info(root, effective, task, session_id):
+def handoff_info(root, effective, task, session_id, path=None):
     """The handoff note as {"rel", "related", "next", "written"}, or None when there is no file.
     `related`: its `Session:` is this session, or its `Task:` is the active task, or (P-54) it has `Task: none`, a
     `Branch:` equal to this checkout's branch, and was written within `plan.staleAfter`: after `/clear` the new
     session id differs, but such a note is the user's own. `written`: the `Written:` time (else the file's time) as
-    an aware datetime. `next` is its Next action section, as one line."""
-    path = gwwrapup.handoff_path(root, effective)
+    an aware datetime. `next` is its Next action section, as one line. `path` (P-57): read this note, for example an
+    archived one, instead of the handoff note."""
+    path = path or gwwrapup.handoff_path(root, effective)
     if not os.path.isfile(path):
         return None
     header = gwwrapup.read_header(path)
@@ -458,16 +459,24 @@ def compacted_text(root, session_id):
     return text + " " + carry if carry else text
 
 
-def build(root, effective, compacted=False, session_id=None):
+def build(root, effective, compacted=False, session_id=None, task_id=None, handoff=None):
     """The note as {"text", "included", "pointed"}, or None when it must stay silent.
     `included` names the sections in the text; `pointed` the ones the cap left out. `session_id` is the
-    session the note is for: a handoff note it wrote is marked "read it first"."""
+    session the note is for: a handoff note it wrote is marked "read it first".
+    `task_id` (P-57, `progress resume <id>`): the note is for that task, not the active one, and `handoff` is the
+    path of its newest handoff note, or None when it has none. None when no progress file has that id."""
     if not effective.module_on("progress") or not is_project(root, effective):
         return None
     cap = NOTE_CAP - 1  # the hook adds a final newline
 
-    task = gwstatus.active_task(gwstatus.load_tasks(root, gwstatus.status_folder(root, effective)),
-                                gwstatus.current_branch(root), session_id if isinstance(session_id, str) else None, root)
+    tasks = gwstatus.load_tasks(root, gwstatus.status_folder(root, effective))
+    if task_id is not None:
+        task = next((t for t in tasks if t.id == task_id), None)
+        if task is None:
+            return None
+    else:
+        task = gwstatus.active_task(tasks, gwstatus.current_branch(root),
+                                    session_id if isinstance(session_id, str) else None, root)
     if task is None:
         lines = ["whatsnext: where we left off."]
         if compacted:
@@ -485,7 +494,10 @@ def build(root, effective, compacted=False, session_id=None):
     if live:
         task.title = live  # P-27: PLAN.md is the truth for the title; the progress file's copy may be old
     compacted_line = compacted_text(root, session_id) if compacted else None
-    info = handoff_info(root, effective, task, session_id)
+    if task_id is not None:  # only the task's own note; the handoff note may belong to other work
+        info = handoff_info(root, effective, task, session_id, handoff) if handoff else None
+    else:
+        info = handoff_info(root, effective, task, session_id)
     command, source = run_command(root, effective, task)
     from . import crosscheck as gwcrosscheck
     side = gwwrapup.read_sidecar(root, session_id) if session_id else None

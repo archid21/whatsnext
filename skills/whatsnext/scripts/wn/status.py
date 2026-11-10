@@ -574,6 +574,39 @@ def cmd_packet(root, folder, effective, args):
     return 0
 
 
+def cmd_resume(root, folder, effective, args):
+    """P-57: the resume note for one task, from its newest handoff (the handoff note or docs/project/handoffs/).
+    It only reads and prints: it claims nothing and switches no branch."""
+    from . import packet
+    from . import wrapup
+
+    problem = bad_id(args.task_id)
+    if problem:
+        print(problem, file=sys.stderr)
+        return 1
+    task = next((t for t in load_tasks(root, folder) if t.id == args.task_id), None)
+    if task is None:
+        print("no progress file for %s. Run `whatsnext progress list` to see the tasks." % args.task_id,
+              file=sys.stderr)
+        return 1
+    found = wrapup.latest_handoff(root, effective, task.id)
+    result = packet.build(root, effective, task_id=task.id, handoff=found[0] if found else None)
+    if result is None:
+        print("the progress module is off, or this is not a whatsnext project.", file=sys.stderr)
+        return 1
+    lines = [result["text"]]
+    want, here = task.field("branch"), current_branch(root)
+    if want and want.lower() != "unknown" and here and here != want:
+        line = "Branch: you are on %s; %s is on %s." % (packet.clean(here), task.id, packet.clean(want))
+        if git(root, "rev-parse", "--verify", "-q", "refs/heads/" + want)[0] != 0:
+            line += " That branch no longer exists here."
+        elif packet.safe_command("git switch " + want) and not want.startswith("-"):
+            line += " Run: git switch " + want  # the name is repository data: shown only when it is a plain word
+        lines.append(line)
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
 def cmd_capture(root, folder, effective, args):
     from . import capture
 
@@ -605,6 +638,8 @@ def build_parser():
     capture.add_argument("--status", required=True, choices=("shown", "approved", "unapproved"))
     capture.add_argument("--agent", help="default: $WHATSNEXT_AGENT, then $GROUNDWORK_AGENT, else unknown")
     capture.add_argument("--file", help="the plan text (default: stdin); only for --status shown")
+    resume = sub.add_parser("resume", help="print the resume note for one task, from its newest handoff")
+    resume.add_argument("task_id")
     note = sub.add_parser("resume-note", help="print the resume note the session-start hook adds")
     note.add_argument("--json", action="store_true")
     return parser
@@ -616,7 +651,7 @@ def run(argv, cwd=None):
     effective = gwconfig.load(root)
     folder = status_folder(root, effective)
     handler = {"new": cmd_new, "stamp": cmd_stamp, "show": cmd_show, "list": cmd_list, "next": cmd_next, "capture": cmd_capture,
-               "resume-note": cmd_packet}
+               "resume-note": cmd_packet, "resume": cmd_resume}
     try:
         return handler[args.action](root, folder, effective, args)
     except FormatError as e:

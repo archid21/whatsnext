@@ -504,6 +504,37 @@ def archive_handoff(root, effective, keep=ARCHIVE_KEEP):
     return path
 
 
+def latest_handoff(root, effective, task_id):
+    """P-57: the newest note whose `Task:` is `task_id`, from the handoff note and its archive folder, as
+    (path, written) with `written` an aware datetime (the `Written:` time, else the file's time). The handoff note
+    wins a tie: an archived copy of it has the same time. Links are never read. None when no note is for the task."""
+    want = task_id.strip().lower()
+    handoff = handoff_path(root, effective)
+    paths = [handoff]
+    folder = os.path.join(os.path.dirname(handoff), ARCHIVE_DIR)
+    if os.path.isdir(folder) and not os.path.islink(folder):
+        try:
+            paths += [os.path.join(folder, n) for n in sorted(os.listdir(folder)) if ARCHIVE_NAME_RE.match(n)]
+        except OSError:
+            pass
+    best = None
+    for path in paths:
+        if os.path.islink(path) or not os.path.isfile(path):
+            continue
+        header = read_header(path)
+        if (header["task"] or "").strip().lower() != want:
+            continue
+        written = gwclaims.to_dt(header["written"]) if header["written"] else None
+        if written is None:
+            try:
+                written = datetime.datetime.fromtimestamp(os.path.getmtime(path), datetime.timezone.utc)
+            except OSError:
+                continue
+        if best is None or written > best[1]:
+            best = (path, written)
+    return best
+
+
 def begin(root, effective, data, agent=None):
     """Remember the request, save the old note, and return the instructions to print."""
     try:
