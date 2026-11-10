@@ -1,42 +1,34 @@
 # Handoff
-
-Session: 01a1bc1c-9cb7-7e61-ae9e-0f1b5bbbd9bd
-Task: P-48
-Written: 2026-11-08T17:34Z
+Session: eb5f8678-6344-411d-aaa7-46a0f7788aef
+Task: none
+Written: 2026-11-10T08:10Z
+Branch: p-32-next-shows-handoff
 
 ## Goal
-
-Reliable plan execution, status updates and continuity between Codex and Claude Code.
+Ship the GitHub star ask in whatsnext (done, released as 0.3.1) and get the matching ask into rightsize.
 
 ## Next action
-
-P-48 implementation is complete. Review changed Codex hooks in Settings > Hooks or /hooks. Test Claude using this checkout with --plugin-dir; follow docs/CODEX-ACCEPTANCE.md for live release validation.
-Verify: python3 -m unittest discover -s tests
-If it fails: inspect the failing test before changing completion state.
+Restart Claude Code so 0.3.1 loads, then say "what's next?" and start P-57: `python3 skills/whatsnext/scripts/whatsnext.py plan start P-57 --agent claude-code`.
+Verify: `python3 skills/whatsnext/scripts/whatsnext.py status` shows P-57 as current.
+If it fails: run `git status` and `plan check`; another session may hold the item.
 
 ## State
-
-P-48 verified: all 490 tests passed through plan done (246 seconds). Local changes are uncommitted and not pushed. Codex has all seven hook registrations installed. Live model acceptance remains unverified.
+State on Tue 2026-11-10 12:10 AM PST (Pacific): whatsnext 0.3.1 released. main = e5a7e3d on GitHub, tag v0.3.1, GitHub Release "whatsnext 0.3.1" is Latest; installed plugin updated 0.3.0 -> 0.3.1 (restart needed). Last checks: 586 Python tests OK in 424 s, 58 hook tests pass, `claude plugin validate` passes. Star ask checked live in ~/scratch/startest: automatic ask, Next tip path, Star on GitHub, thanks line. Backup in Google Drive: whatsnext-backup-20261110.tar.gz.
 
 ## What changed
-
-- Codex wrap-up, conversation freshness and compaction carryover; fork, end and interruption recording.
-- Active task selection, completed-handoff warnings and saved-command verification with recorded overrides.
-- Per-agent runtime observations, execution/status guidance and bidirectional regression coverage.
-- Test fixtures isolate the invoking agent identity.
+413e6ec star ask: hooks/star.ts, hooks/star.test.tsx, hooks/tips.ts, hooks/register.tsx, docs/GUIDE.md, ADR-0021
+a7fc32f, 1898a83 docs/project/PLAN.md: P-65 done* with evidence; P-66 added
+be6bf2a hooks/register.tsx: Next tip asks GitHub before naming repos
+e5a7e3d Release 0.3.1: versions, docs/FEATURES.md Star ask row, README New in 0.3.1
 
 ## Decisions
-
-ADR-0017 records the accepted execution and continuity contract.
+ADR-0021 accepted (docs/decisions/ADR-0021-github-star-ask.md): star ask is a tip, not a slash command; once after the first verified done; shared with rightsize via ~/.config/archid21/stars.json. Release as 0.3.1 (user choice). P-65 closed with --evidence to skip an 11-minute rerun (user choice).
 
 ## Constraints
-
-Python 3.9+, standard library only. Do not push without authorization. Changed Codex hooks require user trust review. The installed Claude GitHub marketplace copy is older; use this checkout locally until a release is published.
+Local only: ask before any push. Do not commit the files that were here before this session: docs/project/handoffs/*.md (untracked), docs/project/progress/journal/P-52.md, tsconfig.json. Keep rightsize's plugins/rightsize/hooks/star.ts in step with hooks/star.ts. Do not edit ~/Projects/rightsize while another session has uncommitted work there.
 
 ## Open questions and blockers
-
-Live Codex/Claude release acceptance and updating the published Claude plugin are outstanding activation steps. See docs/CODEX-ACCEPTANCE.md.
+rightsize welcome table breaks in the CLI: $.ui.log draws one line per call, so newlines show as � and the 79-column table wraps. Fix not started; another session has that code open (plugins/rightsize/hooks/welcome.ts). rightsize star ask is uncommitted in ~/Projects/rightsize and has no band ask yet.
 
 ## Dead ends
-
-A full verification initially failed because WHATSNEXT_AGENT leaked into tests; isolated the test subprocess environment and reran successfully.
+`plan done P-65 --verify "<both suites joined with &&>"`: refused, matches no saved check. Test sessions started from this chat's `!` commands opened in ~/Projects/whatsnext, not ~/scratch/startest; use `cd ~/scratch/startest && claude --plugin-dir ~/Projects/whatsnext`.
