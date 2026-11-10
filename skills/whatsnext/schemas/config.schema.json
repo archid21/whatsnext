@@ -70,6 +70,12 @@
           "pattern": "^[1-9][0-9]*[smh]$",
           "default": "30m",
           "description": "Longest a `plan done <id> --verify \"<cmd>\"` command may run before it is stopped and counted as a failure (ADR-0003). Seconds (90s), minutes (30m) or hours (1h)."
+        },
+        "reuseRunMax": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*[smh]$",
+          "default": "60m",
+          "description": "Oldest saved passing run of the same check, on the same code, that `plan done <id> --verify` reuses instead of running the command again (ADR-0023). Seconds (90s), minutes (60m) or hours (1h)."
         }
       }
     },

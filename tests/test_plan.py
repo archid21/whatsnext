@@ -1329,5 +1329,137 @@ class VerifyTests(PlanBase):
         self.assertIs({v["id"]: v for v in data["items"]}["P-13"]["verified"], True)
 
 
+class ReuseRunTests(PlanBase):
+    """`plan test` and `plan done --verify` reusing a saved pass (P-66, ADR-0023)."""
+
+    def setUp(self):
+        super().setUp()
+        self.count = os.path.join(self.tmp.name, "count.txt")  # outside the project: runs leave the code alone
+        self.cmd = "echo run >> %s" % self.count
+        self.put(PLAN_PATH, PLAN.replace("done means: login tests pass", "done means: `%s` or `true`" % self.cmd))
+        self.commit("reuse plan")
+        self.assertEqual(self.start("P-13", "--branch", "stay").returncode, 0)
+
+    def runs(self):
+        if not os.path.exists(self.count):
+            return 0
+        with open(self.count, encoding="utf-8") as f:
+            return len(f.read().split())
+
+    def run_files(self):
+        folder = os.path.join(self.proj, ".git", "whatsnext", "runs")
+        return sorted(os.path.join(folder, n) for n in os.listdir(folder)) if os.path.isdir(folder) else []
+
+    def test_reuse_run_on_same_code_ticks_without_running(self):
+        r = self.plan("test", "P-13", self.cmd)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("`plan done P-13 --verify` reuses this run", r.stdout)
+        self.assertEqual(self.runs(), 1)
+        self.assertTrue(self.line_of("P-13").startswith("- [ ] P-13"))  # plan test never ticks
+        r = self.plan("done", "P-13", "--verify", self.cmd)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.runs(), 1)  # not run again
+        self.assertIn("reused the passing run of", r.stdout)
+        line = self.line_of("P-13")
+        self.assertTrue(line.startswith("- [x] P-13"), line)
+        self.assertRegex(line, r"evidence: verified: echo run >> .* passed in [0-9.]+ s \(reused run of "
+                               r"\d{4}-\d\d-\d\dT\d\d:\d\dZ\) \(%s\) at [0-9a-f]+ t:[0-9a-f]{8}$" % STAMP)
+
+    def test_reuse_run_survives_a_commit_of_the_same_content(self):
+        self.put("src/app.py", "x = 1\n")
+        self.plan("test", "P-13", self.cmd)
+        self.commit("the work")
+        r = self.plan("done", "P-13", "--verify", self.cmd)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.runs(), 1)
+
+    def test_reuse_run_not_after_a_changed_file(self):
+        self.plan("test", "P-13", self.cmd)
+        self.put("README.md", "changed\n")
+        self.plan("done", "P-13", "--verify", self.cmd)
+        self.assertEqual(self.runs(), 2)
+        self.assertNotIn("reused", self.line_of("P-13"))
+
+    def test_reuse_run_not_after_a_new_or_deleted_file(self):
+        self.plan("test", "P-13", self.cmd)
+        self.put("new.txt", "x\n")
+        self.plan("test", "P-13", self.cmd)
+        os.remove(self.p("new.txt"))
+        os.remove(self.p("README.md"))
+        self.plan("done", "P-13", "--verify", self.cmd)
+        self.assertEqual(self.runs(), 3)
+
+    def test_reuse_run_not_for_a_different_command(self):
+        self.plan("test", "P-13", "true")
+        self.plan("done", "P-13", "--verify", self.cmd)
+        self.assertEqual(self.runs(), 1)  # the done ran it: the saved pass was for `true`
+        self.assertNotIn("reused", self.line_of("P-13"))
+
+    def test_reuse_run_not_when_older_than_the_limit(self):
+        self.plan("test", "P-13", self.cmd)
+        for path in self.run_files():
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            data["epoch"] -= 61 * 60
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+        self.plan("done", "P-13", "--verify", self.cmd)
+        self.assertEqual(self.runs(), 2)
+
+    def test_reuse_run_limit_is_a_setting(self):
+        self.cfg(plan={"reuseRunMax": "1s"})
+        self.plan("test", "P-13", self.cmd)
+        for path in self.run_files():
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            data["epoch"] -= 5
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+        self.plan("done", "P-13", "--verify", self.cmd)
+        self.assertEqual(self.runs(), 2)
+
+    def test_reuse_run_not_after_a_newer_failure(self):
+        fail_cmd = "test -f flag.txt"
+        self.put(PLAN_PATH, self.get(PLAN_PATH).replace("or `true`", "or `%s`" % fail_cmd))
+        self.commit("fail cmd")
+        self.put("flag.txt", "x\n")
+        self.assertEqual(self.plan("test", "P-13", fail_cmd).returncode, 0)
+        os.remove(self.p("flag.txt"))
+        self.assertEqual(self.plan("test", "P-13", fail_cmd).returncode, 1)
+        self.put("flag.txt", "x\n")  # back to the passing code, but the newest run on it ...
+        r = self.plan("done", "P-13", "--verify", fail_cmd)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("reused", r.stdout)  # ... is the pass: the failure was on other code
+
+    def test_reuse_run_fresh_runs_again(self):
+        self.plan("test", "P-13", self.cmd)
+        r = self.plan("done", "P-13", "--verify", self.cmd, "--fresh")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.runs(), 2)
+        self.assertNotIn("reused", self.line_of("P-13"))
+
+    def test_reuse_run_failed_test_is_not_reused(self):
+        self.put(PLAN_PATH, self.get(PLAN_PATH).replace("or `true`", "or `false`"))
+        self.commit("false")
+        self.assertEqual(self.plan("test", "P-13", "false").returncode, 1)
+        r = self.plan("done", "P-13", "--verify", "false")
+        self.assertEqual(r.returncode, 1)
+        self.assertTrue(self.line_of("P-13").startswith("- [ ] P-13"))
+
+    def test_reuse_run_plan_test_refuses_an_unsaved_command(self):
+        r = self.plan("test", "P-13", "echo hi")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("runs only a check saved in P-13's done means", r.stderr)
+        self.assertEqual(self.run_files(), [])
+
+    def test_reuse_run_store_keeps_the_newest_20(self):
+        for _ in range(23):
+            self.plan("test", "P-13", "true")
+        self.assertEqual(len(self.run_files()), 20)
+
+    def line_of(self, item_id):
+        return next(l for l in self.get(PLAN_PATH).split("\n") if l.startswith(("- [ ] %s " % item_id, "- [x] %s " % item_id)))
+
+
 if __name__ == "__main__":
     unittest.main()

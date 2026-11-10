@@ -259,12 +259,26 @@ class Ctx(object):
                     continue
                 try:
                     with open(os.path.join(self.root, name), "rb") as f:
-                        files[name] = hashlib.sha1(f.read()).hexdigest()
+                        data = f.read()
+                    # git's own blob hash, so the file hashes the same before and after it is committed (ADR-0023)
+                    files[name] = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
                 except OSError:
                     files.pop(name, None)  # deleted
             digest = hashlib.sha1("".join("%s\0%s\n" % (n, files[n]) for n in sorted(files)).encode("utf-8", "replace"))
             self._state = (commit, digest.hexdigest()[:8])
+            self._fingerprint = digest.hexdigest()
         return self._state
+
+    def fingerprint(self):
+        """The full hash behind `code_state` (ADR-0023), or None outside git."""
+        self.code_state()
+        return getattr(self, "_fingerprint", None)
+
+    def fresh_fingerprint(self):
+        """The fingerprint computed again, not cached: the code may have changed during a run."""
+        self._state = False
+        self._fingerprint = None
+        return self.fingerprint()
 
     def verify_drift(self, evidence):
         """A short phrase when the code has changed since `plan done --verify` proved an item, else None.
@@ -899,6 +913,92 @@ def stop_group(proc):
         pass
 
 
+# ---- saved runs (ADR-0023) --------------------------------------------------
+
+RUNS_KEEP = 20
+RUN_NAME_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{8}(-\d+)?\.json$")
+REUSE_DEFAULT = 60 * 60
+
+
+def runs_dir(root):
+    """`<git common dir>/whatsnext/runs`, next to the claims; None outside git."""
+    code, out = gwstatus.git(root, "rev-parse", "--git-common-dir")
+    if code != 0 or not out.strip():
+        return None
+    return os.path.join(os.path.abspath(os.path.join(root, out.strip())), "whatsnext", "runs")
+
+
+def save_run(ctx, command, result, fingerprint, stamp):
+    """Save one run; keep the newest RUNS_KEEP. A run without a fingerprint (outside git) is not saved."""
+    folder = runs_dir(ctx.root)
+    if folder is None or not fingerprint:
+        return None
+    try:
+        os.makedirs(folder, exist_ok=True)
+        when = now_utc()
+        base = "%s-%s" % (when.strftime("%Y%m%dT%H%M%SZ"), hashlib.sha1(command.encode("utf-8", "replace")).hexdigest()[:8])
+        path, n = os.path.join(folder, base + ".json"), 1
+        while os.path.lexists(path):
+            n += 1
+            path = os.path.join(folder, "%s-%d.json" % (base, n))
+        write_atomic(path, json.dumps({"command": command, "passed": bool(result["passed"]),
+                                       "seconds": round(result["seconds"], 1), "time": stamp,
+                                       "epoch": when.timestamp(), "fingerprint": fingerprint}) + "\n")
+        names = sorted(n for n in os.listdir(folder) if RUN_NAME_RE.match(n))
+        for old in names[:max(len(names) - RUNS_KEEP, 0)]:
+            try:
+                os.remove(os.path.join(folder, old))
+            except OSError:
+                pass
+        return path
+    except OSError:
+        return None
+
+
+def reuse_limit(ctx):
+    """`plan.reuseRunMax` in seconds; 60 minutes when it cannot be read."""
+    m = VERIFY_TIMEOUT_RE.match(ctx.effective.get("plan.reuseRunMax") or "")
+    if not m:
+        return REUSE_DEFAULT
+    return int(m.group(1)) * {"s": 1, "m": 60, "h": 3600}[m.group(2)]
+
+
+def find_run(ctx, command, fingerprint):
+    """The newest saved pass of exactly `command` on code with `fingerprint`, newer than `plan.reuseRunMax`,
+    as a dict, else None (ADR-0023). A newer failure of the same command on the same code wins: nothing is reused."""
+    folder = runs_dir(ctx.root)
+    if folder is None or not fingerprint or not os.path.isdir(folder) or os.path.islink(folder):
+        return None
+    oldest = now_utc().timestamp() - reuse_limit(ctx)
+    for name in sorted((n for n in os.listdir(folder) if RUN_NAME_RE.match(n)), reverse=True):
+        path = os.path.join(folder, name)
+        if os.path.islink(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as f:
+                run = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(run, dict) or run.get("command") != command or run.get("fingerprint") != fingerprint:
+            continue
+        epoch = run.get("epoch")
+        if not isinstance(epoch, (int, float)) or epoch < oldest or epoch > now_utc().timestamp() + 60:
+            continue
+        return run if run.get("passed") is True else None
+    return None
+
+
+def run_and_save(ctx, command, timeout):
+    """Run `command`, then save it when the code was the same before and after the run. Returns (result, stamp)."""
+    before = ctx.fresh_fingerprint()
+    result = run_verify(ctx.root, command, timeout)
+    stamp = gwstatus.stamp_time()
+    after = ctx.fresh_fingerprint()
+    if before and before == after:
+        save_run(ctx, command, result, before, stamp)
+    return result, stamp
+
+
 def run_verify(root, command, timeout):
     """Run `command` in a shell from `root`, stdout and stderr together. The command text comes only
     from the caller. Returns a dict: passed, exit_code (None when none), seconds, timed_out, error, output (bytes)."""
@@ -986,7 +1086,7 @@ def done_verified(ctx, args):
     saved = parts[0] if len(parts) == 1 else None
     typed = args.verify
     command = typed if typed.strip() else saved
-    reason = clean(args.override_reason) if args.override_reason else None
+    reason = clean(args.override_reason) if getattr(args, "override_reason", None) else None
     if not command:
         if parts:
             listing = "; ".join("`%s`" % p for p in parts)
@@ -995,6 +1095,9 @@ def done_verified(ctx, args):
         return fail("%s has no backticked command in done means. Supply --verify CMD and an approved --override-reason, "
                     "or use --evidence for a manual check." % item.id)
     matched = next((part for part in parts if command == part), None)
+    if matched is None and getattr(args, "test_only", False):
+        return fail("`plan test` runs only a check saved in %s's done means: %s." % (
+            item.id, "; ".join("`%s`" % p for p in parts) or "none"))
     if matched is None and not reason:
         return ask(args.json, "verify_override", "The proposed command matches none of %s's saved completion checks. "
                    "Approve this replacement?" % item.id,
@@ -1002,15 +1105,25 @@ def done_verified(ctx, args):
                    answer='--override-reason "<user-approved reason>"', free_text=True)
     if matched is not None:
         command = matched  # Execute exactly the saved check whose approval is being reused.
+    if getattr(args, "test_only", False):
+        return test_run(ctx, args, item, command)
     if pipe_without_pipefail(command):
         print(PIPE_WARNING, file=sys.stderr)
     timeout = verify_timeout(ctx)
-    result = run_verify(ctx.root, command, timeout)
-    stamp = gwstatus.stamp_time()
+    reused = None if getattr(args, "fresh", False) else find_run(ctx, command, ctx.fresh_fingerprint())
+    if reused:
+        result = {"passed": True, "exit_code": 0, "seconds": float(reused.get("seconds") or 0), "timed_out": False,
+                  "error": None, "output": b""}
+        stamp = gwstatus.stamp_time()
+    else:
+        result, stamp = run_and_save(ctx, command, timeout)
     info = {"command": command, "passed": result["passed"], "exit_code": result["exit_code"],
-            "seconds": round(result["seconds"], 1), "timed_out": result["timed_out"], "time": stamp}
+            "seconds": round(result["seconds"], 1), "timed_out": result["timed_out"], "time": stamp,
+            "reused": reused.get("time") if reused else None}
     if result["passed"]:
         evidence = "%s %s passed in %s" % (VERIFIED_PREFIX, short_command(command), format_seconds(result["seconds"]))
+        if reused:
+            evidence += " (reused run of %s)" % reused.get("time")
         if reason:
             evidence += "; override: " + reason
         state = ctx.code_state()  # taken before mark_done writes the plan and progress files
@@ -1019,13 +1132,12 @@ def done_verified(ctx, args):
             ok, message = mark_for_review(ctx, args.id, evidence_text(evidence, False, stamp) + suffix)
             if ok:
                 gwstatus.set_note(ctx.folder, args.id, "confirmed", stamp)
-                message = "Verified: %s passed in %s. %s" % (short_command(command), format_seconds(result["seconds"]),
-                                                             message)
+                message = "%s %s" % (verified_text(command, result, reused), message)
             return report(args, ok, message, {"id": args.id, "done": False, "awaiting_review": ok, "verify": info})
         ok, message = mark_done(ctx, args.id, evidence, False, stamp=stamp, suffix=suffix)
         if ok:
             gwstatus.set_note(ctx.folder, args.id, "confirmed", stamp)
-            message = "%s Verified: %s passed in %s." % (message, short_command(command), format_seconds(result["seconds"]))
+            message = "%s %s" % (message, verified_text(command, result, reused))
         return report(args, ok, message, {"id": args.id, "done": ok, "verify": info})
     reason = failure_reason(result, timeout)
     tail = output_tail(result["output"])
@@ -1041,6 +1153,43 @@ def done_verified(ctx, args):
         for line in tail:
             print("    " + line, file=sys.stderr)
     return 1
+
+
+def verified_text(command, result, reused):
+    if reused:
+        return "Verified: reused the passing run of %s (%s, %s); the code is unchanged since. Use --fresh to run it again." % (
+            reused.get("time"), short_command(command), format_seconds(result["seconds"]))
+    return "Verified: %s passed in %s." % (short_command(command), format_seconds(result["seconds"]))
+
+
+def test_run(ctx, args, item, command):
+    """`plan test <id>`: run the item's saved check and save the run (ADR-0023); never tick the item."""
+    if pipe_without_pipefail(command):
+        print(PIPE_WARNING, file=sys.stderr)
+    timeout = verify_timeout(ctx)
+    result, stamp = run_and_save(ctx, command, timeout)
+    tail = output_tail(result["output"])
+    if result["passed"]:
+        message = ("Passed: %s in %s. `plan done %s --verify` reuses this run while the code is unchanged."
+                   % (short_command(command), format_seconds(result["seconds"]), item.id))
+    else:
+        message = "Failed (%s, %s): %s." % (failure_reason(result, timeout), format_seconds(result["seconds"]),
+                                            short_command(command))
+    if args.json:
+        print(json.dumps({"id": item.id, "command": command, "passed": result["passed"], "time": stamp,
+                          "seconds": round(result["seconds"], 1), "output_tail": tail, "message": message}, indent=2))
+    else:
+        for line in tail:
+            print("    " + line)
+        print(message)
+    return 0 if result["passed"] else 1
+
+
+def cmd_test(ctx, args):
+    args.test_only = True
+    args.verify = args.command or ""
+    args.override_reason = None
+    return done_verified(ctx, args)
 
 
 def cmd_done(ctx, args):
@@ -1976,6 +2125,11 @@ def build_parser():
     p.add_argument("--unverified", action="store_true")
     p.add_argument("--verify", nargs="?", const="", metavar="CMD", help="run the backticked command in done means (bare --verify, when there is exactly one), or CMD when it matches one of them (exact text); any other command needs --override-reason")
     p.add_argument("--override-reason", help="user-approved reason for replacing the saved command; recorded with the evidence")
+    p.add_argument("--fresh", action="store_true", help="run the command even when a recent passing run on the same code is saved (ADR-0023)")
+    p.add_argument("--json", action="store_true")
+    p = sub.add_parser("test", help="run an item's saved check and save the run for --verify to reuse; never ticks it (ADR-0023)")
+    p.add_argument("id")
+    p.add_argument("command", nargs="?", help="one of the backticked commands in done means (default: the only one)")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("review", help="a person approved an item awaiting review (ADR-0022); --reject sends it back")
     p.add_argument("id")
@@ -2022,6 +2176,6 @@ def run(argv, cwd=None):
     ctx = Ctx.load(cwd)
     if args.action is None:
         args.action, args.json = "list", False
-    handler = {"list": cmd_list, "next": cmd_next, "check": cmd_check, "start": cmd_start, "done": cmd_done, "review": cmd_review, "edit": cmd_edit, "reopen": cmd_reopen,
+    handler = {"list": cmd_list, "next": cmd_next, "check": cmd_check, "start": cmd_start, "done": cmd_done, "review": cmd_review, "test": cmd_test, "edit": cmd_edit, "reopen": cmd_reopen,
                "keep": cmd_keep, "put-back": cmd_release, "add": cmd_add, "drop": cmd_drop, "move": cmd_move}[args.action]
     return handler(ctx, args)

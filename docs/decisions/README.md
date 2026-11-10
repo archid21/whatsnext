@@ -26,3 +26,4 @@ Dates are UTC. This list is the current set of decisions for whatsnext. Earlier 
 | 0020 | 2026-11-09T20:11Z | Parallel sessions in one checkout: session-aware claims, a worktree by default, an "always" offer after two equal answers | accepted (user) | [ADR-0020](ADR-0020-parallel-sessions-in-one-checkout.md) |
 | 0021 | 2026-11-10T06:45Z | Ask once for a GitHub star in the tips band, shared with rightsize | accepted (user) | [ADR-0021](ADR-0021-github-star-ask.md) |
 | 0022 | 2026-11-10T18:26Z | An item can need a person's review after its check passes | accepted (user) | [ADR-0022](ADR-0022-human-review.md) |
+| 0023 | 2026-11-10T20:46Z | Mark done can reuse a recent passing run of the same check | accepted (user) | [ADR-0023](ADR-0023-reuse-a-passing-run.md) |

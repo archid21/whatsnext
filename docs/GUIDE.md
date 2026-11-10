@@ -196,6 +196,7 @@ Settings you may want:
 | `plan.branchOnStart` | `ask` | Whether Start asks about a branch |
 | `plan.tickGuard` | `warn` | Warn when a plan item is ticked by hand |
 | `plan.verifyTimeout` | `30m` | How long a `--verify` command may run |
+| `plan.reuseRunMax` | `60m` | How old a passing run of the same check on the same code may be for `--verify` to reuse it (ADR-0023) |
 | `note.staleDays` | `7` | Age at which the resume note warns |
 | `note.carryAfterCompact` | `true` | Repeat your latest request in the resume note after a compact |
 | `wrapup.autoIdle` | `false` | Claude Code only: say `wrap up` for you once, 45 minutes after your last turn, before Claude Code's own idle compact (see below) |
