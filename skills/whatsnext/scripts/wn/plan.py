@@ -229,10 +229,14 @@ class Ctx(object):
         return cls(root, gwconfig.load(root))
 
     def bookkeeping(self):
-        """Paths whatsnext itself writes (the plan, the progress folder, `.whatsnext/`), as git prints them."""
+        """Paths whatsnext itself writes (the plan, the progress folder, `.whatsnext/`, the handoff note and its
+        `handoffs/` archive), as git prints them. A wrap-up between `plan test` and `plan done` keeps the run reusable."""
         code, out = gwstatus.git(self.root, "rev-parse", "--show-prefix")
         prefix = out.strip() if code == 0 else ""
+        handoff = gwwrapup.handoff_path(self.root, self.effective)
         return (gwjournal.rel_path(self.root, prefix, self.plan_path),
+                gwjournal.rel_path(self.root, prefix, handoff),
+                gwjournal.rel_path(self.root, prefix, os.path.join(os.path.dirname(handoff), gwwrapup.ARCHIVE_DIR)) + "/",
                 gwjournal.rel_path(self.root, prefix, self.folder) + "/",
                 gwjournal.rel_path(self.root, prefix, os.path.join(self.root, gwjournal.SESSIONS_DIR)) + "/")
 

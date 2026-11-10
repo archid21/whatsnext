@@ -1373,6 +1373,15 @@ class ReuseRunTests(PlanBase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.runs(), 1)
 
+    def test_reuse_run_survives_a_wrap_up(self):
+        self.plan("test", "P-13", self.cmd)
+        self.put("docs/project/HANDOFF.md", "# Handoff\n")
+        self.put("docs/project/handoffs/20261110T0810Z-none.md", "# Handoff\n")
+        self.commit("wrap up")
+        r = self.plan("done", "P-13", "--verify", self.cmd)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.runs(), 1)
+
     def test_reuse_run_not_after_a_changed_file(self):
         self.plan("test", "P-13", self.cmd)
         self.put("README.md", "changed\n")
