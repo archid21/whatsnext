@@ -20,7 +20,7 @@ from .util import now_utc, write_atomic
 PLACEHOLDER = "(to fill in)"
 FIELD_RE = re.compile(r"^- \*\*([^:*]+):\*\*[ \t]*(.*?)\s*$")
 H2_RE = re.compile(r"^## (.*?)\s*$")
-STATES = ("active", "blocked", "parked", "done")
+STATES = ("active", "blocked", "parked", "review", "done")
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 H1_RE = re.compile(r"^# (.*?)\s*$")
 MAX_LISTED_FILES = 5

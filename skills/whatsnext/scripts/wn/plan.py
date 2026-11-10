@@ -69,6 +69,7 @@ class Item(object):
         self.index = index  # line number (0-based) in the file
         self.blocked_by = []  # ids named by a `blocked by: P-3, P-5` field (P-13)
         self.suggest = ""  # the `suggest: <model>/<effort>` hint as written (ADR-0012)
+        self.review = False  # a `review: required` field: a person reviews it after its check passes (ADR-0022)
 
 
 def strip_comments(line, in_comment):
@@ -112,6 +113,9 @@ def parse_rest(rest):
 
 BLOCKED_RE = re.compile(r"^blocked by\s*:\s*(.*)$", re.I)
 SUGGEST_RE = re.compile(r"^suggest\s*:\s*(.*)$", re.I)
+REVIEW_RE = re.compile(r"^review\s*:\s*required\b", re.I)
+REJECTED_PREFIX = "rejected:"  # evidence `plan review --reject` writes in front of the old run (ADR-0022)
+AWAITING = "awaiting review"
 SUGGEST_MAX = 60
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
@@ -124,6 +128,11 @@ def parse_suggest(rest):
         if m:
             return CONTROL_RE.sub("", " ".join(m.group(1).split()))[:SUGGEST_MAX]
     return ""
+
+
+def parse_review(rest):
+    """True when the text after the item id has a `review: required` field (ADR-0022)."""
+    return any(REVIEW_RE.match(part.strip()) for part in FIELD_SPLIT_RE.split(rest.strip()))
 
 
 def parse_blocked_by(rest):
@@ -157,6 +166,7 @@ def parse_text(text):
             item = Item(m.group(4), title, m.group(2) in "xX", done_means, evidence, section, i)
             item.blocked_by = parse_blocked_by(m.group(5))
             item.suggest = parse_suggest(m.group(5))
+            item.review = parse_review(m.group(5))
             items.append(item)
     return lines, items
 
@@ -286,6 +296,7 @@ class Ctx(object):
         out = [self.view(it, tasks.get(it.id), claim_map.get(it.id)) for it in items]
         for view, it in zip(out, items):  # P-13: the ids this item waits for that are still open
             view["suggest"] = it.suggest
+            view["review"] = it.review
             view["blocked_by"] = list(it.blocked_by)
             view["blocked_on"] = [i for i in it.blocked_by if i in open_ids and i != it.id]
         return out
@@ -296,6 +307,8 @@ class Ctx(object):
             status = "done"
         elif task is not None and task.state == "blocked":
             status = "blocked"
+        elif item.review and not claim and is_verified(item.evidence):
+            status = AWAITING  # ADR-0022: the check passed; a person has not reviewed it yet
         elif claim:
             status = "in progress"
             updated = task.field("updated") if task is not None else None
@@ -961,8 +974,15 @@ def done_verified(ctx, args):
         if reason:
             evidence += "; override: " + reason
         state = ctx.code_state()  # taken before mark_done writes the plan and progress files
-        ok, message = mark_done(ctx, args.id, evidence, False, stamp=stamp,
-                                suffix=" at %s t:%s" % state if state else "")
+        suffix = " at %s t:%s" % state if state else ""
+        if item.review:  # ADR-0022: the run is recorded; the box waits for a person's review
+            ok, message = mark_for_review(ctx, args.id, evidence_text(evidence, False, stamp) + suffix)
+            if ok:
+                gwstatus.set_note(ctx.folder, args.id, "confirmed", stamp)
+                message = "Verified: %s passed in %s. %s" % (short_command(command), format_seconds(result["seconds"]),
+                                                             message)
+            return report(args, ok, message, {"id": args.id, "done": False, "awaiting_review": ok, "verify": info})
+        ok, message = mark_done(ctx, args.id, evidence, False, stamp=stamp, suffix=suffix)
         if ok:
             gwstatus.set_note(ctx.folder, args.id, "confirmed", stamp)
             message = "%s Verified: %s passed in %s." % (message, short_command(command), format_seconds(result["seconds"]))
@@ -991,13 +1011,71 @@ def cmd_done(ctx, args):
         return done_verified(ctx, args)
     if args.override_reason:
         return fail("--override-reason requires --verify.")
+    item = next((it for it in ctx.items() if it.id == args.id), None)
+    if item is not None and item.review and not item.checked:
+        return fail("%s needs a person's review (ADR-0022). Run `plan done %s --verify`, then `plan review %s` "
+                    "after the person approves." % (args.id, args.id, args.id))
     if not (args.evidence or args.unverified):
-        item = next((it for it in ctx.items() if it.id == args.id), None)
         if item is None:
             return fail("No item %s in %s." % (args.id, ctx.plan_rel))
         return ask_evidence(args.json, args.id, item.title)
     ok, message = mark_done(ctx, args.id, args.evidence, args.unverified)
     return report(args, ok, message, {"id": args.id, "done": ok})
+
+
+def mark_for_review(ctx, item_id, text):
+    """ADR-0022: write the passing run as the item's evidence, leave the box unchecked, set the progress file's
+    State to review and release the claim. Returns (ok, message)."""
+    if not rewrite_item(ctx.plan_path, item_id, lambda line: with_field(line, "evidence: " + text)):
+        return False, "No item %s in %s." % (item_id, ctx.plan_rel)
+    holder = gwclaims.read(ctx.root, item_id)
+    if os.path.isfile(gwstatus.task_path(ctx.folder, item_id)):
+        rel = gwstatus.stamp_file(ctx.root, ctx.folder, ctx.effective, item_id, state="review")
+        gwstatus.emit(ctx.effective, item_id, rel, "stamp")
+    gwclaims.release(ctx.root, item_id)
+    ctx.emit("task.review", {"id": item_id, "agent": holder.get("agent") if holder else None, "evidence": text})
+    return True, ("%s is %s. Ask the person to review it, then run `plan review %s` (or `--reject \"<reason>\"`)."
+                  % (item_id, AWAITING, item_id))
+
+
+def cmd_review(ctx, args):
+    """`plan review <id>`: a person approved the item after its check passed; `--reject "<reason>"` sends it back
+    to open (ADR-0022). Run it only after the person said so in chat."""
+    if not ctx.has_plan():
+        return fail(no_plan(ctx))
+    views = {v["id"]: v for v in ctx.views()}
+    view = views.get(args.id)
+    if view is None:
+        return fail("No item %s in %s." % (args.id, ctx.plan_rel))
+    if view["status"] != AWAITING:
+        why = "it has no `review: required` field" if not view.get("review") else "it is %s" % view["status"]
+        return fail("%s is not awaiting review: %s. Only an item whose check passed with `plan done --verify` "
+                    "can be reviewed." % (args.id, why))
+    stamp = gwstatus.stamp_time()
+    if args.reject is not None:
+        reason = clean(args.reject)
+        if not reason:
+            return fail("--reject needs the person's reason.")
+        ok = rewrite_item(ctx.plan_path, args.id,
+                          lambda line: with_field(line, "evidence: %s %s (%s)" % (REJECTED_PREFIX, reason, stamp)))
+        if ok and os.path.isfile(gwstatus.task_path(ctx.folder, args.id)):
+            rel = gwstatus.stamp_file(ctx.root, ctx.folder, ctx.effective, args.id, state="parked")
+            gwstatus.emit(ctx.effective, args.id, rel, "stamp")
+        ctx.emit("task.review_rejected", {"id": args.id, "reason": reason})
+        message = "Rejected %s: %s. It is open again; a fresh `plan done %s --verify` is needed." % (args.id, reason, args.id)
+        return report(args, ok, message, {"id": args.id, "done": False, "rejected": ok})
+
+    def change(line):
+        line = re.sub(r"\[ \]", "[x]", line, count=1)
+        return line.rstrip() + " · reviewed: " + stamp
+
+    if not rewrite_item(ctx.plan_path, args.id, change):
+        return fail("No item %s in %s." % (args.id, ctx.plan_rel))
+    if os.path.isfile(gwstatus.task_path(ctx.folder, args.id)):
+        rel = gwstatus.stamp_file(ctx.root, ctx.folder, ctx.effective, args.id, state="done")
+        gwstatus.emit(ctx.effective, args.id, rel, "stamp")
+    ctx.emit("task.done", {"id": args.id, "agent": None, "evidence": view["evidence"], "reviewed": stamp})
+    return report(args, True, "Marked %s done. Reviewed %s." % (args.id, stamp), {"id": args.id, "done": True})
 
 
 def cmd_keep(ctx, args):
@@ -1694,6 +1772,10 @@ def build_parser():
     p.add_argument("--verify", nargs="?", const="", metavar="CMD", help="run the backticked command in done means (bare --verify, when there is exactly one), or CMD when it matches one of them (exact text); any other command needs --override-reason")
     p.add_argument("--override-reason", help="user-approved reason for replacing the saved command; recorded with the evidence")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("review", help="a person approved an item awaiting review (ADR-0022); --reject sends it back")
+    p.add_argument("id")
+    p.add_argument("--reject", metavar="REASON", help="the person's reason; the item is open again and needs a fresh --verify")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("add", help="add an item to the plan (the next free id, in the plan's format)")
     p.add_argument("title")
     p.add_argument("--done-means", help="how we know it is done, ideally a command (asked for when left out)")
@@ -1725,6 +1807,6 @@ def run(argv, cwd=None):
     ctx = Ctx.load(cwd)
     if args.action is None:
         args.action, args.json = "list", False
-    handler = {"list": cmd_list, "next": cmd_next, "check": cmd_check, "start": cmd_start, "done": cmd_done,
+    handler = {"list": cmd_list, "next": cmd_next, "check": cmd_check, "start": cmd_start, "done": cmd_done, "review": cmd_review,
                "keep": cmd_keep, "put-back": cmd_release, "add": cmd_add, "drop": cmd_drop, "move": cmd_move}[args.action]
     return handler(ctx, args)
