@@ -1225,6 +1225,171 @@ def cmd_add(ctx, args):
     return report(args, True, "Added %s to %s: %s" % (item_id, section, title), {"id": item_id, "section": section})
 
 
+# ---- edit and reopen (P-59) -------------------------------------------------
+
+REVIEWED_RE = re.compile(r"^reviewed\s*:", re.I)
+
+
+def split_item(line):
+    """(head, colon, parts) of an item line: `head` is `- [ ] P-13`, `colon` whether a `:` followed the id, `parts`
+    the title and fields as written. None for a line that is not an item."""
+    m = ITEM_RE.match(line)
+    if m is None:
+        return None
+    rest = m.group(5).strip()
+    colon = rest.startswith(":")
+    if colon:
+        rest = rest[1:].strip()
+    parts = [p.strip() for p in FIELD_SPLIT_RE.split(rest) if p.strip()]
+    return m.group(1) + "[" + m.group(2) + "]" + m.group(3) + m.group(4), colon, parts
+
+
+def join_item(head, colon, parts):
+    return head + (":" if colon else "") + " " + " · ".join(parts)
+
+
+def title_index(parts):
+    """Index of the title part, as `parse_rest` reads it: the first part that is not done means or evidence."""
+    return next((i for i, p in enumerate(parts) if not FIELD_RE.match(p)), None)
+
+
+def done_means_index(parts):
+    return next((i for i, p in enumerate(parts) if (FIELD_RE.match(p) or [None, ""])[1].lower() == "done means"), None)
+
+
+def is_evidence_part(part):
+    m = FIELD_RE.match(part)
+    return bool((m and m.group(1).lower() == "evidence") or REVIEWED_RE.match(part))
+
+
+def edit_parts(parts, title=None, done_means=None):
+    """`parts` with a new title and/or done means; (parts, old title, old done means)."""
+    parts = list(parts)
+    old_title = old_means = ""
+    if title is not None:
+        i = title_index(parts)
+        if i is None:
+            parts.insert(0, title)
+        else:
+            old_title, parts[i] = parts[i], title
+    if done_means is not None:
+        i = done_means_index(parts)
+        field = "done means: " + done_means
+        if i is None:
+            t = title_index(parts)
+            parts.insert(0 if t is None else t + 1, field)
+        else:
+            old_means, parts[i] = FIELD_RE.match(parts[i]).group(2).strip(), field
+    return parts, old_title, old_means
+
+
+def editable_line(ctx, item_id):
+    """(lines, item, split) for an item whose line whatsnext can rewrite, or (None, None, message)."""
+    lines, items = parse_text(read_plan(ctx.plan_path))
+    item = next((it for it in items if it.id == item_id), None)
+    if item is None:
+        return None, None, "No item %s in %s." % (item_id, ctx.plan_rel)
+    raw = lines[item.index].rstrip("\r")
+    if "<!--" in raw or "-->" in raw:
+        return None, None, "%s's line has an HTML comment; edit it by hand in %s." % (item_id, ctx.plan_rel)
+    found = split_item(raw)
+    if found is None:
+        return None, None, "No item %s in %s." % (item_id, ctx.plan_rel)
+    return lines, item, found
+
+
+def write_item(ctx, lines, item, text):
+    tail = "\r" if lines[item.index].endswith("\r") else ""
+    lines[item.index] = text + tail
+    write_atomic(ctx.plan_path, "\n".join(lines))
+
+
+def one_line(value, name):
+    """`value` tidied for a PLAN.md field, or raises ValueError with the message to show."""
+    text = clean(value)
+    if not text:
+        raise ValueError("%s must not be empty." % name)
+    return text
+
+
+def cmd_edit(ctx, args):
+    """`plan edit <id> --title ... --done-means ...`: change the title or done means; the id and every other field
+    stay. The old text goes to the progress file's History (P-59)."""
+    if not ctx.has_plan():
+        return fail(no_plan(ctx))
+    if args.title is None and args.done_means is None:
+        return fail("plan edit needs --title, --done-means or both.")
+    try:
+        title = one_line(args.title, "--title") if args.title is not None else None
+        means = one_line(args.done_means, "--done-means") if args.done_means is not None else None
+    except ValueError as e:
+        return fail(str(e))
+    lines, item, found = editable_line(ctx, args.id)
+    if lines is None:
+        return fail(found)
+    if means is not None and item.checked:
+        return fail("%s is done, so its done means is what it was checked against. Reopen it with the new check: "
+                    "`plan reopen %s --reason \"<why>\" --done-means \"<text>\"`." % (args.id, args.id))
+    head, colon, parts = found
+    if title is not None and title == item.title:
+        title = None
+    if means is not None and means == item.done_means:
+        means = None
+    if title is None and means is None:
+        return report(args, True, "%s is unchanged." % args.id, {"id": args.id, "changed": False})
+    parts, old_title, old_means = edit_parts(parts, title, means)
+    history = []
+    if title is not None:
+        history.append("edited title: %s -> %s" % (old_title or "(none)", title))
+    if means is not None:
+        history.append("edited done means: %s -> %s" % (old_means or "(none)", means))
+        old_evidence = [p for p in parts if is_evidence_part(p)]
+        if old_evidence:  # the run proved the old check: it no longer counts (ADR-0022 items awaiting review)
+            parts = [p for p in parts if not is_evidence_part(p)]
+            history.append("cleared for the new check: " + "; ".join(old_evidence))
+    write_item(ctx, lines, item, join_item(head, colon, parts))
+    shown = title or item.title
+    for entry in history:
+        rel = gwstatus.add_history(ctx.root, ctx.folder, args.id, shown, entry)
+    gwstatus.emit(ctx.effective, args.id, rel, "stamp")
+    ctx.emit("task.edited", {"id": args.id, "title": title, "done_means": means})
+    message = "Edited %s. The old text is in %s under History." % (args.id, rel)
+    return report(args, True, message, {"id": args.id, "changed": True, "history": history})
+
+
+def cmd_reopen(ctx, args):
+    """`plan reopen <id> --reason ...`: uncheck a done item; its evidence moves to the progress file's History and
+    a fresh `plan done` is needed (P-59). `--done-means` changes the check in the same step."""
+    if not ctx.has_plan():
+        return fail(no_plan(ctx))
+    try:
+        reason = one_line(args.reason, "--reason")
+        means = one_line(args.done_means, "--done-means") if args.done_means is not None else None
+    except ValueError as e:
+        return fail(str(e))
+    lines, item, found = editable_line(ctx, args.id)
+    if lines is None:
+        return fail(found)
+    if not item.checked:
+        return fail("%s is not done, so there is nothing to reopen. Use `plan edit %s` to change it." % (args.id, args.id))
+    head, colon, parts = found
+    old = [p for p in parts if is_evidence_part(p)]
+    parts = [p for p in parts if not is_evidence_part(p)]
+    history = ["reopened: %s; was: %s" % (reason, "; ".join(old) or "no evidence")]
+    if means is not None and means != item.done_means:
+        parts, _t, old_means = edit_parts(parts, None, means)
+        history.append("edited done means: %s -> %s" % (old_means or "(none)", means))
+    head = re.sub(r"\[[xX]\]", "[ ]", head, count=1)
+    write_item(ctx, lines, item, join_item(head, colon, parts))
+    for i, entry in enumerate(history):
+        rel = gwstatus.add_history(ctx.root, ctx.folder, args.id, item.title, entry, state="parked" if i == 0 else None)
+    gwstatus.emit(ctx.effective, args.id, rel, "stamp")
+    ctx.emit("task.reopened", {"id": args.id, "reason": reason, "evidence": old})
+    message = ("Reopened %s: %s. Its old evidence is in %s under History; a fresh `plan done %s` is needed."
+               % (args.id, reason, rel, args.id))
+    return report(args, True, message, {"id": args.id, "reopened": True, "history": history})
+
+
 def cmd_drop(ctx, args):
     if not ctx.has_plan():
         return fail(no_plan(ctx))
@@ -1776,6 +1941,16 @@ def build_parser():
     p.add_argument("id")
     p.add_argument("--reject", metavar="REASON", help="the person's reason; the item is open again and needs a fresh --verify")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("edit", help="change an item's title or done means; the id and other fields stay (P-59)")
+    p.add_argument("id")
+    p.add_argument("--title")
+    p.add_argument("--done-means")
+    p.add_argument("--json", action="store_true")
+    p = sub.add_parser("reopen", help="uncheck a done item; its evidence moves to the progress file's History (P-59)")
+    p.add_argument("id")
+    p.add_argument("--reason", required=True, help="why it is reopened")
+    p.add_argument("--done-means", help="a new done means, set in the same step")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("add", help="add an item to the plan (the next free id, in the plan's format)")
     p.add_argument("title")
     p.add_argument("--done-means", help="how we know it is done, ideally a command (asked for when left out)")
@@ -1807,6 +1982,6 @@ def run(argv, cwd=None):
     ctx = Ctx.load(cwd)
     if args.action is None:
         args.action, args.json = "list", False
-    handler = {"list": cmd_list, "next": cmd_next, "check": cmd_check, "start": cmd_start, "done": cmd_done, "review": cmd_review,
+    handler = {"list": cmd_list, "next": cmd_next, "check": cmd_check, "start": cmd_start, "done": cmd_done, "review": cmd_review, "edit": cmd_edit, "reopen": cmd_reopen,
                "keep": cmd_keep, "put-back": cmd_release, "add": cmd_add, "drop": cmd_drop, "move": cmd_move}[args.action]
     return handler(ctx, args)

@@ -411,6 +411,34 @@ def write_next(root, folder, task_id, text, mark="confirmed"):
     return gwconfig.display_path(path, root), where
 
 
+HISTORY = "History"
+
+
+def add_history(root, folder, task_id, title, entry, state=None):
+    """P-59: add `- <UTC> <entry>` to the task's `## History` section, which keeps what `plan edit` and
+    `plan reopen` changed (old titles, done means and evidence). A task with no progress file gets one, parked so it
+    never becomes the active task. `state` also sets State. Returns the display path."""
+    path = task_path(folder, task_id)
+    when = stamp_time()
+    if not os.path.isfile(path):
+        text = TEMPLATE % {"id": task_id, "title": " ".join(title.split()) or task_id, "agent": "unknown",
+                           "branch": NONE, "commit": NONE, "updated": when, "placeholder": PLACEHOLDER}
+        text = text.replace("- **State:** active", "- **State:** parked", 1)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        write_text(path, text)
+    with open(path, encoding="utf-8", newline="") as f:
+        lines = f.read().split("\n")
+    check_format(lines, path)
+    old = get_section(lines, HISTORY)
+    line = "- %s %s" % (when, " ".join(entry.split()))
+    set_section(lines, HISTORY, (old + "\n" + line).strip())
+    if state:
+        set_field(lines, "State", state)
+    set_field(lines, "Updated", when)
+    write_text(path, "\n".join(lines))
+    return gwconfig.display_path(path, root)
+
+
 def set_note(folder, task_id, mark, when=None):
     """Set the Note trust mark of an existing progress file (`confirmed (<time>)`), refresh Updated.
     Returns False when the task has no progress file. Not for `auto`: use write_next, which guards."""
