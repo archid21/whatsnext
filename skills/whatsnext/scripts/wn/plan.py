@@ -633,7 +633,47 @@ def check(ctx):
         warnings.append("%s block each other (%s), so none of them can start. Remove one `blocked by:`." % (
             and_list(cycle), cycle_text(cycle)))
     warnings.extend(drift_warnings(ctx, items))
+    warnings.extend("%s is done, not merged: branch %s is not in %s." % (item_id, branch, main)
+                    for item_id, branch, main in unmerged_done(ctx, items))
     return errors, warnings
+
+
+def unmerged_done(ctx, items):
+    """P-60: (id, branch, main) for each done item whose progress file names a local branch that is not merged into
+    the main branch (`git branch --merged`). A branch whose every commit is already in main by content (`git cherry`
+    shows no `+`, as after a cherry-pick) counts as merged. Items without a progress file or branch, on main itself,
+    or on a deleted branch are skipped. Git runs once per branch, not once per item."""
+    if not gwstatus.in_git(ctx.root):
+        return []
+    tasks = ctx.tasks()
+    wanted = []
+    for it in items:
+        task = tasks.get(it.id)
+        branch = (task.field("branch") if task is not None else "") or ""
+        if it.checked and branch and branch.lower() not in (gwstatus.NONE, "unknown", "(detached)"):
+            wanted.append((it.id, branch))
+    if not wanted:
+        return []
+    main = default_branch(ctx.root)
+    if main == "HEAD":
+        return []
+    code, out, _err = run_git(ctx.root, "branch", "--merged", main, "--format=%(refname:short)")
+    if code != 0:
+        return []
+    merged = set(out.split())
+    verdict = {}
+    found = []
+    for item_id, branch in wanted:
+        if branch not in verdict:
+            local = main.split("/", 1)[1] if main.startswith("origin/") else main
+            if branch in (main, local) or branch in merged or not branch_exists(ctx.root, branch):
+                verdict[branch] = True
+            else:
+                code, out, _err = run_git(ctx.root, "cherry", main, branch)
+                verdict[branch] = code == 0 and not any(l.startswith("+") for l in out.splitlines())
+        if not verdict[branch]:
+            found.append((item_id, branch, main))
+    return found
 
 
 def drift_warnings(ctx, items):
