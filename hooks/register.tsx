@@ -1,5 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 
+import { CONTINUE, newSessionPrompt, terminalNotice, writtenSince } from './newchat'
 import { IDLE_MS, WRAP_UP, minTokens, saveTipKind, skipReason, type IdleFacts } from './idle'
 import { ME, REPOS, SHARED_PATH, askText, blockedByClaim, parseShared, readStarCheck, reposToAsk, type Shared } from './star'
 import { GUIDE, TIPS, loadState, markSeen, nextTip, restartTips, stopTips, type Tip } from './tips'
@@ -21,6 +22,11 @@ const PROGRESS_FOLDER = 'docs/project/progress'
 let idleTimer: { cancel: () => void } | undefined
 let askedThisPeriod = false
 const SCRIPT = 'skills/whatsnext/scripts/whatsnext.py'
+
+// Start fresh after a wrap-up (P-67, ADR-0024). `wrapAskedAt` is when this session's `wrap up` was submitted; when
+// that turn ends with the handoff note written, the band offers New session and Clear and continue until a prompt.
+let wrapAskedAt: number | undefined
+let afterWrap = false
 
 // GitHub star ask (P-65, ADR-0021). `star` in `$.store` says a verified done has happened (the milestone). The shared
 // file (./star.ts) says whether rightsize is installed, what is starred, and whether the person answered.
@@ -256,6 +262,59 @@ async function idleWrapUp($: EngineInterface) {
   }
 }
 
+// The handoff note's path, as whatsnext resolves it (a setting or AGENTS.md can move it). undefined on any failure.
+async function handoffPath($: EngineInterface) {
+  const cwd = await $.session.cwd()
+  const ran = await $.process.run(['python3', `${$.plugin.root}/${SCRIPT}`, 'status', '--json'], { cwd, timeoutMs: 10_000 })
+  if (ran.exitCode !== 0) return undefined
+  const path = (JSON.parse(ran.stdout) as { handoff?: { path?: unknown } }).handoff?.path
+
+  return typeof path === 'string' && path ? (path.startsWith('/') ? path : `${cwd}/${path}`) : undefined
+}
+
+// At the end of the wrap-up turn: offer to start fresh when the note was written in it. Any error offers nothing.
+async function checkWrapUp($: EngineInterface, askedAt: number) {
+  try {
+    const path = await handoffPath($)
+    const stat = path ? await $.fs.stat(path) : undefined
+    if (stat?.kind === 'file' && writtenSince(stat.mtimeMs, askedAt)) {
+      afterWrap = true
+      $.ui.invalidate('ui.render')
+    }
+  } catch {
+    // no offer this time
+  }
+}
+
+function hideWrapUp($: EngineInterface) {
+  afterWrap = false
+  $.ui.invalidate('ui.render')
+}
+
+// New session keeps this chat. The desktop app has a session tool only the agent can call, so the agent is asked,
+// in the person's words (they pressed the button). A terminal cannot open a window: the band shows the command.
+async function newSession($: EngineInterface, surface: string) {
+  hideWrapUp($)
+  if (surface === 'desktop') {
+    await Promise.resolve($.prompt.submit({ text: newSessionPrompt(), asUser: true })).catch(() => undefined)
+  } else {
+    notice = terminalNotice()
+    $.ui.invalidate('ui.render')
+  }
+}
+
+// Clear and continue: `/clear` (the old chat stays in /resume), then the first prompt of the new chat.
+async function clearAndContinue($: EngineInterface) {
+  hideWrapUp($)
+  try {
+    await $.command.run({ command: 'clear', args: '' })
+    await $.prompt.submit({ text: CONTINUE, asUser: true })
+  } catch {
+    notice = 'Could not clear this chat. Type /clear, then: ' + CONTINUE
+    $.ui.invalidate('ui.render')
+  }
+}
+
 // The save tip that fits (P-42): the opt-in tip when auto-compact is on and auto wrap-up is off, the manual tip when
 // auto-compact is off, else the plain `save` tip. Any error falls back to the plain tip.
 async function offerSave($: EngineInterface) {
@@ -387,6 +446,8 @@ export const register: Register = on => {
   // new idle period; a notification or the plugin's own `wrap up` does not.
   on('prompt.submit', async ($, e, next) => {
     disarmIdle()
+    if (afterWrap) hideWrapUp($)
+    if (typeof e.text === 'string' && e.text.trim() === WRAP_UP) wrapAskedAt = await $.clock.now()
     if (notice !== undefined) {
       notice = undefined
       $.ui.invalidate('ui.render')
@@ -403,6 +464,11 @@ export const register: Register = on => {
     const result = await next(e)
     if (!e.agentId) {
       armIdle($)
+      if (wrapAskedAt !== undefined) {
+        const askedAt = wrapAskedAt
+        wrapAskedAt = undefined
+        await checkWrapUp($, askedAt)
+      }
       await afterTurn($)
     }
 
@@ -423,6 +489,29 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey || e.props.isWorking) return next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
+    if (afterWrap) {
+      const surface = e.surface
+      return (
+        <Box>
+          <Text>Handoff written. Start fresh with it: </Text>
+          <Button
+            key="new-session"
+            label="New session"
+            onPress={() => newSession($, surface)}
+          />
+          <Button
+            key="clear-continue"
+            label="Clear and continue"
+            onPress={() => clearAndContinue($)}
+          />
+          <Button
+            key="not-now"
+            label="Not now"
+            onPress={() => hideWrapUp($)}
+          />
+        </Box>
+      )
+    }
     if (!current) {
       if (notice === undefined) return next(e)
 
