@@ -26,6 +26,12 @@ const SCRIPT = 'skills/whatsnext/scripts/whatsnext.py'
 // Start fresh after a wrap-up (P-67, ADR-0024). `wrapAskedAt` is when this session's `wrap up` was submitted; when
 // that turn ends with the handoff note written, the band offers Compact here and New session until a prompt (ADR-0026).
 // `wrapByRightsize` is true when rightsize submitted that `wrap up`: rightsize shows its own choice, so this band stays off.
+// Added to a rightsize `wrap up` (ADR-0026). The instructions' own last line names buttons that rightsize's prompt does not show.
+export const RIGHTSIZE_CLOSING =
+  'This `wrap up` came from the rightsize plugin. Change one thing in the instructions for ending your reply: the last line is ' +
+  'not the "Press Compact here..." line. Make it exactly: "rightsize shows the next step above the prompt: paste its text into a ' +
+  'new session to start fresh, or press Compact now to keep going here." Keep the "Handoff written:" line before it, and write nothing after it.'
+
 let wrapAskedAt: number | undefined
 let wrapByRightsize = false
 let afterWrap = false
@@ -471,6 +477,9 @@ export const register: Register = on => {
       wrapAskedAt = await $.clock.now()
       // rightsize shows its own choice after its wrap up (ADR-0026).
       wrapByRightsize = e.origin?.kind === 'plugin' && e.origin.name === 'rightsize'
+      // The Python hook that adds the wrap-up instructions cannot see the origin, so for rightsize this hook adds a
+      // context block that replaces the reply's last line (the band's buttons are not shown then).
+      if (wrapByRightsize) return next({ ...e, context: [...(e.context ?? []), RIGHTSIZE_CLOSING] })
     }
     if (notice !== undefined) {
       notice = undefined

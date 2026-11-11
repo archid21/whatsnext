@@ -15,7 +15,7 @@ type World = { written?: boolean; copied?: boolean }
 function world(on: On, { written = true, copied = true }: World = {}) {
   mock.store(on)
   mock.clock(on, { now: NOW })
-  const submitted: { text: string; asUser?: boolean }[] = []
+  const submitted: { text: string; asUser?: boolean; context?: readonly string[] }[] = []
   const commands: { command: string; args?: string }[] = []
   const copies: string[] = []
   on('session.id', () => ({ value: '11111111-2222-3333-4444-555555555555' }))
@@ -39,7 +39,7 @@ function world(on: On, { written = true, copied = true }: World = {}) {
     return { value: { exitCode: 0, stdout, stderr: '' } }
   })
   on('prompt.submit', (_, e) => {
-    submitted.push({ text: e.text, asUser: (e.origin as { asUser?: boolean } | undefined)?.asUser })
+    submitted.push({ text: e.text, asUser: (e.origin as { asUser?: boolean } | undefined)?.asUser, context: e.context })
 
     return { text: 'ok' }
   })
@@ -175,6 +175,16 @@ test('Compact here runs /compact with whatsnext text and closes the band', async
   await press($, 'compact-here')
   expect(commands).toEqual([{ command: 'compact', args: 'KEEP THE GOAL' }])
   expect(await buttons($)).toEqual([])
+})
+
+test('a wrap up from rightsize carries the closing-line context; the person\'s own does not', async ($, on) => {
+  const { submitted } = world(on)
+  await wrapUp($, { kind: 'plugin', name: 'rightsize' })
+  const ctx = submitted[0].context?.join('\n') ?? ''
+  expect(ctx).toContain('rightsize shows the next step above the prompt: paste its text into a new session to start fresh, or press Compact now to keep going here.')
+  expect(ctx).not.toContain('Compact here above the prompt')
+  await wrapUp($)
+  expect(submitted[1].context).toBeUndefined()
 })
 
 test('after a wrap up that rightsize submitted, whatsnext shows no band', async ($, on) => {
