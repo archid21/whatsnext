@@ -447,8 +447,7 @@ def instructions(root, effective, now=None, session_id=None, agent=None):
             "",
             "End your reply with exactly these two lines and nothing after them:",
             "Handoff written: %s" % rel,
-            "Run `/compact` to keep it in this session (the handoff is added to the compact for you), or press New session or "
-            "Clear and continue above the prompt to start fresh with it.",
+            "Choose above the prompt: Compact and continue here, or Copy for new session.",
         ]
     return "\n".join(lines) + "\n"
 

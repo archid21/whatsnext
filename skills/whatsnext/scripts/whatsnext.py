@@ -28,6 +28,7 @@ COMMANDS = {
     "handoff": "run the handoff note's `Verify:` line and archive the note when it passes (handoff verify)",
     "doctor": "check that the hooks are in place for Claude Code and Codex, and when one last fired",
     "compact-instructions": "print the text for `/compact` in an open session (ADR-0009)",
+    "fresh-instructions": "print what a caller needs to wrap up and start a fresh chat from the handoff (ADR-0025)",
     "status": "one call for what's next and where we left off: current item, handoff, ready items, warnings",
     "welcome": "print the table of what whatsnext does (shown once after install)",
 }
@@ -149,6 +150,10 @@ def main(argv=None):
         from wn import compact as wncompact
 
         return wncompact.cmd_instructions(args.args)
+    if args.command == "fresh-instructions":
+        from wn import fresh as wnfresh
+
+        return wnfresh.cmd_instructions(args.args)
     if args.command == "handoff":
         from wn import handoffverify as wnhandoffverify
 

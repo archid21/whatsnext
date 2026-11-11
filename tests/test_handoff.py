@@ -401,9 +401,7 @@ class CompactLineTests(unittest.TestCase):
         self.assertFalse([l for l in lines if l.startswith("/compact ")])
         self.assertNotIn("MAX_LINE_CHARS", out)
         self.assertTrue(lines[-2].startswith("Handoff written: docs/project/HANDOFF.md"), lines[-2])
-        self.assertEqual(lines[-1], "Run `/compact` to keep it in this session (the handoff is added to the compact "
-                                    "for you), or press New session or Clear and continue above the prompt to start "
-                                    "fresh with it.")  # the band's buttons (P-67, ADR-0024)
+        self.assertEqual(lines[-1], "Choose above the prompt: Compact and continue here, or Copy for new session.")  # the band's buttons (ADR-0026)
 
 
 class CompactJsonLineTests(CompactBase):

@@ -22,7 +22,7 @@ Use this when you stop work, or the context window is full.
 
 1. Type `wrap up`. Type exactly these two words as the whole prompt.
 2. Wait for the reply to end with `Handoff written: <path>`.
-3. To start fresh, press **New session** (the old chat stays open; in the terminal it shows the command to run in a new window) or **Clear and continue** (`/clear`, then the new chat reads the handoff) above the prompt. Or type `/compact` to stay in this session; the handoff is added to the compact for you. See [ADR-0024](decisions/ADR-0024-start-fresh-after-wrap-up.md).
+3. Above the prompt, press **Compact and continue here** (runs `/compact` with the handoff carried in; same session) or **Copy for new session** (copies the first prompt at once, to paste in a new session; the terminal band shows the command to run in a new window instead). **Not now** closes the band. See [ADR-0026](decisions/ADR-0026-wrap-up-band-compact-or-paste.md).
 4. In the new session, type `what's next?`.
 
 **What happens at step 1.** The agent writes `docs/project/HANDOFF.md` and overwrites the old one. The note holds: Goal, Next action (with a `Verify:` line), State, What changed, Decisions, Constraints, Open questions and blockers. The old note is archived first.
