@@ -26,6 +26,11 @@ const SCRIPT = 'skills/whatsnext/scripts/whatsnext.py'
 // Start fresh after a wrap-up (P-67, ADR-0024). `wrapAskedAt` is when this session's `wrap up` was submitted; when
 // that turn ends with the handoff note written, the band offers Compact and continue here and Copy for new session until a prompt (ADR-0026).
 // `wrapByRightsize` is true when rightsize submitted that `wrap up`: rightsize shows its own choice, so this band stays off.
+// Added to a rightsize `wrap up` (ADR-0026): rightsize's own row says what happens next, so the reply stops at the handoff line.
+export const RIGHTSIZE_CLOSING =
+  'This `wrap up` came from the rightsize plugin. Change one thing in the instructions for ending your reply: end it at the ' +
+  '"Handoff written: docs/project/HANDOFF.md" line, and leave out the "Choose above the prompt" line. Write nothing after the "Handoff written:" line.'
+
 let wrapAskedAt: number | undefined
 let wrapByRightsize = false
 let afterWrap = false
@@ -468,6 +473,8 @@ export const register: Register = on => {
       wrapAskedAt = await $.clock.now()
       // rightsize shows its own choice after its wrap up, so this band stays off (ADR-0026).
       wrapByRightsize = e.origin?.kind === 'plugin' && e.origin.name === 'rightsize'
+      // The Python hook that writes the wrap-up instructions cannot see the origin, so this hook adds the override.
+      if (wrapByRightsize) return next({ ...e, context: [...(e.context ?? []), RIGHTSIZE_CLOSING] })
     }
     if (notice !== undefined) {
       notice = undefined
