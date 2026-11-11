@@ -21,3 +21,5 @@ A live test showed 3 clicks and a nested session. The desktop app counts a plugi
 8. For rightsize's `wrap up`, the `prompt.submit` hook adds a context block that replaces the reply's last line with "rightsize shows the next step above the prompt: paste its text into a new session to start fresh, or press Compact now to keep going here." (the Python hook that writes the instructions cannot see the origin).
 
 Revised 2026-11-11 (P-69): the band reads "Handoff saved..." plus the new-session prompt, with buttons Compact and continue here, Copy for new session (copies at once, toast on success; the terminal band shows the command instead) and Not now. The reply's last line is "Choose above the prompt: Compact and continue here, or Copy for new session." and is the same for rightsize, so the item 8 context block is removed.
+
+Revised 2026-11-11 (P-69, again): for rightsize's `wrap up` the `prompt.submit` hook adds a context block again, telling the model to end the reply at the "Handoff written: docs/project/HANDOFF.md" line and leave out the "Choose above the prompt" line (rightsize's own row says what happens next); the person's own `wrap up` keeps that line.

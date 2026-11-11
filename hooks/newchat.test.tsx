@@ -184,10 +184,14 @@ test('Compact and continue here runs /compact with whatsnext text and closes the
   expect(await buttons($)).toEqual([])
 })
 
-test('a wrap up from rightsize adds no context block', async ($, on) => {
+test('a wrap up from rightsize carries the end-at-Handoff-written context; the person\'s own does not', async ($, on) => {
   const { submitted } = world(on)
   await wrapUp($, { kind: 'plugin', name: 'rightsize' })
-  expect(submitted[0].context).toBeUndefined()
+  const ctx = submitted[0].context?.join('\n') ?? ''
+  expect(ctx).toContain('end it at the "Handoff written: docs/project/HANDOFF.md" line')
+  expect(ctx).toContain('leave out the "Choose above the prompt" line')
+  await wrapUp($)
+  expect(submitted[1].context).toBeUndefined()
 })
 
 test('after a wrap up that rightsize submitted, whatsnext shows no band', async ($, on) => {
