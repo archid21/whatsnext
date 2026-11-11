@@ -2,7 +2,7 @@
 
 Every whatsnext feature: what it is, how it works and what it gives you.
 
-Current release: 0.3.1
+Current release: 0.4.0
 
 **Since** is the release that added the feature. `Unreleased` means it is on `main` but not in a release yet.
 
@@ -26,6 +26,8 @@ Current release: 0.3.1
 | Status in one call | `whatsnext status` (`--json`) returns the current item, the handoff and whether to read it first, the ready items and every warning. | "What's next?" and "where did we leave off?" take one command, and the answer is the same for every agent. | 0.3 |
 | Parallel sessions in one folder | When another session has an item in progress in this checkout, Start asks: new worktree (recommended) or stay with a warning. Claims and the active task belong to a session. `plan.concurrentStart` saves the answer; "always worktree" is offered after two equal answers. | Two chats in one folder no longer take over each other's item or mix commits by accident. | 0.3 |
 | Run all steps | At start, choose to run every step of the item, then verify and mark it done. "run the ready plan items" approves a named set of items. | Hand over a whole item or batch and come back to a result. | 0.2 |
+| Edit and reopen an item | `plan edit` changes an item's text and keeps its id. `plan reopen` unticks a done item and keeps the old evidence in the progress file; if "done means" changed, a fresh check is required. | You can fix a plan item or redo finished work without losing its history. | 0.4 |
+| Done, not merged | `plan check` prints `done, not merged` for a ticked item whose branch is not merged into `main` (`git branch --merged`). | A ticked item whose code never reached `main` does not go unnoticed. | 0.4 |
 
 ## Check off
 
@@ -35,12 +37,14 @@ Current release: 0.3.1
 | Stricter verify | A command other than the saved one needs an approved `--override-reason`, recorded with the evidence. Matching keeps shell semantics. | An agent cannot swap in an easier test. | 0.2 |
 | Manual check-off | `--evidence "<text>"` ticks an item no command can check. It shows as `done*`. | Manual checks are allowed but never look like verified ones. | 0.1 |
 | Code state on verify | The evidence records the commit; `plan check` flags the item after new commits. | You know when a check-off is stale. | 0.1 |
+| Human review | An item with `review: required` in `PLAN.md` is not ticked when its check passes. The run is recorded, `plan list` shows `awaiting review`, and `plan review <id>` ticks it (or `--reject "<reason>"` reopens it). See ADR-0022. | Work a person must look at (a UI, copy, a design) is not ticked on a passing test alone. | 0.4 |
+| Reuse a passing run | `plan test <id>` runs the saved check without ticking. `plan done --verify` reuses a passing run of the same command on the same code (newer than `plan.reuseRunMax`, default 60 minutes); `--fresh` always runs it. See ADR-0023. | A 6 to 8 minute suite runs once, not twice, on the same code. | 0.4 |
 
 ## Save and resume
 
 | Feature | How it works | Value | Since |
 |---|---|---|---|
-| Wrap up | The prompt `wrap up` makes the agent write goal, next action, decisions, constraints and blockers to `docs/project/HANDOFF.md`. In Claude Code the reply ends with one line saying to run `/compact` or `/clear`. | One prompt saves where you are before you step away. | 0.1 (ending: 0.3) |
+| Wrap up | The prompt `wrap up` makes the agent write goal, next action, decisions, constraints and blockers to `docs/project/HANDOFF.md`. In Claude Code the reply ends with one line saying to choose above the prompt: Compact and continue here, or Copy for new session. | One prompt saves where you are before you step away. | 0.1 (ending: 0.3) |
 | Resume note | At session start, after `/clear` and after a compact, a note of at most 1,200 characters gives done, next, a test command and what changed since. It warns when the note is over 7 days old. | A new session starts where the last one stopped. | 0.1 |
 | Session-aware handoff | A handoff is used only by the session that wrote it or the task it names; any other note is marked as another session's. | Two agents in one repository do not read each other's notes as their own. | 0.1 |
 | Recent handoff steers a new session | With no active task, a handoff from the last 24 hours with `Task: none` adds its goal and next action to the resume note. | A fresh session picks up loose work, not only plan items. | 0.3 |
@@ -48,6 +52,11 @@ Current release: 0.3.1
 | Repeat the latest request | After a compact, the resume note repeats your latest request; `plan next` puts work in progress in this checkout first. | The agent keeps doing what you asked, not what the summary guessed. | 0.2 |
 | Smart compact | `compact-instructions` builds the `/compact` text from the handoff; `--json` gives a one-line `compact_line` for other plugins. | The compact keeps your goal and decisions. | 0.1 |
 | Auto wrap-up | Opt-in. After 45 idle minutes, the handoff is saved before Claude Code's own idle compact. | No lost context when you forget to wrap up. | 0.2 |
+| Resume one task | `progress resume <id>` prints the resume note for one task from its newest handoff: branch, unfinished step and changes since. | Pick up a named task, not only the active one. | 0.4 |
+| Start fresh after wrap-up | After `wrap up`, the band above the prompt offers **Compact and continue here**, **Copy for new session** and **Not now**. Copy puts a continue prompt on your clipboard to paste into a new session in this project. See ADR-0026. | Start a clean session in one click without losing where you were. | 0.4 |
+| Fresh-start hand-off | `fresh-instructions --session <id> --json` prints the handoff state and the texts to start fresh, read-only. Other plugins (rightsize) call it. See ADR-0025. | Another plugin can offer "wrap up and start fresh" without duplicating whatsnext's rules. | 0.4 |
+| Compact keeps the summary | The PostCompact hook saves the compact summary. Plan steps approved in a question are saved too, so the resume note can say `summary kept N of M steps`. | You can see how much of the plan survived a compact. | 0.4 |
+| Richer handoff | `HANDOFF.md` gains Files, Links and Skills sections filled from the session's tool calls, with no model call. | The next session sees what was read, created and used. | 0.4 |
 
 ## Progress and history
 
@@ -57,6 +66,8 @@ Current release: 0.3.1
 | Facts journal | Stop, PreCompact and SessionEnd hooks add one line per event: time, commit, branch, dirty files, files changed. No model call. | A free, exact record of what happened in each session. | 0.1 |
 | Plan capture | A plan-mode plan is stored word for word in `docs/project/plans/`, with up to 20 steps in the progress file. | The approved plan survives the session. | 0.1 |
 | Session file pruning | SessionStart removes a session's state files once none has changed for 14 days. | `.whatsnext/sessions/` does not grow forever. | 0.3 |
+| PR description | `progress pr-body <id>` prints a PR description from the progress file: goal, done steps, decisions and verify evidence. No model call. | A PR body from recorded facts, not from memory. | 0.4 |
+
 ## Setup and agents
 
 | Feature | How it works | Value | Since |

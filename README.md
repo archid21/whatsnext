@@ -4,7 +4,7 @@
 
 whatsnext is a plugin for Claude Code and Codex. It keeps a plan checklist, check-offs and a short resume note as plain files in your repository, so a new session, or a second agent, starts from where the last one stopped.
 
-**Status: 0.3.1.** See [New in 0.3.1](#new-in-031).
+**Status: 0.4.0.** See [New in 0.4.0](#new-in-040).
 
 MIT license · Python 3.9+, standard library only · no database, no background process
 
@@ -37,6 +37,9 @@ When an item is finished, say **"mark P-13 done"**. It is ticked only if its tes
 | Two chats in one folder | When another session has work in progress here, Start asks whether to use a new worktree. Each chat resumes its own item. |
 | Change the plan | "add an item", "drop P-16", "move P-14 to Later", or import a plan from any spec or task file. |
 | Mark done with proof | The item is ticked only when its test command exits 0. Otherwise it stays open with the last 20 lines of output. |
+| Review before done | An item with `review: required` waits for your `plan review` after its check passes. |
+| Reuse a passing run | `plan done --verify` reuses a passing run of the same check on unchanged code. |
+| Start fresh after wrap-up | After "wrap up", one click compacts here or copies a prompt for a new session. |
 | Save and resume | "wrap up" writes your goal, next step and decisions to `docs/project/HANDOFF.md`. A short resume note loads at session start, after `/clear` and after a compact. |
 | Smart compact | The `/compact` text is built from your handoff, so the summary keeps your goal. |
 | Auto wrap-up | Opt-in. After 45 idle minutes, your handoff is saved before Claude Code's own idle compact. |
@@ -45,6 +48,16 @@ When an item is finished, say **"mark P-13 done"**. It is ticked only if its tes
 | Claude Code and Codex | Both agents read and write the same plain files. Switching between them is experimental. |
 
 Every feature, how it works, its value and the release that added it: [docs/FEATURES.md](docs/FEATURES.md).
+
+## New in 0.4.0
+
+- **Review before done:** an item with `review: required` is not ticked when its check passes. It shows `awaiting review` until you run `plan review <id>` (or reject it with a reason).
+- **Reuse a passing run:** `plan test <id>` runs the saved check. `plan done --verify` reuses a passing run of the same command on the same code, so a long suite runs once. `--fresh` forces a new run.
+- **Edit and reopen:** `plan edit` keeps an item's id. `plan reopen` keeps the old evidence and asks for a fresh check.
+- **Start fresh after a wrap-up:** the band above the prompt offers **Compact and continue here** or **Copy for new session**. Other plugins can call `fresh-instructions` for the same choice.
+- **Resume one task:** `progress resume <id>` prints the note for one task from its newest handoff.
+- **Better handoffs and compacts:** `HANDOFF.md` lists files, links and skills used. After a compact, the resume note says how many plan steps the summary kept.
+- **More checks and output:** `plan check` flags done items whose branch is not merged into `main`. `progress pr-body <id>` prints a PR description from recorded facts.
 
 ## New in 0.3.1
 

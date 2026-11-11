@@ -5,7 +5,7 @@ description: Shared plan checklist, check-offs and resumable task progress for e
 
 # What's Next
 
-Status: version 0.3.1. `plan` (list, next, check, start, test, done, review, edit, reopen, keep, put-back), `progress` (new, next, stamp, show, list, capture, resume, resume-note, pr-body) and `init` work. `plan done --verify` proves an item done. Every progress file starts with `format: 2` and has a `Note:` header mark (`confirmed`, `auto` or `facts`). The facts journal is written by the hooks. `config show` prints the effective settings and `config set --user <key> <value>` writes one to the user layer. `install-hooks` installs the Codex hooks; Claude Code loads `hooks/hooks.json` with the plugin. `wrap up` and `compact` are here too. Decision records and ground rules are not part of whatsnext (ADR-0001).
+Status: version 0.4.0. `plan` (list, next, check, start, test, done, review, edit, reopen, keep, put-back), `progress` (new, next, stamp, show, list, capture, resume, resume-note, pr-body) and `init` work. `plan done --verify` proves an item done. Every progress file starts with `format: 2` and has a `Note:` header mark (`confirmed`, `auto` or `facts`). The facts journal is written by the hooks. `config show` prints the effective settings and `config set --user <key> <value>` writes one to the user layer. `install-hooks` installs the Codex hooks; Claude Code loads `hooks/hooks.json` with the plugin. `wrap up` and `compact` are here too. Decision records and ground rules are not part of whatsnext (ADR-0001).
 
 All logic is in one script: `python3 scripts/whatsnext.py <command>` (Python 3.9+, standard library only). Run it from the project root.
 
