@@ -1,4 +1,5 @@
 // After a wrap-up (P-67, ADR-0024): start a new session or clear this one, seeded with the handoff note.
+// The texts are a copy of wn/fresh.py (ADR-0025), the one source; tests/test_fresh.py fails when they differ.
 
 // The new chat's first prompt. The session-start hook already puts the resume note (with the handoff) in context.
 export const CONTINUE = 'Continue from the handoff note: read it first.'

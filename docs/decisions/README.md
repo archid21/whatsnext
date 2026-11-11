@@ -28,3 +28,4 @@ Dates are UTC. This list is the current set of decisions for whatsnext. Earlier 
 | 0022 | 2026-11-10T18:26Z | An item can need a person's review after its check passes | accepted (user) | [ADR-0022](ADR-0022-human-review.md) |
 | 0023 | 2026-11-10T20:46Z | Mark done can reuse a recent passing run of the same check | accepted (user) | [ADR-0023](ADR-0023-reuse-a-passing-run.md) |
 | 0024 | 2026-11-11T02:40Z | After a wrap-up, offer a new session or a cleared one, seeded with the handoff | accepted (user) | [ADR-0024](ADR-0024-start-fresh-after-wrap-up.md) |
+| 0025 | 2026-11-11T03:40Z | One command lets rightsize offer wrap up and start fresh | accepted (user) | [ADR-0025](ADR-0025-start-fresh-from-rightsize.md) |

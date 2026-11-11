@@ -182,7 +182,7 @@ Claude Code loads `hooks/hooks.json` with the plugin. For Codex, run `install-ho
 - **Init:** `whatsnext init` (git repositories only) creates what is missing: `PLAN.md`, `.whatsnext/config.json`, the progress and journal folders, the `.whatsnext/sessions/` line in `.gitignore`, and a block in `AGENTS.md` between `<!-- whatsnext:start -->` and `<!-- whatsnext:end -->`. `--dry-run` prints the plan and writes nothing. `--undo` removes only the `AGENTS.md` block.
 - **Hooks:** the resume note at session start, after `/clear` and after compaction; plan capture when the agent shows a plan; the facts journal. Claude Code loads `hooks/hooks.json` with the plugin. For Codex, run `install-hooks` (it also links the skill into `~/.agents/skills/whatsnext`), then review changed hooks in Settings > Hooks (desktop) or `/hooks` (CLI). See [ADR-0005](docs/decisions/ADR-0005-hooks-and-journal.md).
 
-Commands: `status`, `plan`, `progress`, `config show`, `config set --user`, `init`, `install-hooks` and `compact-instructions`. The script is `skills/whatsnext/scripts/whatsnext.py`.
+Commands: `status`, `plan`, `progress`, `config show`, `config set --user`, `init`, `install-hooks`, `compact-instructions` and `fresh-instructions`. The script is `skills/whatsnext/scripts/whatsnext.py`.
 
 ```
 python3 skills/whatsnext/scripts/whatsnext.py plan next
@@ -208,6 +208,15 @@ python3 skills/whatsnext/scripts/whatsnext.py config set --user plan.staleAfter 
 - `session_found`.
 
 When `wrap_up_first` is true, submit the prompt `wrap up`, wait for that turn to end (`wrap_up_state` is then `written`), and run the command again, because the instructions include the note. Then submit `compact_prompt` (or pass `instructions` to the harness's own compact call). Without `--json` the command prints only the instruction text.
+
+**Start-fresh hand-off (for another plugin).** To offer "wrap up and start fresh" instead of a compact, run `python3 skills/whatsnext/scripts/whatsnext.py fresh-instructions --session <id> --json` ([ADR-0025](docs/decisions/ADR-0025-start-fresh-from-rightsize.md)). It is read-only and prints JSON with the same `project`, `session_found`, `handoff`, `handoff_exists`, `handoff_foreign`, `wrap_up_first`, `wrap_up_state` and `wrap_up_prompt` as `compact-instructions`, plus the texts to start fresh:
+
+- `continue_prompt`: the new chat's first prompt (`Continue from the handoff note: read it first.`).
+- `new_session_prompt`: the prompt that asks the agent to start a new session (desktop app).
+- `terminal_command`: the command to run in a new terminal window.
+- `clear_command`: `clear`, run before `continue_prompt` to clear this chat.
+
+When `wrap_up_first` is true, submit `wrap up`: when that turn ends with the note written, whatsnext's band offers New session and Clear and continue. When it is false, no wrap-up turn runs, so the caller offers the two choices itself with these texts.
 
 ## Where it came from
 
