@@ -1,44 +1,44 @@
 # Handoff
 Session: a09a001d-7457-47d1-9b38-28a669df24b9
-Task: P-61
-Written: 2026-11-10T21:59Z
-Branch: p-61-progress-pr-body-id-prints-a-pr-descript
+Task: none
+Written: 2026-11-11T03:20Z
+Branch: main
 
 ## Goal
 
-Finish P-61: `progress pr-body <id>` prints a Markdown PR description from the progress file, PLAN.md evidence and git, with no model call.
+Work through the whatsnext roadmap: Now and Next are empty; 7 items remain in Later (P-62, P-63, P-69 to P-73).
 
 ## Next action
 
-Ask the user to approve committing P-61. Then commit, run `python3 skills/whatsnext/scripts/whatsnext.py plan done P-61 --verify` (it should reuse the saved run), commit the done mark, and fast-forward main.
-Verify: PLAN.md shows P-61 checked with `(reused run of 2026-11-10T21:5`.
-If it fails: a changed file breaks reuse; let it rerun (about 7 min), or use `plan test P-61` first.
+Ask the user which item is next (recommended: P-71 checkpoints and rollback), then `python3 skills/whatsnext/scripts/whatsnext.py plan start P-71 --agent claude-code --branch branch`.
+Verify: the output says `Started P-71` and a new branch from main.
+If it fails: exit 4 means ask the user the question it prints.
 
 ## State
 
-State on Tue 2026-11-10 1:59 PM PST (Pacific): P-61 is built but not committed, on its own branch. `plan test P-61` passed: 660 tests in 407 s, saved for reuse. main is at 15e90e1 with P-57, P-58, P-59, P-60 and P-66 done and merged locally. Nothing is pushed.
+State on Tue 2026-11-10 7:20 PM PST (Pacific): P-61, P-64, P-68 and P-67 are done and merged into main at 4024a09; nothing is pushed. Last check: P-67's `plan done --verify` ran `python3 -m unittest discover -s tests`, 676 tests passed in 527 s; `claude plugin test .` passed 66 tests. The New session and Clear and continue buttons were not tried in a real session.
 
 ## What changed
 
-- skills/whatsnext/scripts/wn/prbody.py (new), wn/status.py: `progress pr-body` with `--trailer` and `--json` (uncommitted)
-- tests/test_prbody.py (new, 11 tests); SKILL.md row "write the PR description for P-13" (uncommitted)
-- 3c4f92c..15e90e1 on main: P-57 `progress resume`, P-58 `plan review`, P-59 `plan edit`/`plan reopen`, P-60 done-not-merged warning, P-66 `plan test` and run reuse
-- 9b488fb, dfbf33f: cherry-picked from p-32-next-shows-handoff (handoff notes, plan items P-67 to P-73)
-- tsconfig.json deleted (made by plugin tooling, not part of this Python project)
+- 0f217bf, 8058b43: P-61 `progress pr-body` (skills/whatsnext/scripts/wn/prbody.py)
+- 6c30fe7: the handoff note and docs/project/handoffs/ no longer change the code fingerprint
+- 62d4da2, 4c56fb2: P-64 `plan start` says to save approved steps with `progress capture`
+- 51d7102, a7e15b0: P-68 Files, Links and Skills sections (wn/used.py)
+- 02b9389, 10088af, 4024a09: P-67 band buttons (hooks/newchat.ts, docs/decisions/ADR-0024-start-fresh-after-wrap-up.md)
 
 ## Decisions
 
-docs/decisions/ADR-0022-human-review.md (`review: required`, `plan review`); docs/decisions/ADR-0023-reuse-a-passing-run.md (reuse on the same code content, `plan.reuseRunMax` 60m, `--fresh`). Both accepted by the user 2026-11-10. ADR-0021 added to docs/decisions/README.md, where it was missing.
+docs/decisions/ADR-0024-start-fresh-after-wrap-up.md, accepted by the user 2026-11-11: New session (desktop: the agent starts one; terminal: a command to paste), Clear and continue, Not now. The user said clear must not be the only choice, so people can look back at the old chat. P-62 put behind other items: it only reports on past work.
 
 ## Constraints
 
-Local only: do not push or create a remote without asking. Standard library only, Python 3.9+. Ask before each commit and merge; the user approves them one step at a time. Each item gets its own branch from main; merge to main with --ff-only after its done mark. Leave docs/project/progress/journal/P-52.md uncommitted: it belongs to other work. Show the plan steps in the approval question.
+Local only: do not push or create a remote without asking. Standard library only, Python 3.9+. Ask before each commit and merge. Each item gets its own branch from main; fast-forward main after its done mark. Leave docs/project/progress/journal/P-52.md uncommitted. Show the plan steps in the approval question, then save them with `progress capture <id> --status shown` and `--status approved`. An ADR stays proposed until the user accepts it.
 
 ## Open questions and blockers
 
-The user has not yet answered "Commit P-61, mark it done, and merge into main?". Not done, from the old handoff: rightsize's CLI welcome table wraps, and its star ask is uncommitted in the rightsize repository. After P-61, Now and Next are empty.
+The wrap-up running now came from the installed plugin, not this repo: its instructions lack the P-67 and P-68 changes, so the new band and Files sections need the plugin updated to test for real (a guess from the prompt text).
 
 ## Dead ends
 
-- Matching saved runs on the commit: dropped, because "test, commit, mark done" would never reuse.
-- `git branch --merged` alone: dropped, because it falsely flagged 13 cherry-picked items; `git cherry` is used too.
+- Clear as the only button: dropped; the user wants to keep the old chat to look back at.
+- Opening a session from the mod: no API call exists; the agent's session tool is used in the desktop app instead.
