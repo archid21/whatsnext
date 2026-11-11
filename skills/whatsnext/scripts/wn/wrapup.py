@@ -251,8 +251,8 @@ def save_summary(root, session_id, summary, task=None):
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(gwredact.mask_secrets(summary))
         os.replace(tmp, path)
-        steps = plan_step_texts(task) if task is not None else []
-        if steps:
+        if task is not None:  # 0 of 0: the task saved no steps, which the resume note says (P-64)
+            steps = plan_step_texts(task)
             state["steps_total"], state["steps_kept"] = len(steps), kept_steps(summary, steps)
     with open(path[:-3] + ".json", "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2)
@@ -272,6 +272,8 @@ def summary_line(root, session_id):
         return None
     if not state.get("ok"):
         return "The compact summary was empty: do not trust it; the note below is the record."
+    if state.get("steps_total") == 0:
+        return "No plan steps were saved to check the summary against."
     if isinstance(state.get("steps_total"), int):
         return "Summary kept %d of %d plan steps." % (state.get("steps_kept", 0), state["steps_total"])
     return None

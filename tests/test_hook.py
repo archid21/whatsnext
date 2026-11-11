@@ -700,6 +700,23 @@ class PreCompactTests(HookBase):
         self.assertEqual(self.hook("post-compact", {"compact_summary": "x"}), "")  # no session id: nothing written
         self.assertEqual(self.hook("post-compact", raw="not json"), "")
 
+    def test_postcompact_counts_steps_captured_from_a_question(self):
+        # P-64: steps approved in a question, saved with `progress capture`, are what the summary is checked against
+        self.task()
+        plan = "1. Write the form\n2. Add the tests\n3. Ship it\n"
+        r = self.gw(["progress", "capture", "P-13", "--status", "shown", "--agent", "claude-code"], stdin=plan)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.gw(["progress", "capture", "P-13", "--status", "approved"]).returncode, 0)
+        self.hook("post-compact", {"session_id": "s1", "compact_summary": "We will write the form, then ship it."})
+        self.assertIn("Summary kept 2 of 3 plan steps.", self.hook("session-start", {"source": "compact", "session_id": "s1"}))
+
+    def test_postcompact_without_steps_says_none_were_saved(self):
+        self.task()
+        self.hook("post-compact", {"session_id": "s1", "compact_summary": "We wrote the form."})
+        note = self.hook("session-start", {"source": "compact", "session_id": "s1"})
+        self.assertIn("No plan steps were saved to check the summary against.", note)
+        self.assertNotIn("Summary kept", note)
+
     def test_compact_marker_once(self):
         self.task()
         self.assertEqual(self.hook("pre-compact", {"session_id": "s1"}, agent="codex"), "")

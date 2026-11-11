@@ -608,6 +608,8 @@ class BranchTests(PlanBase):
         self.assertEqual(data["done_means"], "login tests pass")
         self.assertEqual(data["progress_file"], "%s/P-13.md" % STATUS)
         self.assertIn("wait for the user's OK before changing files", data["next_step"])
+        self.assertIn("`progress capture P-13 --status shown` with them on stdin, "
+                      "then `progress capture P-13 --status approved`.", data["next_step"])  # P-64
         self.assertIn("- **Branch:** p-13-add-login\n", self.get("%s/P-13.md" % STATUS))
         self.assertEqual(self.claim_data("P-13")["branch"], "p-13-add-login")
 

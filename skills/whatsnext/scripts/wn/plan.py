@@ -49,6 +49,14 @@ VERIFY_CMD_MAX = 120  # characters of the command shown in PLAN.md and messages
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 FIRST_STEP = "Restate the goal and done means, list 3 to 5 steps, and wait for the user's OK."
 NEXT_STEP = FIRST_STEP[:-1] + " before changing files."
+# P-64: steps approved in a question (not plan mode) reach the progress file only this way, and the resume note
+# after a compact can then say how many of them the summary kept
+SAVE_STEPS = ("On the OK, save the steps: `progress capture %s --status shown` with them on stdin, "
+              "then `progress capture %s --status approved`.")
+
+
+def next_step(item_id):
+    return NEXT_STEP + " " + SAVE_STEPS % (item_id, item_id)
 BRANCH_CHOICES = ("branch", "stay", "worktree")
 MAX_SLUG = 40
 
@@ -1870,7 +1878,7 @@ def cmd_start(ctx, args):
     info = {"started": True, "id": item.id, "title": item.title, "done_means": done_means, "agent": agent,
             "file_overlap": [{"id": o, "files": f} for o, f in overlaps], "suggest": item.suggest,
             "progress_file": result["progress_file"], "branch": result["branch"], "branch_action": result["action"],
-            "worktree": result["worktree"], "earlier_work": earlier, "next_step": NEXT_STEP}
+            "worktree": result["worktree"], "earlier_work": earlier, "next_step": next_step(item.id)}
     warning = None
     if concurrent == "stay":
         warning = CONCURRENT_WARNING % other_item
@@ -1897,7 +1905,7 @@ def cmd_start(ctx, args):
               file=sys.stderr)
     if warning:
         print("warning: " + warning, file=sys.stderr)
-    print("Next: " + NEXT_STEP)
+    print("Next: " + info["next_step"])
     if offer:
         print(offer["line"])
     return 0
