@@ -1,6 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import { CONTINUE, PASTE_INTRO, TERMINAL_INTRO, terminalCommand, writtenSince } from './newchat'
+import { BAND_FIRST, CONTINUE, COPIED_TOAST, COPY_FAILED, promptLine, terminalLine, writtenSince } from './newchat'
 import { IDLE_MS, WRAP_UP, minTokens, saveTipKind, skipReason, type IdleFacts } from './idle'
 import { ME, REPOS, SHARED_PATH, askText, blockedByClaim, parseShared, readStarCheck, reposToAsk, type Shared } from './star'
 import { GUIDE, TIPS, loadState, markSeen, nextTip, restartTips, stopTips, type Tip } from './tips'
@@ -24,18 +24,11 @@ let askedThisPeriod = false
 const SCRIPT = 'skills/whatsnext/scripts/whatsnext.py'
 
 // Start fresh after a wrap-up (P-67, ADR-0024). `wrapAskedAt` is when this session's `wrap up` was submitted; when
-// that turn ends with the handoff note written, the band offers Compact here and New session until a prompt (ADR-0026).
+// that turn ends with the handoff note written, the band offers Compact and continue here and Copy for new session until a prompt (ADR-0026).
 // `wrapByRightsize` is true when rightsize submitted that `wrap up`: rightsize shows its own choice, so this band stays off.
-// Added to a rightsize `wrap up` (ADR-0026). The instructions' own last line names buttons that rightsize's prompt does not show.
-export const RIGHTSIZE_CLOSING =
-  'This `wrap up` came from the rightsize plugin. Change one thing in the instructions for ending your reply: the last line is ' +
-  'not the "Press Compact here..." line. Make it exactly: "rightsize shows the next step above the prompt: paste its text into a ' +
-  'new session to start fresh, or press Compact now to keep going here." Keep the "Handoff written:" line before it, and write nothing after it.'
-
 let wrapAskedAt: number | undefined
 let wrapByRightsize = false
 let afterWrap = false
-let pasteSurface: string | undefined // set once New session is pressed: the band then shows the text to paste
 let copyFailed = false
 
 // GitHub star ask (P-65, ADR-0021). `star` in `$.store` says a verified done has happened (the milestone). The shared
@@ -298,7 +291,6 @@ async function checkWrapUp($: EngineInterface, askedAt: number) {
 
 function hideWrapUp($: EngineInterface) {
   afterWrap = false
-  pasteSurface = undefined
   copyFailed = false
   $.ui.invalidate('ui.render')
 }
@@ -327,18 +319,17 @@ async function compactHere($: EngineInterface) {
   }
 }
 
-// New session sends nothing to the model (ADR-0026): the band shows the first prompt to paste in a new session
-// (the app has no mod call that starts one), or, in a terminal, the command to run in a new window.
-function newSession($: EngineInterface, surface: string) {
-  pasteSurface = surface
-  copyFailed = false
-  $.ui.invalidate('ui.render')
-}
-
-async function copyContinue($: EngineInterface) {
-  const result = await Promise.resolve($.ui.copy({ text: CONTINUE, surface: pasteSurface as never })).catch(() => undefined)
+// Copy for new session sends nothing to the model (ADR-0026): it copies the first prompt at once (the app has no mod
+// call that starts a session). The terminal has no copy button: the band shows the command to run in a new window.
+async function copyContinue($: EngineInterface, surface: string) {
+  const result = await Promise.resolve($.ui.copy({ text: CONTINUE, surface: surface as never })).catch(() => undefined)
   copyFailed = result?.isCopied !== true
-  $.ui.invalidate('ui.render')
+  if (copyFailed) {
+    $.ui.invalidate('ui.render')
+    return
+  }
+  hideWrapUp($)
+  $.ui.toast(COPIED_TOAST)
 }
 
 // The save tip that fits (P-42): the opt-in tip when auto-compact is on and auto wrap-up is off, the manual tip when
@@ -475,11 +466,8 @@ export const register: Register = on => {
     if (afterWrap) hideWrapUp($)
     if (typeof e.text === 'string' && e.text.trim() === WRAP_UP) {
       wrapAskedAt = await $.clock.now()
-      // rightsize shows its own choice after its wrap up (ADR-0026).
+      // rightsize shows its own choice after its wrap up, so this band stays off (ADR-0026).
       wrapByRightsize = e.origin?.kind === 'plugin' && e.origin.name === 'rightsize'
-      // The Python hook that adds the wrap-up instructions cannot see the origin, so for rightsize this hook adds a
-      // context block that replaces the reply's last line (the band's buttons are not shown then).
-      if (wrapByRightsize) return next({ ...e, context: [...(e.context ?? []), RIGHTSIZE_CLOSING] })
     }
     if (notice !== undefined) {
       notice = undefined
@@ -526,49 +514,32 @@ export const register: Register = on => {
     const { Box, Button, Text } = $.ui.resolve(e)
     if (afterWrap) {
       const surface = e.surface
-      if (pasteSurface !== undefined) {
-        const isTerminal = pasteSurface === 'terminal'
+      const isTerminal = surface === 'terminal'
 
-        return (
-          <Box flexDirection="column">
-            <Text>{isTerminal ? TERMINAL_INTRO : PASTE_INTRO}</Text>
-            <Text>{isTerminal ? terminalCommand() : CONTINUE}</Text>
-            {copyFailed ? <Text>Copy did not work. Select the text above and copy it yourself.</Text> : null}
-            <Box>
-              {isTerminal ? null : (
-                <Button
-                  key="copy"
-                  label="Copy"
-                  onPress={() => copyContinue($)}
-                />
-              )}
-              <Button
-                key="not-now"
-                label="Not now"
-                onPress={() => hideWrapUp($)}
-              />
-            </Box>
-          </Box>
-        )
-      }
       return (
-        <Box>
-          <Text>Handoff written. Keep going with it: </Text>
-          <Button
-            key="compact-here"
-            label="Compact here"
-            onPress={() => compactHere($)}
-          />
-          <Button
-            key="new-session"
-            label="New session"
-            onPress={() => newSession($, surface)}
-          />
-          <Button
-            key="not-now"
-            label="Not now"
-            onPress={() => hideWrapUp($)}
-          />
+        <Box flexDirection="column">
+          <Text>{BAND_FIRST}</Text>
+          <Text>{isTerminal ? terminalLine() : promptLine()}</Text>
+          {copyFailed && !isTerminal ? <Text>{COPY_FAILED}</Text> : null}
+          <Box>
+            <Button
+              key="compact-here"
+              label="Compact and continue here"
+              onPress={() => compactHere($)}
+            />
+            {isTerminal ? null : (
+              <Button
+                key="copy"
+                label="Copy for new session"
+                onPress={() => copyContinue($, surface)}
+              />
+            )}
+            <Button
+              key="not-now"
+              label="Not now"
+              onPress={() => hideWrapUp($)}
+            />
+          </Box>
         </Box>
       )
     }

@@ -19,3 +19,5 @@ A live test showed 3 clicks and a nested session. The desktop app counts a plugi
 6. **`fresh-instructions --json`** keeps all its keys. `new_session_prompt` and `clear_command` stay for compatibility but whatsnext no longer uses them; rightsize needs only `continue_prompt` and `terminal_command`.
 7. The wrap-up reply tells the person to press Compact here or New session (unless rightsize submitted the wrap up; see 8).
 8. For rightsize's `wrap up`, the `prompt.submit` hook adds a context block that replaces the reply's last line with "rightsize shows the next step above the prompt: paste its text into a new session to start fresh, or press Compact now to keep going here." (the Python hook that writes the instructions cannot see the origin).
+
+Revised 2026-11-11 (P-69): the band reads "Handoff saved..." plus the new-session prompt, with buttons Compact and continue here, Copy for new session (copies at once, toast on success; the terminal band shows the command instead) and Not now. The reply's last line is "Choose above the prompt: Compact and continue here, or Copy for new session." and is the same for rightsize, so the item 8 context block is removed.

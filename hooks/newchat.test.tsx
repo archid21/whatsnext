@@ -1,7 +1,7 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { CONTINUE, PASTE_INTRO, TERMINAL_INTRO, terminalCommand, writtenSince } from './newchat'
+import { BAND_FIRST, CONTINUE, COPIED_TOAST, COPY_FAILED, promptLine, terminalCommand, terminalLine, writtenSince } from './newchat'
 
 // Start fresh after a wrap-up (P-67, ADR-0024).
 const PROPS = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 5 }, view: {} }
@@ -18,6 +18,12 @@ function world(on: On, { written = true, copied = true }: World = {}) {
   const submitted: { text: string; asUser?: boolean; context?: readonly string[] }[] = []
   const commands: { command: string; args?: string }[] = []
   const copies: string[] = []
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
   on('session.id', () => ({ value: '11111111-2222-3333-4444-555555555555' }))
   on('session.cwd', () => ({ value: '/project' }))
   on('turn.complete', () => ({ text: 'ok' }))
@@ -59,14 +65,16 @@ function world(on: On, { written = true, copied = true }: World = {}) {
     return <Text dimColor>engine</Text>
   })
 
-  return { submitted, commands, copies }
+  return { submitted, commands, copies, toasts }
 }
+
+const ALL = ['Compact and continue here', 'Copy for new session', 'Not now']
 
 async function buttons($: any, surface: 'terminal' | 'desktop' = 'terminal') {
   const ui = await $.ui.mount({ plugin: 'whatsnext', component: 'AbovePrompt', surface, props: PROPS })
   const found: string[] = []
-  for (const label of ['Compact here', 'New session', 'Not now']) {
-    if (await ui.find({ type: 'Button', label })) found.push(label)
+  for (const label of ALL) {
+    if (await ui.find({ type: 'Button', text: label })) found.push(label)
   }
   await ui.unmount()
 
@@ -86,20 +94,23 @@ async function wrapUp($: any, origin?: { kind: 'plugin'; name: string }) {
 }
 
 test('the helpers: the first prompt, the paste lines, the terminal command and the file time', () => {
-  expect(PASTE_INTRO).toBe('Paste this in a new session in this project to continue fresh:')
+  expect(BAND_FIRST).toBe('Handoff saved. Keep going here, or start a new session from it.')
+  expect(promptLine()).toBe(`New-session prompt: "${CONTINUE}"`)
+  expect(terminalLine()).toBe(`In a new terminal window in this folder, run: claude "${CONTINUE}"`)
   expect(terminalCommand()).toBe(`claude "${CONTINUE}"`)
   expect(writtenSince(NOW - 500, NOW)).toBe(true) // file times tick coarser than the clock
   expect(writtenSince(NOW - 5_000, NOW)).toBe(false)
   expect(writtenSince(undefined, NOW)).toBe(false)
 })
 
-test('after a wrap-up that wrote the note, the band offers the three buttons until the next prompt', async ($, on) => {
+test('after a wrap-up that wrote the note, the band offers the buttons until the next prompt', async ($, on) => {
   world(on)
   expect(await buttons($)).toEqual([])
   await $.turn.complete(TURN) // an ordinary turn offers nothing
   expect(await buttons($)).toEqual([])
   await wrapUp($)
-  expect(await buttons($)).toEqual(['Compact here', 'New session', 'Not now'])
+  expect(await buttons($)).toEqual(['Compact and continue here', 'Not now']) // the terminal has no copy button
+  expect(await buttons($, 'desktop')).toEqual(ALL)
   await $.prompt.submit({ text: 'something else' })
   expect(await buttons($)).toEqual([])
 })
@@ -114,8 +125,8 @@ test('the band yields to a survey and a running turn', async ($, on) => {
   world(on)
   await wrapUp($)
   for (const props of [{ ...PROPS, hasSurvey: true }, { ...PROPS, isWorking: true }]) {
-    const ui = await $.ui.mount({ plugin: 'whatsnext', component: 'AbovePrompt', surface: 'terminal', props })
-    expect(await ui.find({ type: 'Button', label: 'New session' })).toBeUndefined()
+    const ui = await $.ui.mount({ plugin: 'whatsnext', component: 'AbovePrompt', surface: 'desktop', props })
+    expect(await ui.find({ type: 'Button', text: 'Copy for new session' })).toBeUndefined()
     await ui.unmount()
   }
 })
@@ -128,48 +139,44 @@ async function has($: any, surface: 'terminal' | 'desktop', text: string) {
   return found
 }
 
-test('New session in the desktop app sends nothing and shows the paste text with a Copy button', async ($, on) => {
-  const { submitted, commands } = world(on)
+test('the desktop band shows both lines at once', async ($, on) => {
+  world(on)
   await wrapUp($)
-  const count = submitted.length
-  await press($, 'new-session', 'desktop')
-  expect(submitted.length).toBe(count)
-  expect(commands).toEqual([])
-  expect(await has($, 'desktop', PASTE_INTRO)).toBe(true)
-  expect(await has($, 'desktop', CONTINUE)).toBe(true)
+  expect(await has($, 'desktop', BAND_FIRST)).toBe(true)
+  expect(await has($, 'desktop', promptLine())).toBe(true)
 })
 
-test('Copy puts the continue prompt on the clipboard; a failed copy leaves the text and says so', async ($, on) => {
-  const ok = world(on)
+test('Copy for new session copies at once, sends nothing, toasts and closes the band', async ($, on) => {
+  const w = world(on)
   await wrapUp($)
-  await press($, 'new-session', 'desktop')
-  await press($, 'copy', 'desktop')
-  expect(ok.copies).toEqual([CONTINUE])
-  expect(await has($, 'desktop', 'Copy did not work. Select the text above and copy it yourself.')).toBe(false)
-})
-
-test('a copy that did not work says so and keeps the text shown', async ($, on) => {
-  const w = world(on, { copied: false })
-  await wrapUp($)
-  await press($, 'new-session', 'desktop')
+  const count = w.submitted.length
   await press($, 'copy', 'desktop')
   expect(w.copies).toEqual([CONTINUE])
-  expect(await has($, 'desktop', 'Copy did not work. Select the text above and copy it yourself.')).toBe(true)
-  expect(await has($, 'desktop', CONTINUE)).toBe(true)
+  expect(w.toasts).toEqual([COPIED_TOAST])
+  expect(w.submitted.length).toBe(count)
+  expect(w.commands).toEqual([])
+  expect(await buttons($, 'desktop')).toEqual([])
 })
 
-test('New session in the terminal shows the command to run in a new window', async ($, on) => {
-  const { submitted, commands } = world(on)
+test('a copy that did not work keeps the band and says so', async ($, on) => {
+  const w = world(on, { copied: false })
   await wrapUp($)
-  const count = submitted.length
-  await press($, 'new-session')
-  expect(submitted.length).toBe(count) // nothing is sent
-  expect(commands).toEqual([])
-  expect(await has($, 'terminal', TERMINAL_INTRO)).toBe(true)
-  expect(await has($, 'terminal', terminalCommand())).toBe(true)
+  await press($, 'copy', 'desktop')
+  expect(w.copies).toEqual([CONTINUE])
+  expect(w.toasts).toEqual([])
+  expect(await has($, 'desktop', COPY_FAILED)).toBe(true)
+  expect(await has($, 'desktop', promptLine())).toBe(true)
+  expect(await buttons($, 'desktop')).toEqual(ALL)
 })
 
-test('Compact here runs /compact with whatsnext text and closes the band', async ($, on) => {
+test('the terminal band shows the command to run in a new window', async ($, on) => {
+  world(on)
+  await wrapUp($)
+  expect(await has($, 'terminal', BAND_FIRST)).toBe(true)
+  expect(await has($, 'terminal', terminalLine())).toBe(true)
+})
+
+test('Compact and continue here runs /compact with whatsnext text and closes the band', async ($, on) => {
   const { commands } = world(on)
   await wrapUp($)
   await press($, 'compact-here')
@@ -177,14 +184,10 @@ test('Compact here runs /compact with whatsnext text and closes the band', async
   expect(await buttons($)).toEqual([])
 })
 
-test('a wrap up from rightsize carries the closing-line context; the person\'s own does not', async ($, on) => {
+test('a wrap up from rightsize adds no context block', async ($, on) => {
   const { submitted } = world(on)
   await wrapUp($, { kind: 'plugin', name: 'rightsize' })
-  const ctx = submitted[0].context?.join('\n') ?? ''
-  expect(ctx).toContain('rightsize shows the next step above the prompt: paste its text into a new session to start fresh, or press Compact now to keep going here.')
-  expect(ctx).not.toContain('Compact here above the prompt')
-  await wrapUp($)
-  expect(submitted[1].context).toBeUndefined()
+  expect(submitted[0].context).toBeUndefined()
 })
 
 test('after a wrap up that rightsize submitted, whatsnext shows no band', async ($, on) => {
@@ -196,7 +199,7 @@ test('after a wrap up that rightsize submitted, whatsnext shows no band', async 
 test('after a wrap up from another plugin, the band shows', async ($, on) => {
   world(on)
   await wrapUp($, { kind: 'plugin', name: 'other' })
-  expect(await buttons($)).toEqual(['Compact here', 'New session', 'Not now'])
+  expect(await buttons($, 'desktop')).toEqual(ALL)
 })
 
 test('Not now hides the band and sends nothing', async ($, on) => {

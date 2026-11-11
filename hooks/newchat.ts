@@ -4,9 +4,18 @@
 // The new chat's first prompt. The session-start hook already puts the resume note (with the handoff) in context.
 export const CONTINUE = 'Continue from the handoff note: read it first.'
 
-// The band's lines above the first prompt (ADR-0026). New session sends nothing to the model.
-export const PASTE_INTRO = 'Paste this in a new session in this project to continue fresh:'
-export const TERMINAL_INTRO = "In a new terminal window, in this project's folder, run:"
+// The band's texts (ADR-0026). Copy for new session copies at once and sends nothing to the model.
+export const BAND_FIRST = 'Handoff saved. Keep going here, or start a new session from it.'
+export const COPIED_TOAST = 'Copied. Open a new session in this project and paste it.'
+export const COPY_FAILED = 'Copy did not work. Select the prompt above and copy it.'
+
+export function promptLine() {
+  return `New-session prompt: "${CONTINUE}"`
+}
+
+export function terminalLine() {
+  return `In a new terminal window in this folder, run: ${terminalCommand()}`
+}
 
 // The terminal: no portable way to open a window, so the person runs this in a new one.
 export function terminalCommand() {

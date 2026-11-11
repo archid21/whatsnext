@@ -2,7 +2,7 @@
 
 ## Report a problem
 
-Open a private report: Security tab of this repository, "Report a vulnerability". Do not put exploit details in a public issue. Expect a first reply within 7 days.
+Open a private report: Security tab of this repository, "Report a vulnerability", or email [hello@aivalue.blog](mailto:hello@aivalue.blog?subject=whatsnext) (subject: whatsnext). Do not put exploit details in a public issue. Expect a first reply within 7 days.
 
 ## Scope
 
