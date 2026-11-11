@@ -428,6 +428,7 @@ def instructions(root, effective, now=None, session_id=None, agent=None):
         "",
         "Write exact values, not descriptions of them: file paths, ids, versions, URLs, commands and error text as they appear. "
         "Use only facts from this session and the repository; mark a guess as a guess. Never write secrets. Do not commit.",
+        "Do not write `## Files`, `## Links` or `## Skills` sections: whatsnext adds them from this session's tool calls when you stop.",
     ]
     if task is not None:
         lines.append("Do not run commands to update the progress file's Next action: whatsnext copies it from your note.")
@@ -574,6 +575,10 @@ def settle(root, effective, data, agent=None):
     # File times have a coarser tick than the clock: allow one second.
     if requested is None or not os.path.isfile(handoff) or os.path.getmtime(handoff) < requested - 1:
         return False
+    try:
+        add_used_sections(root, effective, handoff, data)
+    except Exception:  # the sections are a help; recording the wrap-up is what matters
+        pass
     folder = gwstatus.status_folder(root, effective)
     sid = data.get("session_id")
     task = gwstatus.branch_task(gwstatus.load_tasks(root, folder), gwstatus.current_branch(root),
@@ -597,6 +602,39 @@ def settle(root, effective, data, agent=None):
     if task is not None:
         copy_next_action(root, folder, task, handoff)
     return True
+
+
+def previous_wrapup_time(root, effective, session_id):
+    """Epoch seconds of this session's previous wrap-up: the `Written:` time of the newest archived note it wrote,
+    or None. `begin` archived the old note, so the archive holds every earlier note."""
+    folder = os.path.join(os.path.dirname(handoff_path(root, effective)), ARCHIVE_DIR)
+    try:
+        names = sorted((n for n in os.listdir(folder) if ARCHIVE_NAME_RE.match(n)), reverse=True)
+    except OSError:
+        return None
+    for name in names:
+        header = read_header(os.path.join(folder, name))
+        if header["session"] == session_id and header["written"]:
+            written = gwclaims.to_dt(header["written"])
+            return written.timestamp() if written else None
+    return None
+
+
+def add_used_sections(root, effective, handoff, data):
+    """P-68: add the Files, Links and Skills sections to the note just written, from this session's tool calls
+    since its previous wrap-up (the whole session when there was none). Returns the facts, or None."""
+    from . import used as gwused
+    sid = data.get("session_id")
+    if not gwsessions.valid_session_id(sid):
+        return None
+    transcript = data.get("transcript_path")
+    if not (isinstance(transcript, str) and os.path.isfile(transcript)):
+        transcript = gwsessions.find_transcript(sid)
+    def rel(path):  # relative to the project root, as `used` writes paths
+        return os.path.relpath(path, root).replace(os.sep, "/")
+    skip = (rel(handoff), rel(os.path.join(os.path.dirname(handoff), ARCHIVE_DIR)) + "/", ".whatsnext/")
+    return gwused.write_sections(root, handoff, transcript, previous_wrapup_time(root, effective, sid), skip,
+                                 MAX_HANDOFF_CHARS)
 
 
 def section_text(body, names):
