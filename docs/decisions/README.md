@@ -29,3 +29,4 @@ Dates are UTC. This list is the current set of decisions for whatsnext. Earlier 
 | 0023 | 2026-11-10T20:46Z | Mark done can reuse a recent passing run of the same check | accepted (user) | [ADR-0023](ADR-0023-reuse-a-passing-run.md) |
 | 0024 | 2026-11-11T02:40Z | After a wrap-up, offer a new session or a cleared one, seeded with the handoff | accepted (user) | [ADR-0024](ADR-0024-start-fresh-after-wrap-up.md) |
 | 0025 | 2026-11-11T03:40Z | One command lets rightsize offer wrap up and start fresh | accepted (user) | [ADR-0025](ADR-0025-start-fresh-from-rightsize.md) |
+| 0026 | 2026-11-11T15:09Z | After a wrap-up, the band offers Compact here or a paste-in new session | accepted (user) | [ADR-0026](ADR-0026-wrap-up-band-compact-or-paste.md) |

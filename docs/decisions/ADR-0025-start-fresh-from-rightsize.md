@@ -1,7 +1,7 @@
 # ADR-0025: One command lets rightsize offer wrap up and start fresh
 
 - **Date:** 2026-11-11T03:40Z
-- **Status:** accepted (user), 2026-11-11
+- **Status:** accepted (user), 2026-11-11; the band buttons and the desktop start_session path are superseded by [ADR-0026](ADR-0026-wrap-up-band-compact-or-paste.md)
 
 Builds on ADR-0024 (start fresh after a wrap-up) and ADR-0009 (`compact-instructions`). P-69. rightsize's matching decision: its ADR 0050 (proposed).
 

@@ -1,6 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import { CONTINUE, newSessionPrompt, terminalNotice, writtenSince } from './newchat'
+import { CONTINUE, PASTE_INTRO, TERMINAL_INTRO, terminalCommand, writtenSince } from './newchat'
 import { IDLE_MS, WRAP_UP, minTokens, saveTipKind, skipReason, type IdleFacts } from './idle'
 import { ME, REPOS, SHARED_PATH, askText, blockedByClaim, parseShared, readStarCheck, reposToAsk, type Shared } from './star'
 import { GUIDE, TIPS, loadState, markSeen, nextTip, restartTips, stopTips, type Tip } from './tips'
@@ -24,9 +24,13 @@ let askedThisPeriod = false
 const SCRIPT = 'skills/whatsnext/scripts/whatsnext.py'
 
 // Start fresh after a wrap-up (P-67, ADR-0024). `wrapAskedAt` is when this session's `wrap up` was submitted; when
-// that turn ends with the handoff note written, the band offers New session and Clear and continue until a prompt.
+// that turn ends with the handoff note written, the band offers Compact here and New session until a prompt (ADR-0026).
+// `wrapByRightsize` is true when rightsize submitted that `wrap up`: rightsize shows its own choice, so this band stays off.
 let wrapAskedAt: number | undefined
+let wrapByRightsize = false
 let afterWrap = false
+let pasteSurface: string | undefined // set once New session is pressed: the band then shows the text to paste
+let copyFailed = false
 
 // GitHub star ask (P-65, ADR-0021). `star` in `$.store` says a verified done has happened (the milestone). The shared
 // file (./star.ts) says whether rightsize is installed, what is starred, and whether the person answered.
@@ -288,31 +292,47 @@ async function checkWrapUp($: EngineInterface, askedAt: number) {
 
 function hideWrapUp($: EngineInterface) {
   afterWrap = false
+  pasteSurface = undefined
+  copyFailed = false
   $.ui.invalidate('ui.render')
 }
 
-// New session keeps this chat. The desktop app has a session tool only the agent can call, so the agent is asked,
-// in the person's words (they pressed the button). A terminal cannot open a window: the band shows the command.
-async function newSession($: EngineInterface, surface: string) {
+// Compact here: `/compact` with whatsnext's compact text (the handoff carried in), in this session. If the text cannot
+// be read, a plain `/compact` runs: the PreCompact hook still carries the handoff in.
+async function compactHere($: EngineInterface) {
   hideWrapUp($)
-  if (surface === 'desktop') {
-    await Promise.resolve($.prompt.submit({ text: newSessionPrompt(), asUser: true })).catch(() => undefined)
-  } else {
-    notice = terminalNotice()
+  try {
+    let args = ''
+    try {
+      const cwd = await $.session.cwd()
+      const ran = await $.process.run(
+        ['python3', `${$.plugin.root}/${SCRIPT}`, 'compact-instructions', '--json', '--session', await $.session.id()],
+        { cwd, timeoutMs: 10_000 },
+      )
+      const text = ran.exitCode === 0 ? (JSON.parse(ran.stdout) as { instructions?: unknown }).instructions : undefined
+      if (typeof text === 'string') args = text
+    } catch {
+      // a plain /compact
+    }
+    await $.command.run({ command: 'compact', args })
+  } catch {
+    notice = 'Could not compact this chat. Type /compact.'
     $.ui.invalidate('ui.render')
   }
 }
 
-// Clear and continue: `/clear` (the old chat stays in /resume), then the first prompt of the new chat.
-async function clearAndContinue($: EngineInterface) {
-  hideWrapUp($)
-  try {
-    await $.command.run({ command: 'clear', args: '' })
-    await $.prompt.submit({ text: CONTINUE, asUser: true })
-  } catch {
-    notice = 'Could not clear this chat. Type /clear, then: ' + CONTINUE
-    $.ui.invalidate('ui.render')
-  }
+// New session sends nothing to the model (ADR-0026): the band shows the first prompt to paste in a new session
+// (the app has no mod call that starts one), or, in a terminal, the command to run in a new window.
+function newSession($: EngineInterface, surface: string) {
+  pasteSurface = surface
+  copyFailed = false
+  $.ui.invalidate('ui.render')
+}
+
+async function copyContinue($: EngineInterface) {
+  const result = await Promise.resolve($.ui.copy({ text: CONTINUE, surface: pasteSurface as never })).catch(() => undefined)
+  copyFailed = result?.isCopied !== true
+  $.ui.invalidate('ui.render')
 }
 
 // The save tip that fits (P-42): the opt-in tip when auto-compact is on and auto wrap-up is off, the manual tip when
@@ -447,7 +467,11 @@ export const register: Register = on => {
   on('prompt.submit', async ($, e, next) => {
     disarmIdle()
     if (afterWrap) hideWrapUp($)
-    if (typeof e.text === 'string' && e.text.trim() === WRAP_UP) wrapAskedAt = await $.clock.now()
+    if (typeof e.text === 'string' && e.text.trim() === WRAP_UP) {
+      wrapAskedAt = await $.clock.now()
+      // rightsize shows its own choice after its wrap up (ADR-0026).
+      wrapByRightsize = e.origin?.kind === 'plugin' && e.origin.name === 'rightsize'
+    }
     if (notice !== undefined) {
       notice = undefined
       $.ui.invalidate('ui.render')
@@ -467,7 +491,9 @@ export const register: Register = on => {
       if (wrapAskedAt !== undefined) {
         const askedAt = wrapAskedAt
         wrapAskedAt = undefined
-        await checkWrapUp($, askedAt)
+        const byRightsize = wrapByRightsize
+        wrapByRightsize = false
+        if (!byRightsize) await checkWrapUp($, askedAt)
       }
       await afterTurn($)
     }
@@ -491,18 +517,43 @@ export const register: Register = on => {
     const { Box, Button, Text } = $.ui.resolve(e)
     if (afterWrap) {
       const surface = e.surface
+      if (pasteSurface !== undefined) {
+        const isTerminal = pasteSurface === 'terminal'
+
+        return (
+          <Box flexDirection="column">
+            <Text>{isTerminal ? TERMINAL_INTRO : PASTE_INTRO}</Text>
+            <Text>{isTerminal ? terminalCommand() : CONTINUE}</Text>
+            {copyFailed ? <Text>Copy did not work. Select the text above and copy it yourself.</Text> : null}
+            <Box>
+              {isTerminal ? null : (
+                <Button
+                  key="copy"
+                  label="Copy"
+                  onPress={() => copyContinue($)}
+                />
+              )}
+              <Button
+                key="not-now"
+                label="Not now"
+                onPress={() => hideWrapUp($)}
+              />
+            </Box>
+          </Box>
+        )
+      }
       return (
         <Box>
-          <Text>Handoff written. Start fresh with it: </Text>
+          <Text>Handoff written. Keep going with it: </Text>
+          <Button
+            key="compact-here"
+            label="Compact here"
+            onPress={() => compactHere($)}
+          />
           <Button
             key="new-session"
             label="New session"
             onPress={() => newSession($, surface)}
-          />
-          <Button
-            key="clear-continue"
-            label="Clear and continue"
-            onPress={() => clearAndContinue($)}
           />
           <Button
             key="not-now"

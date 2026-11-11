@@ -27,7 +27,7 @@ NEW_SESSION_PROMPT = (
 # The terminal: no portable way to open a window, so the person runs this in a new one.
 TERMINAL_COMMAND = 'claude "%s"' % CONTINUE
 
-# Run before CONTINUE for Clear and continue (the old chat stays in /resume).
+# Kept for callers that read it; whatsnext's band no longer clears (ADR-0026).
 CLEAR_COMMAND = "clear"
 
 

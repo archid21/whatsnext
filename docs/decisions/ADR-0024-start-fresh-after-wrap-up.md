@@ -1,7 +1,7 @@
 # ADR-0024: After a wrap-up, offer a new session or a cleared one, seeded with the handoff
 
 - **Date:** 2026-11-11T02:40Z
-- **Status:** accepted (user), 2026-11-11
+- **Status:** accepted (user), 2026-11-11; the band buttons and the desktop start_session path are superseded by [ADR-0026](ADR-0026-wrap-up-band-compact-or-paste.md)
 
 Amends ADR-0008 (`wrap up` writes the handoff note). P-67.
 

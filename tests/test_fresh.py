@@ -87,10 +87,7 @@ class BandCopyTests(unittest.TestCase):
         m = re.search(r"export const CONTINUE = '([^']*)'", ts)
         self.assertIsNotNone(m)
         self.assertEqual(m.group(1), wnfresh.CONTINUE)
-        body = re.search(r"function newSessionPrompt\(\) \{\s*return \((.*?)\)\s*\}", ts, re.S).group(1)
-        parts = re.findall(r"'((?:[^'\\]|\\.)*)'|`((?:[^`\\]|\\.)*)`", body)
-        text = "".join(a or b for a, b in parts).replace("${CONTINUE}", wnfresh.CONTINUE)
-        self.assertEqual(text, wnfresh.NEW_SESSION_PROMPT)
+        self.assertNotIn("newSessionPrompt", ts)  # New session sends nothing to the model (ADR-0026)
         self.assertIn("return `claude \"${CONTINUE}\"`", ts)
         self.assertEqual(wnfresh.TERMINAL_COMMAND, 'claude "%s"' % wnfresh.CONTINUE)
 
