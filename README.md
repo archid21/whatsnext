@@ -126,6 +126,25 @@ whatsnext does plan, check-off and handoff in one repository. It does not rememb
 
 *Based on a market check dated 2026-11-04 ([docs/project/research/groundwork-vs-memory-plugins.md](docs/project/research/groundwork-vs-memory-plugins.md)). The rows describe each kind of tool in general; check a specific tool before you rely on a cell.*
 
+## Support tiers
+
+whatsnext works in any coding agent, at one of three tiers ([ADR-0027](docs/decisions/ADR-0027-any-agent-support.md)):
+
+- **Files:** the agent reads and edits `PLAN.md`, progress files and `HANDOFF.md`.
+- **Instructions:** the `AGENTS.md` block and the skill tell the agent to run status at start and write the handoff on `wrap up`. No hooks; the agent pulls the resume note.
+- **Hooks:** an adapter maps the agent's hook events to whatsnext's. The resume note, the journal and the compact text arrive unasked.
+
+| Agent | Tier | Status |
+|---|---|---|
+| Claude Code | Hooks | Supported |
+| Codex | Hooks | Supported; tips, idle wrap-up and compact-summary comparison are Claude-only |
+| Gemini CLI | Instructions (hooks planned, P-77) | Experimental |
+| Cursor | Instructions (hooks planned, P-77) | Experimental |
+| Other agents that read `AGENTS.md` or skills | Instructions | Experimental |
+| Any agent | Files | Works: the files are plain Markdown |
+
+An agent is "supported" only after the live acceptance checklist passes for it and `doctor` reports its hooks.
+
 ## Better with rightsize
 
 **whatsnext delivers more for you when used along with [rightsize](https://github.com/archid21/rightsize).** rightsize is a Claude Code plugin for the cost side of a session: it picks the model and effort for each prompt, and watches your prompt cache and usage windows. It decides *when* to wrap up or compact. whatsnext decides *what* the handoff and the compact keep, and writes the files.

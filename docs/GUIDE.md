@@ -157,6 +157,17 @@ Claude Code and Codex read the same plain files, so one can pick up where the ot
 - Claims belong to the repository, not to one plan file. A test run that points `paths.plan` at a scratch plan in the same repository leaves its claims behind; `plan check` names a claim on a done item, and `plan put-back <id>` removes it without changing the item.
 - A handoff note is read first only by the session that wrote it, or one working the same task.
 
+Which agent gets which tier (details in the README's [Support tiers](../README.md#support-tiers)):
+
+| Agent | Tier | Status |
+|---|---|---|
+| Claude Code | Hooks | Supported |
+| Codex | Hooks | Supported |
+| Gemini CLI | Instructions | Experimental |
+| Cursor | Instructions | Experimental |
+| Other agents that read `AGENTS.md` or skills | Instructions | Experimental |
+| Any agent | Files | Works |
+
 This is experimental. See the README's [Known limits](../README.md#known-limits).
 
 For Codex: run `install-hooks`, then review changed hooks in **Settings > Hooks** (desktop) or `/hooks` (CLI). Startup includes forked chats; session-end and interruption also record facts.
