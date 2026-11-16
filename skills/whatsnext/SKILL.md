@@ -21,6 +21,8 @@ All logic is in one script: `python3 scripts/whatsnext.py <command>` (Python 3.9
 | "reopen P-13" | `plan reopen P-13 --reason "<the user's reason>"` (optional `--done-means "<new check>"`): unchecks it, moves its evidence to `## History`, and a fresh `plan done` is needed. Ask for the reason if the user gave none |
 | "approve P-13", "P-13 looks good" | `plan review P-13`: only for an item `awaiting review`, and only after the person approves in chat. "reject P-13 because …" → `plan review P-13 --reject "<their reason>"`; the item is open again and needs a fresh `--verify` |
 | "keep working on P-12" (a stale item) | `plan keep P-12` |
+| "import ready items from Beads / GitHub Issues" | `plan import --from beads\|github`. It runs your own `bd ready --json` or `gh issue list` (whatsnext makes no network call), skips items already in the plan, then asks (exit 4) for one done means for all, then for the OK with the list. Show the list and the done means to the user; on the OK run again with `--done-means "<text>" --yes`. Each item gets a `tracker: gh#12` or `tracker: bd:<id>` field |
+| `plan done` printed an `Offer:` (`tracker_offer` in `--json`) | Ask the user whether to close the item in its tracker. Only on a yes run `plan close-tracker <id>`. PLAN.md stays the source of truth: a failed close leaves the item done |
 | "put P-12 back" (a stale item) | Update its progress file first, then `plan put-back P-12 --saved` |
 | `plan check` says "P-12 is done but still claimed" | `plan put-back P-12` (removes only the claim; the item and its progress file stay done) |
 | "show the plan", "who has what?" | `plan list` (`--json` for data) |

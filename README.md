@@ -200,6 +200,7 @@ Claude Code loads `hooks/hooks.json` with the plugin. For Codex, run `install-ho
 
 ## Reference: every feature
 
+- **Tracker sync:** `plan import --from beads|github` reads ready items with your own `bd ready --json` or `gh issue list`, shows them, and after your OK adds them through `plan add` with a `tracker:` field (`gh#12`, `bd:<id>`). Items already in the plan are skipped. When such an item is done, `plan done` offers to close it in the tracker; `plan close-tracker <id>` runs `gh issue close` or `bd close` only after you say yes. whatsnext makes no network call itself, and PLAN.md stays the source of truth ([ADR-0027](docs/decisions/ADR-0027-any-agent-support.md) rule 5).
 
 - **Plan:** list the plan items, show what is next, and start an item. Start asks a few questions first (takeover, done means, uncommitted changes, the item already in progress, and the branch). An agent does not start an item another agent has checked out.
 - **Status:** `whatsnext status` (`--json` for data) answers "what's next?" and "where did we leave off?" in one call: the current item with its step, next action and blockers; the handoff note and whether to read it first; up to 3 ready items with the recommended one; and every warning from `plan check` and stale checkouts, with verify-drift warnings folded into one line. It writes nothing.
