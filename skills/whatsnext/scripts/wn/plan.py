@@ -202,8 +202,14 @@ def rewrite_item(path, item_id, transform):
     return True
 
 
+FIELD_WORD_RE = re.compile(r"\b(done means|evidence|blocked by|suggest|review|reviewed|tracker)(\s*):", re.I)
+
+
 def clean(text):
-    return " ".join((text or "").replace("·", "-").split())
+    """One line of plain text for a title or field: no `·` separator, and no `<field>:` a parser could read as a
+    field (P-79: an imported title must never add a done means that `plan done --verify` would run)."""
+    text = " ".join((text or "").replace("·", "-").split())
+    return FIELD_WORD_RE.sub(lambda m: m.group(1) + m.group(2) + " -", text)
 
 
 def is_verified(evidence):
@@ -1457,10 +1463,12 @@ def plan_trackers(text):
         if split is None:
             continue
         item_id = ITEM_RE.match(line).group(4)
-        for part in split[2]:
-            m = gwtracker.TRACKER_RE.match(part)
-            if m:
-                found.append((m.group(1), item_id))
+        parts = split[2]
+        at = title_index(parts)
+        ids = [m.group(1) for i, m in ((i, gwtracker.TRACKER_RE.match(p)) for i, p in enumerate(parts))
+               if m and i != at]
+        if len(ids) == 1:  # more than one tracker field is ambiguous: treat the item as having none
+            found.append((ids[0], item_id))
     return found
 
 

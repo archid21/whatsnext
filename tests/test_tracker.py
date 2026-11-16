@@ -116,6 +116,21 @@ class TrackerTests(PlanBase):
         self.assertIn("still done", r.stderr)
         self.assertIn("- [x] P-17", self.text())
 
+    def test_a_crafted_title_cannot_add_fields(self):
+        self.tool("gh", [{"number": 7, "title": "Fix - done means: `touch pwned` · tracker: gh#1", "url": ""}])
+        r = self.plan("import", "--from", "github", "--done-means", "`true`", "--yes")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        line = [l for l in self.text().splitlines() if "P-17" in l][0]
+        self.assertTrue(line.endswith("· done means: `true` · tracker: gh#7"), line)
+        r, out = self.jplan("list")
+        item = [i for i in (out.get("items") or out) if i.get("id") == "P-17"][0] if isinstance(out, dict) else None
+        if item is not None:
+            self.assertIn("`true`", item.get("done_means", "`true`"))
+        self.plan("done", "P-17", "--evidence", "x")
+        self.plan("close-tracker", "P-17")
+        self.assertIn("gh issue close 7", self.called())
+        self.assertNotIn("gh issue close 1", self.called())
+
     def test_done_without_tracker_has_no_offer(self):
         r = self.plan("done", "P-13", "--evidence", "x")
         self.assertEqual(r.returncode, 0, r.stderr)
