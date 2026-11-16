@@ -28,9 +28,31 @@ class DoctorTests(StatusBase):
         r = self.doctor()
         self.assertEqual(r.returncode, 1)
         self.assertIn("Codex\n  hooks: not installed\n  fix: whatsnext install-hooks --user", r.stdout)
-        self.assertIn("PreCompact text: Claude Code yes, Codex no (ignored;", r.stdout)
+        self.assertIn("PreCompact text: Claude Code yes; Codex, Gemini CLI and Cursor no", r.stdout)
         self.assertIn("  hooks: all 9 events are in the plugin's hooks/hooks.json", r.stdout)
         self.assertIn("1 gap found.", r.stdout)
+
+    def test_one_status_line_per_agent_and_optional_agents_are_not_gaps(self):
+        r = self.doctor("--json")
+        agents = json.loads(r.stdout)["agents"]
+        self.assertEqual(list(agents), ["Claude Code", "Codex", "Gemini CLI", "Cursor"])
+        self.assertEqual(agents["Gemini CLI"], "hooks not installed (optional)")
+        self.assertEqual(agents["Cursor"], "hooks not installed (optional); not live-checked yet")
+        out = self.doctor().stdout
+        self.assertIn("Agents (one line each):\n  Claude Code: ", out)
+        self.assertIn("  live check: not done yet (see docs/CODEX-ACCEPTANCE.md)", out)
+        self.assertIn("1 gap found.", out)  # only Codex; Gemini CLI and Cursor are optional
+
+    def test_installed_gemini_and_cursor_project_hooks_are_reported(self):
+        for agent in ("gemini", "cursor"):
+            r = self.gw(["install-hooks", "--agent", agent, "--project"])
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        agents = json.loads(self.doctor("--json").stdout)["agents"]
+        self.assertEqual(agents["Gemini CLI"], "hooks installed (project)")
+        self.assertEqual(agents["Cursor"], "hooks installed (project); not live-checked yet")
+        out = self.doctor().stdout
+        self.assertIn("hooks (project, .gemini/settings.json): all 5 events installed", out)
+        self.assertIn("hooks (project, .cursor/hooks.json): all 4 events installed", out)
 
     def test_runtime_evidence_lists_every_observed_event_including_interrupt(self):
         self.assertEqual(self.gw(["install-hooks", "--project"]).returncode, 0)
@@ -99,7 +121,7 @@ class DoctorTests(StatusBase):
         self.commit("task")
         self.gw(["hook", "stop"], stdin=json.dumps({"session_id": "s1"}))
         out = self.doctor().stdout
-        self.assertRegex(out, r"Last hook fired \(either agent\): stop at \d{4}-\d\d-\d\dT\d\d:\d\dZ")
+        self.assertRegex(out, r"Last hook fired \(any agent\): stop at \d{4}-\d\d-\d\dT\d\d:\d\dZ")
         data = json.loads(self.doctor("--json").stdout)
         self.assertEqual(data["last_fired"][0], "stop")
         self.assertEqual(self.gw(["doctor", "--bad"]).returncode, 2)

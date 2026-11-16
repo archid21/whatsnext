@@ -100,7 +100,7 @@ def unreadable_capture(root):
 
 
 def observations(root):
-    result = {"claude-code": {}, "codex": {}}
+    result = {agent: {} for agent in gwhook.AGENTS}
     for path in glob.glob(os.path.join(glob.escape(os.path.join(root, gwjournal.SESSIONS_DIR)), "health-*.json")):
         try:
             with open(path, encoding="utf-8") as f:
@@ -112,20 +112,57 @@ def observations(root):
     return result
 
 
-def codex_gaps(root):
-    """[(scope, shown path, events to fix, error)] for the user and project hooks files that hold whatsnext's
-    entries. A file with none of them is reported once, as not installed."""
+def codex_gaps(root, agent="codex"):
+    """[(scope, shown path, events to fix, error, has own entries)] for the user and project hooks files of one
+    agent with an adapter (codex, gemini, cursor). A file with none of whatsnext's entries has has_own False."""
     out = []
     for scope in ("user", "project"):
-        result = gwhooksinstall.plan(scope, False, root=root)
-        has_own = bool(result["old"]) and "whatsnext.py" in result["old"] and "--agent codex" in result["old"]
+        result = gwhooksinstall.plan(scope, False, root=root, agent=agent)
+        has_own = bool(result["old"]) and "whatsnext.py" in result["old"] and ("--agent %s" % agent) in result["old"]
         out.append((scope, result["shown"], result["events"], result["error"], has_own))
     return out
 
 
+# Agents with an adapter but no live acceptance run yet (docs/CODEX-ACCEPTANCE.md). P-78: Cursor ships unchecked.
+NOT_LIVE_CHECKED = ("cursor",)
+
+
+def optional_agent(root, agent):
+    """(lines, gaps, summary) for Gemini CLI or Cursor. Hooks there are optional: not installed is not a gap."""
+    ad = gwhooksinstall.adapters()[agent]
+    lines, gaps, installed = [ad.label], 0, []
+    for scope, shown, events, err, has_own in codex_gaps(root, agent):
+        if err:
+            gaps += 1
+            lines.append("  hooks (%s): %s" % (scope, err))
+        elif has_own and events:
+            gaps += 1
+            lines += ["  hooks (%s, %s): missing or changed: %s" % (scope, shown, ", ".join(events)),
+                      "  fix: wn install-hooks --agent %s --%s" % (agent, scope)]
+            installed.append(scope)
+        elif has_own:
+            lines.append("  hooks (%s, %s): all %d events installed" % (scope, shown, len(ad.events)))
+            installed.append(scope)
+    if not installed:
+        where = ad.folder()
+        lines.append("  hooks: not installed (optional; %s: wn install-hooks --agent %s)" % (
+            "no %s folder yet" % where if not os.path.isdir(where) else "to add them", agent))
+    if agent in NOT_LIVE_CHECKED:
+        lines.append("  live check: not done yet (see docs/CODEX-ACCEPTANCE.md); the adapter is tested on documented payloads only")
+    if gaps:
+        summary = "needs a fix (see %s below)" % ad.label
+    elif installed:
+        summary = "hooks installed (%s)" % ", ".join(installed)
+    else:
+        summary = "hooks not installed (optional)"
+    if agent in NOT_LIVE_CHECKED:
+        summary += "; not live-checked yet"
+    return lines, gaps, summary
+
+
 def report(root):
     """{"agents": {...}, "lines": [...], "gaps": n}. The lines are what `doctor` prints."""
-    lines, gaps = [], 0
+    lines, gaps, summary = [], 0, {}
 
     lines.append("Claude Code")
     found, error = claude_hooks()
@@ -157,7 +194,9 @@ def report(root):
         lines.append("  plugin: not checked (no whatsnext entry in settings.json enabledPlugins)")
     else:
         lines.append("  plugin: enabled")
+    summary["Claude Code"] = "needs a fix (see Claude Code below)" if gaps else "plugin hooks in place"
 
+    codex_start = gaps
     lines.append("Codex")
     user = project = None
     for scope, shown, events, err, has_own in codex_gaps(root):
@@ -186,11 +225,21 @@ def report(root):
         lines += ["  plan capture: unreadable since %s (%d turn%s): %s" % (bad.get("since"), bad.get("count") or 1,
                                                                         "" if bad.get("count") == 1 else "s", bad.get("reason")),
                   "  fix: record the plan by hand with `whatsnext progress capture`; update whatsnext if Codex changed its format"]
-    lines.append("PreCompact text: Claude Code yes, Codex no (ignored; Codex gets the journal fact and the resume note)")
+    summary["Codex"] = ("needs a fix (see Codex below)" if gaps > codex_start
+                        else "hooks installed (%s)" % ", ".join(s for s, on in (("user", user), ("project", project)) if on))
+    for agent in ("gemini", "cursor"):
+        more, extra, line = optional_agent(root, agent)
+        lines += more
+        gaps += extra
+        summary[gwhooksinstall.adapters()[agent].label] = line
+    lines.append("PreCompact text: Claude Code yes; Codex, Gemini CLI and Cursor no (they get the journal fact "
+                 "and the resume note)")
     fired = last_fired(root)
-    lines.append("Last hook fired (either agent): %s" % ("%s at %s" % fired if fired else "none recorded yet"))
+    lines.append("Last hook fired (any agent): %s" % ("%s at %s" % fired if fired else "none recorded yet"))
     observed = observations(root)
     for agent, events in observed.items():
+        if agent in ("gemini", "cursor") and not events:
+            continue  # optional agents: list their evidence only once one of their hooks has fired here
         lines.append("Runtime evidence (%s; this checkout):" % agent)
         for event in gwhook.OBSERVED_EVENTS + EXTRA_OBSERVED:
             record = events.get(event)
@@ -198,7 +247,8 @@ def report(root):
                 record.get("status", "unverified"), record.get("time", "unknown"),
                 " (" + record["detail"] + ")" if record.get("detail") else "") if record else "unverified (not observed)"))
     lines.append("Installed hooks are configuration only. Observed events do not prove a complete cross-agent handoff.")
-    return {"lines": lines, "gaps": gaps, "last_fired": fired, "runtime": observed}
+    head = ["Agents (one line each):"] + ["  %s: %s" % (k, v) for k, v in summary.items()]
+    return {"lines": head + lines, "gaps": gaps, "last_fired": fired, "runtime": observed, "agents": summary}
 
 
 def run(argv):

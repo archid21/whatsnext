@@ -139,7 +139,7 @@ whatsnext works in any coding agent, at one of three tiers ([ADR-0027](docs/deci
 | Claude Code | Hooks | Supported |
 | Codex | Hooks | Supported; tips, idle wrap-up and compact-summary comparison are Claude-only |
 | Gemini CLI | Hooks: `install-hooks --agent gemini` (all five events) | Experimental |
-| Cursor | Hooks: `install-hooks --agent cursor` (no prompt hook: Cursor cannot add text to a prompt, so `wrap up` stays at the Instructions tier) | Experimental |
+| Cursor | Hooks: `install-hooks --agent cursor` (no prompt hook: Cursor cannot add text to a prompt, so `wrap up` stays at the Instructions tier). Not live-checked yet: see [docs/CODEX-ACCEPTANCE.md](docs/CODEX-ACCEPTANCE.md) | Experimental |
 | Other agents that read `AGENTS.md` or skills | Instructions | Experimental |
 | Any agent | Files | Works: the files are plain Markdown |
 
