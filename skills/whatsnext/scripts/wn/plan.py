@@ -26,6 +26,7 @@ from . import config as gwconfig
 from . import journal as gwjournal
 from . import redact as gwredact
 from . import status as gwstatus
+from . import tracker as gwtracker
 from . import wrapup as gwwrapup
 from .ask import NEEDS_ANSWER, ask, option
 from .util import now_utc, write_atomic
@@ -201,8 +202,14 @@ def rewrite_item(path, item_id, transform):
     return True
 
 
+FIELD_WORD_RE = re.compile(r"\b(done means|evidence|blocked by|suggest|review|reviewed|tracker)(\s*):", re.I)
+
+
 def clean(text):
-    return " ".join((text or "").replace("·", "-").split())
+    """One line of plain text for a title or field: no `·` separator, and no `<field>:` a parser could read as a
+    field (P-79: an imported title must never add a done means that `plan done --verify` would run)."""
+    text = " ".join((text or "").replace("·", "-").replace("<!--", "<! --").replace("-->", "- ->").split())
+    return FIELD_WORD_RE.sub(lambda m: m.group(1) + m.group(2) + " -", text)
 
 
 def is_verified(evidence):
@@ -1205,6 +1212,11 @@ def cmd_test(ctx, args):
 
 
 def cmd_done(ctx, args):
+    tid = item_tracker(ctx, args.id)
+    if tid:
+        # P-79: after the item is done, offer to close it in its tracker. Only the user's yes closes it.
+        args.tracker_offer = {"tracker": tid, "question": "%s is %s in %s. Close it there too?" % (
+            args.id, tid, gwtracker.tracker_name(tid)), "answer": "plan close-tracker %s" % args.id}
     if args.verify is not None:
         if args.evidence or args.unverified:
             return fail("--verify cannot be combined with --evidence or --unverified. "
@@ -1295,10 +1307,14 @@ def cmd_release(ctx, args):
 def report(args, ok, message, data):
     if not ok:
         return fail(message)
+    offer = getattr(args, "tracker_offer", None) if data.get("done") else None
     if getattr(args, "json", False):
-        print(json.dumps(dict(data, message=message), indent=2))
+        extra = {"tracker_offer": offer} if offer else {}
+        print(json.dumps(dict(data, message=message, **extra), indent=2))
     else:
         print(message)
+        if offer:
+            print("Offer: " + offer["question"] + " On a yes, run: " + offer["answer"])
     return 0
 
 
@@ -1424,6 +1440,115 @@ def cmd_add(ctx, args):
     lines.insert(at, item_line(item_id, title, done_means, blocked))
     write_atomic(ctx.plan_path, "\n".join(lines))
     return report(args, True, "Added %s to %s: %s" % (item_id, section, title), {"id": item_id, "section": section})
+
+
+# ---- tracker sync (P-79) ----------------------------------------------------
+
+
+def item_tracker(ctx, item_id):
+    """The `tracker:` field of `item_id` (`gh#12` or `bd:<id>`), or ""."""
+    if not ctx.has_plan():
+        return ""
+    for tid, iid in plan_trackers(read_plan(ctx.plan_path)):
+        if iid == item_id:
+            return tid
+    return ""
+
+
+def plan_trackers(text):
+    """[(tracker id, item id)] for every item with a `tracker:` field."""
+    found = []
+    for line in text.splitlines():
+        split = split_item(line)
+        if split is None:
+            continue
+        item_id = ITEM_RE.match(line).group(4)
+        parts = split[2]
+        at = title_index(parts)
+        ids = [m.group(1) for i, m in ((i, gwtracker.TRACKER_RE.match(p)) for i, p in enumerate(parts))
+               if m and i != at]
+        if len(ids) == 1:  # more than one tracker field is ambiguous: treat the item as having none
+            found.append((ids[0], item_id))
+    return found
+
+
+def cmd_import(ctx, args):
+    """`plan import --from beads|github`: show the tracker's ready items not in the plan yet, then add them
+    through the same writer as `plan add`, each with a `tracker:` field (ADR-0027 rule 5)."""
+    if not ctx.has_plan():
+        return fail(no_plan(ctx))
+    source = args.source
+    section = section_name(args.section)
+    if section is None:
+        return fail("--section is one of: %s." % ", ".join(SECTIONS))
+    try:
+        rows = gwtracker.fetch(ctx.root, source)
+    except gwtracker.TrackerError as exc:
+        return fail(str(exc))
+    known = {tid for tid, _iid in plan_trackers(read_plan(ctx.plan_path))}
+    new = [r for r in rows if r["tracker"] not in known]
+    skipped = len(rows) - len(new)
+    name = gwtracker.NAME[source]
+    if not new:
+        return report(args, True, "Nothing new to import from %s (%d ready, %d already in %s)."
+                      % (name, len(rows), skipped, ctx.plan_rel), {"added": [], "skipped": skipped})
+    listing = "; ".join("%s %s" % (r["tracker"], clean(r["title"])) for r in new)
+    context = {"source": source, "items": new, "skipped": skipped}
+    done_means = clean(args.done_means)
+    if not done_means:
+        return ask(args.json, "done_means", "What proves these %d %s items done? One answer for all, ideally a "
+                   "command in backticks: %s" % (len(new), name, listing), context=context,
+                   answer='--done-means "<text>"', free_text=True)
+    if not args.yes:
+        return ask(args.json, "import", "Add these %d items from %s to %s %s, each with done means: %s? %s"
+                   % (len(new), name, ctx.plan_rel, section, done_means, listing),
+                   options=[option("yes", "Add them"), option("no", "Do not add them")], recommended="yes",
+                   context=context, answer="--yes")
+    lines, items = parse_text(read_plan(ctx.plan_path))
+    _at, retired = retired_ids(lines)
+    added = []
+    for r in new:
+        item_id = next_free_id(items, DEFAULT_PREFIX, retired)
+        at = end_of_section(lines, items, section)
+        line = item_line(item_id, clean(r["title"]), done_means, []) + " · tracker: " + r["tracker"]
+        _l, parsed = parse_text(line)
+        if (len(parsed) != 1 or parsed[0].id != item_id or parsed[0].done_means != done_means
+                or plan_trackers(line) != [(r["tracker"], item_id)]):
+            return fail("%s's title would change the item's fields; nothing was added. Add it with `plan add` "
+                        "and a title of your own." % r["tracker"])
+        lines.insert(at, line)
+        _lines, items = parse_text("\n".join(lines))
+        added.append({"id": item_id, "tracker": r["tracker"], "title": clean(r["title"])})
+    write_atomic(ctx.plan_path, "\n".join(lines))
+    message = "Added %d from %s to %s: %s" % (len(added), name, section,
+                                              ", ".join("%s (%s)" % (a["id"], a["tracker"]) for a in added))
+    if skipped:
+        message += ". Skipped %d already in %s." % (skipped, ctx.plan_rel)
+    return report(args, True, message, {"added": added, "skipped": skipped})
+
+
+def cmd_close_tracker(ctx, args):
+    """`plan close-tracker <id>`: close a done item in its tracker with the user's `gh` or `bd`. Run it only after
+    the user said yes."""
+    if not ctx.has_plan():
+        return fail(no_plan(ctx))
+    item = next((it for it in ctx.items() if it.id == args.id), None)
+    if item is None:
+        return fail("No item %s in %s." % (args.id, ctx.plan_rel))
+    tid = item_tracker(ctx, args.id)
+    if not tid:
+        return fail("%s has no tracker field." % args.id)
+    if not item.checked:
+        return fail("%s is not done. Mark it done first; PLAN.md is the source of truth for check-offs." % args.id)
+    argv = gwtracker.close_argv(tid)
+    if argv is None:
+        return fail("%s names %s, which whatsnext cannot close. Close it in the tracker yourself." % (args.id, tid))
+    try:
+        gwtracker.run_tool(ctx.root, argv)
+    except gwtracker.TrackerError as exc:
+        return fail("%s is still done in %s, but closing %s failed: %s" % (args.id, ctx.plan_rel, tid, exc))
+    return report(args, True, "Closed %s in %s (%s)." % (tid, gwtracker.tracker_name(tid), args.id),
+                  {"id": args.id, "tracker": tid, "closed": True})
 
 
 # ---- edit and reopen (P-59) -------------------------------------------------
@@ -2165,6 +2290,15 @@ def build_parser():
     p.add_argument("--id", help="use this id instead of the next free one")
     p.add_argument("--prefix", help="id prefix for the next free id (default P)")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("import", help="add ready items from Beads or GitHub Issues, keeping the tracker id (P-79)")
+    p.add_argument("--from", dest="source", required=True, choices=gwtracker.SOURCES)
+    p.add_argument("--done-means", help="done means for every imported item (asked for when left out)")
+    p.add_argument("--section", default="Next", help="Now, Next or Later (default Next)")
+    p.add_argument("--yes", action="store_true", help="the user approved the list (asked for when left out)")
+    p.add_argument("--json", action="store_true")
+    p = sub.add_parser("close-tracker", help="close a done item in its tracker, after the user says yes (P-79)")
+    p.add_argument("id")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("drop", help="remove an item that no agent has in progress")
     p.add_argument("id")
     p.add_argument("--json", action="store_true")
@@ -2189,5 +2323,6 @@ def run(argv, cwd=None):
     if args.action is None:
         args.action, args.json = "list", False
     handler = {"list": cmd_list, "next": cmd_next, "check": cmd_check, "start": cmd_start, "done": cmd_done, "review": cmd_review, "test": cmd_test, "edit": cmd_edit, "reopen": cmd_reopen,
-               "keep": cmd_keep, "put-back": cmd_release, "add": cmd_add, "drop": cmd_drop, "move": cmd_move}[args.action]
+               "keep": cmd_keep, "put-back": cmd_release, "add": cmd_add, "drop": cmd_drop, "move": cmd_move,
+               "import": cmd_import, "close-tracker": cmd_close_tracker}[args.action]
     return handler(ctx, args)
