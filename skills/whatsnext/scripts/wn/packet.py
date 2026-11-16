@@ -539,6 +539,8 @@ def build(root, effective, compacted=False, session_id=None, task_id=None, hando
         if done:
             sections["done"] = [done]
         sections["next"] = [next_line(task, state["next"], info)]
+        if gwcapture.plan_status(task) == "shown":
+            sections["next"].append(gwcapture.NOT_APPROVED_LINE)
         if state["handoff"]:
             sections["handoff"] = [handoff_line(info) if info else NO_HANDOFF]
             if info and info["related"] and check_line:
