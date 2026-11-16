@@ -13,7 +13,7 @@ All logic is in one script: `python3 scripts/whatsnext.py <command>` (Python 3.9
 
 | The user says | Run |
 |---|---|
-| "what's next?" | `status --json` (one call: `current`, `handoff` with `label` "read it first" or "another session's note", `ready`, `recommended`, `warnings`). When `current` is present, show its unfinished step, next action and blockers first; resume it within the existing authorization. Check its holder before taking over. When `current.plan_status` is `shown`, the plan was never approved: show its steps and ask before running them. A yes to a takeover or to resuming is not plan approval. Show any handoff warnings and prefer current plan/progress over a conflicting handoff. When no task is active, show the handoff and then the `ready` items. Show `warnings` in one short list. Use the Start flow for new work |
+| "what's next?" | `status --json` (one call: `current`, `handoff` with `label` "read it first" or "another session's note", `ready`, `recommended`, `warnings`). When `current` is present, show its unfinished step, next action and blockers first; resume it within the existing authorization. Check its holder before taking over. When `current.plan_status` is `shown`, the plan was never approved: show its steps and ask before running them. A yes to a takeover or to resuming is not plan approval. Show any handoff warnings and prefer current plan/progress over a conflicting handoff. When no task is active, show the handoff and then the `ready` items, each with an item overview (below). Show `warnings` in one short list. Use the Start flow for new work |
 | "start P-13" | `plan start P-13 --agent <your name>` (Start flow below) |
 | "mark P-13 done" | When a command can prove it: `plan done P-13 --verify` (runs the backticked command saved in done means (when there is exactly one; with several, use `--verify "<part>"`) from the project root; exit 0 ticks it as confirmed, a failure leaves it open and journals the last 20 output lines; do not combine with `--evidence`). Otherwise `plan done P-13 --evidence "<one line>"` (shows as `done*`, not verified) or `--unverified`; ask the user which. An item with `review: required` stays unchecked after a pass and shows `awaiting review` (ADR-0022): ask the person to review it |
 | "run the tests for P-13" | `plan test P-13` (or `plan test P-13 "<one backticked part>"`): runs the saved check and saves the run; it never ticks the item. Run it before committing: `plan done P-13 --verify` then reuses the pass while the code is unchanged (ADR-0023), even after a commit of the same content. `--fresh` runs it again |
@@ -52,7 +52,7 @@ All logic is in one script: `python3 scripts/whatsnext.py <command>` (Python 3.9
 
 A command that needs an answer prints a question and exits 4 (add `--json` for data: `ask`, `question`, `options`, `recommended`, `context`, `answer_flag`). Ask it as one pop-up, recommended option first. Then run the same command again with all earlier flags plus the answer flag. Exit 0 is done, 1 is an error.
 
-1. Run `status --json`. If `current` is present, read its progress file and resume within the existing authorization; show the next unfinished step and blockers. Ask before taking over another agent's task. Otherwise ask one pop-up with up to 3 items (first = recommended; mark stale ones). Run `plan start <id>` for the pick. If nothing is open in Now or Next, say so.
+1. Run `status --json`. If `current` is present, read its progress file and resume within the existing authorization; show the next unfinished step and blockers. Ask before taking over another agent's task. Otherwise give each offered item an item overview, then ask one pop-up with up to 3 items (first = recommended; mark stale ones). Run `plan start <id>` for the pick. If nothing is open in Now or Next, say so.
 2. Start questions come in this order:
    - `takeover`: someone else has the item. Taking it over does not approve its plan: if `status --json` shows `plan_status` `shown`, ask the step question (step 3) before changing files.
    - `done_means`: the item has no done means.
@@ -67,6 +67,16 @@ A command that needs an answer prints a question and exits 4 (add `--json` for d
    - **Change the steps.** The user edits the list first; ask again.
    A step that needs a permission the user has not given, a decision the user must make, or a failure you cannot fix stops the run: say which step and why, and wait. Never skip the verify step to finish sooner.
    Reuse authorization already given in this chat instead of asking again. For a new worktree, tell the user to open the folder it printed.
+
+## Item overview
+
+Whenever you offer plan items to pick from, and when the user asks what one item is, give each item a short overview before the question, 2 to 4 bullets:
+
+- **What it is:** the feature in one plain sentence.
+- **How it will work:** the main steps or commands.
+- **Impact and importance:** what it changes for the user, and how much it matters (with a size, for example "about 1 hour", and whether an ADR is needed first).
+
+Build it from the item's title, done means, linked ADR and progress file. Do not invent facts; say what is not decided yet. Then end with your recommendation.
 
 ## Another session in this folder
 

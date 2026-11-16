@@ -58,5 +58,26 @@ class PlanFromGoalTests(unittest.TestCase):
         self.assertIn("To add work to the plan, ask the user first, then use `wn plan add`", block)
 
 
+
+class ItemOverviewTests(unittest.TestCase):
+    """P-83: offered items come with an overview."""
+
+    def setUp(self):
+        self.text = SKILL.read_text(encoding="utf-8")
+
+    def test_skill_has_the_overview_section(self):
+        sec = section(self.text, "## Item overview")
+        for part in ("**What it is:**", "**How it will work:**", "**Impact and importance:**", "Do not invent facts"):
+            self.assertIn(part, sec)
+
+    def test_whats_next_and_start_flow_use_it(self):
+        self.assertIn("the `ready` items, each with an item overview", self.text)
+        self.assertIn("give each offered item an item overview, then ask one pop-up", self.text)
+
+    def test_agents_block_states_it(self):
+        block = "\n".join(initcmd.block_lines("docs/project/PLAN.md", "docs/project/progress"))
+        self.assertIn("give each a short overview first: what it is, how it will work, its impact and importance", block)
+
+
 if __name__ == "__main__":
     unittest.main()

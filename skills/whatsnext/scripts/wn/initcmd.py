@@ -49,6 +49,7 @@ def block_lines(plan_rel, progress_rel):
         "- Keep the progress file current: `wn progress next \"<text>\"` sets the next action; `wn progress stamp` records the state.",
         "- The plan is `%s`. When an item is done, prove it: `wn plan done <id> --verify \"<cmd>\"`." % plan_rel,
         "- To add work to the plan, ask the user first, then use `wn plan add` with a done means for each item.",
+        "- When you offer plan items to pick, give each a short overview first: what it is, how it will work, its impact and importance.",
         END,
     ]
 
