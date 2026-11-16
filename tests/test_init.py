@@ -51,7 +51,7 @@ class InitCreateTests(InitBase):
         self.assertTrue(os.path.isdir(self.p(STATUS + "/journal")))
         agents = self.get("AGENTS.md")
         self.assertTrue(agents.startswith(START) and agents.rstrip().endswith(END), agents)
-        for word in ("whatsnext status", "wrap-up-instructions", "progress next", "plan done <id> --verify"):
+        for word in ("wn status", "wrap-up-instructions", "progress next", "plan done <id> --verify"):
             self.assertIn(word, agents)
         self.assertIn("hooks.json", r.stdout)
         self.assertFalse(self.has("CLAUDE.md") or self.has(".gitattributes") or self.has(".claude"))

@@ -42,12 +42,12 @@ def block_lines(plan_rel, progress_rel):
         START,
         "## whatsnext",
         "",
-        "`whatsnext` below is `python3 <plugin>/skills/whatsnext/scripts/whatsnext.py`.",
+        "`wn` is the whatsnext command. If `wn` is not found, run `install-hooks` from the whatsnext checkout.",
         "",
-        "- At the start of every session run `whatsnext status` and act on what it shows (or read the active task's progress file in `%s/`)." % progress_rel,
-        "- When the user types `wrap up` and no whatsnext hook answered, run `whatsnext wrap-up-instructions` and follow it to write the handoff note.",
-        "- Keep the progress file current: `whatsnext progress next \"<text>\"` sets the next action; `whatsnext progress stamp` records the state.",
-        "- The plan is `%s`. When an item is done, prove it: `whatsnext plan done <id> --verify \"<cmd>\"`." % plan_rel,
+        "- At the start of every session run `wn status` and act on what it shows (or read the active task's progress file in `%s/`)." % progress_rel,
+        "- When the user types `wrap up` and no whatsnext hook answered, run `wn wrap-up-instructions` and follow it to write the handoff note.",
+        "- Keep the progress file current: `wn progress next \"<text>\"` sets the next action; `wn progress stamp` records the state.",
+        "- The plan is `%s`. When an item is done, prove it: `wn plan done <id> --verify \"<cmd>\"`." % plan_rel,
         END,
     ]
 

@@ -23,11 +23,11 @@ class RulesTests(unittest.TestCase):
 
     def test_block_says_run_status_at_start(self):
         text = "\n".join(initcmd.block_lines("docs/project/PLAN.md", "docs/project/progress"))
-        self.assertIn("start of every session run `whatsnext status`", text)
+        self.assertIn("start of every session run `wn status`", text)
 
     def test_block_says_wrap_up_without_a_hook(self):
         text = "\n".join(initcmd.block_lines("docs/project/PLAN.md", "docs/project/progress"))
-        self.assertIn("`wrap up` and no whatsnext hook answered, run `whatsnext wrap-up-instructions`", text)
+        self.assertIn("`wrap up` and no whatsnext hook answered, run `wn wrap-up-instructions`", text)
 
     def test_skill_states_both_rules(self):
         text = SKILL.read_text(encoding="utf-8")
