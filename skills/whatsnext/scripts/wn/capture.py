@@ -120,6 +120,19 @@ def plan_field(task):
     return (m.group(1), m.group(2)) if m else (value, "")
 
 
+# P-82: a takeover or a resume never approves a plan that was only shown.
+NOT_APPROVED_LINE = "Plan shown, not approved: ask before running its steps. A takeover yes is not plan approval."
+
+
+def plan_status(task):
+    """'shown', 'approved', 'unapproved' or None (no captured plan) for a task."""
+    _path, text = plan_field(task)
+    for key, value in STATUS_TEXT.items():
+        if text == value:
+            return key
+    return None
+
+
 def resume_line(task):
     """'Plan: <path>, step N of M: <step>' for the resume note, or None when no plan is captured."""
     path, status = plan_field(task)

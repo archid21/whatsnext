@@ -51,6 +51,35 @@ class StatusTests(PlanBase):
         self.assertEqual(data["recommended"], "P-14")
         self.assertNotIn("P-14", [v["id"] for v in data["ready"]])
 
+    def set_plan_status(self, task_id, status):
+        path = self.p("%s/%s.md" % (STATUS, task_id))
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        text = text.replace("- **Decisions:** none\n", "- **Decisions:** none\n- **Plan:** docs/project/plans/%s-2026-11-16.md (%s)\n" % (task_id, status))
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def test_shown_plan_is_reported_and_needs_approval_after_takeover(self):
+        """P-82: a plan another agent only showed is not approved by a takeover; status says so."""
+        self.task("P-14", next_action="Add the 429 test.")
+        self.set_claim("P-14", agent="codex", updated=ts(1), branch=self.branch())
+        self.assertIsNone(self.status()["current"]["plan_status"])
+        self.set_plan_status("P-14", "shown")
+        self.assertEqual(self.status()["current"]["plan_status"], "shown")
+        text = self.gw(["status"]).stdout
+        self.assertIn("Plan shown, not approved: ask before running its steps. A takeover yes is not plan approval.", text)
+        self.assertIn("A takeover yes is not plan approval.", self.gw(["progress", "resume-note"]).stdout)
+        self.set_plan_status("P-14", "approved")
+        self.assertEqual(self.status()["current"]["plan_status"], "approved")
+        self.assertNotIn("not plan approval", self.gw(["status"]).stdout)
+
+    def test_skill_says_a_takeover_is_not_plan_approval(self):
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "skills", "whatsnext", "SKILL.md"),
+                  encoding="utf-8") as f:
+            skill = f.read()
+        self.assertIn("A yes to a takeover or to resuming is not plan approval.", skill)
+        self.assertIn("Taking it over does not approve its plan", skill)
+
     def test_limit(self):
         self.assertEqual(len(self.status("--limit", "1")["ready"]), 1)
 

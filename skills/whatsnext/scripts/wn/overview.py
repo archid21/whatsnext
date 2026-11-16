@@ -9,6 +9,7 @@ import json
 import re
 
 from . import claims as gwclaims
+from . import capture as gwcapture
 from . import packet as gwpacket
 from . import plan as gwplan
 from . import status as gwstatus
@@ -53,6 +54,8 @@ def build(ctx, session=None, limit=READY_LIMIT):
     if out["current"]:
         task = gwstatus.load_tasks(ctx.root, ctx.folder)
         task = next((t for t in task if t.id == out["current"]["id"]), None)
+    if out["current"]:
+        out["current"]["plan_status"] = gwcapture.plan_status(task) if task else None
     info = gwpacket.handoff_info(ctx.root, ctx.effective, task, session)
     if info:
         if out["handoff"] is None:  # a note with neither Next action nor open questions
@@ -74,6 +77,8 @@ def print_text(data):
         print("  Next: " + (current.get("step") or current.get("next_action") or "Review the progress file."))
         if current.get("blockers"):
             print("  Blockers: " + current["blockers"])
+        if current.get("plan_status") == "shown":
+            print("  " + gwcapture.NOT_APPROVED_LINE)
     if data["ready"]:
         print("Ready:")
         for n, v in enumerate(data["ready"], 1):
