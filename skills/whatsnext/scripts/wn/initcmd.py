@@ -48,6 +48,7 @@ def block_lines(plan_rel, progress_rel):
         "- When the user types `wrap up` and no whatsnext hook answered, run `wn wrap-up-instructions` and follow it to write the handoff note.",
         "- Keep the progress file current: `wn progress next \"<text>\"` sets the next action; `wn progress stamp` records the state.",
         "- The plan is `%s`. When an item is done, prove it: `wn plan done <id> --verify \"<cmd>\"`." % plan_rel,
+        "- To add work to the plan, ask the user first, then use `wn plan add` with a done means for each item.",
         END,
     ]
 
