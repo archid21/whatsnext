@@ -1693,11 +1693,17 @@ def cmd_reopen(ctx, args):
         means = one_line(args.done_means, "--done-means") if args.done_means is not None else None
     except ValueError as e:
         return fail(str(e))
-    lines, item, found = editable_line(ctx, args.id)
+    ok, message, data = reopen_item(ctx, args.id, reason, means)
+    return report(args, ok, message, data)
+
+
+def reopen_item(ctx, item_id, reason, means=None):
+    """Uncheck a done item (shared by `plan reopen` and `plan rollback`). Returns (ok, message, data)."""
+    lines, item, found = editable_line(ctx, item_id)
     if lines is None:
-        return fail(found)
+        return False, found, {}
     if not item.checked:
-        return fail("%s is not done, so there is nothing to reopen. Use `plan edit %s` to change it." % (args.id, args.id))
+        return False, "%s is not done, so there is nothing to reopen. Use `plan edit %s` to change it." % (item_id, item_id), {}
     head, colon, parts = found
     old = [p for p in parts if is_evidence_part(p)]
     parts = [p for p in parts if not is_evidence_part(p)]
@@ -1708,12 +1714,12 @@ def cmd_reopen(ctx, args):
     head = re.sub(r"\[[xX]\]", "[ ]", head, count=1)
     write_item(ctx, lines, item, join_item(head, colon, parts))
     for i, entry in enumerate(history):
-        rel = gwstatus.add_history(ctx.root, ctx.folder, args.id, item.title, entry, state="parked" if i == 0 else None)
-    gwstatus.emit(ctx.effective, args.id, rel, "stamp")
-    ctx.emit("task.reopened", {"id": args.id, "reason": reason, "evidence": old})
+        rel = gwstatus.add_history(ctx.root, ctx.folder, item_id, item.title, entry, state="parked" if i == 0 else None)
+    gwstatus.emit(ctx.effective, item_id, rel, "stamp")
+    ctx.emit("task.reopened", {"id": item_id, "reason": reason, "evidence": old})
     message = ("Reopened %s: %s. Its old evidence is in %s under History; a fresh `plan done %s` is needed."
-               % (args.id, reason, rel, args.id))
-    return report(args, True, message, {"id": args.id, "reopened": True, "history": history})
+               % (item_id, reason, rel, item_id))
+    return True, message, {"id": item_id, "reopened": True, "history": history}
 
 
 def cmd_drop(ctx, args):
@@ -1985,6 +1991,8 @@ def cmd_start(ctx, args):
         ctx.emit("task.start", {"id": item.id, "agent": agent, "branch": gwstatus.current_branch(ctx.root)})
     earlier = earlier_work(ctx, item.id)
     status_rel = start_status_file(ctx, item, done_means, agent, keep_parked=bool(earlier))
+    if not ours:
+        record_checkpoint(ctx, item.id)  # before start_branch can switch away from the start commit
     # ADR-0020: "always" saves the setting; an answer to the question is counted, and two equal worktree answers
     # in a row bring the offer. Config-driven choices are not answers.
     offer = None
@@ -2226,6 +2234,286 @@ def move_status_file(ctx, new_root, item_id):
         os.remove(src)
 
 
+# ---- checkpoints and rollback (ADR-0029) ------------------------------------
+
+CHECKPOINT_REF = "refs/whatsnext/checkpoints/%s"
+CHECKPOINT_RE = re.compile(r"^(?P<sha>[0-9a-f]{4,40}) on (?P<branch>.+), (?P<when>[^,]+)$")
+
+
+def record_checkpoint(ctx, item_id):
+    """ADR-0029: keep the commit a Start began from as a local ref, once per item. A repository with no commit
+    is skipped; the ref is never pushed. Returns the short sha when a ref was created."""
+    root = ctx.root
+    if not gwstatus.in_git(root):
+        return None
+    ref = CHECKPOINT_REF % item_id
+    if run_git(root, "show-ref", "--verify", "--quiet", ref)[0] == 0:
+        return None  # a restart keeps the first checkpoint
+    code, out, _err = run_git(root, "rev-parse", "--verify", "-q", "HEAD^{commit}")
+    sha = out.strip()
+    if code != 0 or not sha:
+        return None
+    if run_git(root, "update-ref", ref, sha)[0] != 0:
+        return None
+    path = gwstatus.task_path(ctx.folder, item_id)
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8", newline="") as f:
+            lines = f.read().split("\n")
+        short = gwstatus.current_commit(root) or sha[:7]
+        gwstatus.set_field(lines, "Checkpoint", "%s on %s, %s" % (short, gwstatus.current_branch(root) or gwstatus.NONE,
+                                                                  now_utc().strftime("%Y-%m-%dT%H:%MZ")))
+        gwstatus.write_text(path, "\n".join(lines))
+    return sha[:7]
+
+
+def git_path_exists(root, name):
+    code, out, _err = run_git(root, "rev-parse", "--git-path", name)
+    if code != 0 or not out.strip():
+        return False
+    return os.path.exists(os.path.join(root, out.strip()))
+
+
+def operation_in_progress(root):
+    names = (("MERGE_HEAD", "merge"), ("rebase-merge", "rebase"), ("rebase-apply", "rebase"),
+             ("REVERT_HEAD", "revert"), ("CHERRY_PICK_HEAD", "cherry-pick"))
+    for name, label in names:
+        if git_path_exists(root, name):
+            return label
+    return None
+
+
+def branch_worktrees(root):
+    """{branch name: worktree path} for every checked-out branch."""
+    code, out, _err = run_git(root, "worktree", "list", "--porcelain")
+    found, path = {}, None
+    for line in out.splitlines() if code == 0 else []:
+        if line.startswith("worktree "):
+            path = line[len("worktree "):]
+        elif line.startswith("branch refs/heads/") and path:
+            found[line[len("branch refs/heads/"):]] = path
+    return found
+
+
+def rollback_refuse(as_json, item_id, why, steps):
+    print("Cannot roll back %s: %s" % (item_id, why), file=sys.stderr)
+    print("To do it by hand:", file=sys.stderr)
+    for i, step in enumerate(steps, 1):
+        print("  %d. %s" % (i, step), file=sys.stderr)
+    if as_json:
+        print(json.dumps({"ok": False, "id": item_id, "error": why, "steps": steps}, indent=2))
+    return 1
+
+
+MANUAL_STEPS = [
+    "Find the commit just before the item's first change: `git log --oneline`.",
+    "Save uncommitted work first: `git stash push --include-untracked -m \"before rollback\"`.",
+    "Own unmerged branch: `git reset --hard <that commit>` on it. Shared or merged branch: `git revert --no-edit <that commit>..HEAD`.",
+]
+
+
+def item_work_branch(ctx, item_id, task, start_branch):
+    """The branch the item's commits are on: the claim's, else the one Start names, else the progress file's."""
+    root = ctx.root
+    claim = gwclaims.read(root, item_id)
+    title = next((it.title for it in ctx.items() if it.id == item_id), "")
+    candidates = [(claim or {}).get("branch")]
+    candidates.append(item_branch(item_id, title))
+    candidates.append(task.field("branch") if task is not None else None)
+    candidates.append(start_branch)
+    for name in candidates:
+        if name and name not in ("(detached)", gwstatus.NONE) and branch_exists(root, name):
+            return name
+    return None
+
+
+def cmd_rollback(ctx, args):
+    as_json = args.json
+    item_id = args.id
+    if not ctx.has_plan():
+        return fail(no_plan(ctx))
+    if not any(it.id == item_id for it in ctx.items()):
+        return fail("No item %s in %s." % (item_id, ctx.plan_rel))
+    root = ctx.root
+    if not gwstatus.in_git(root):
+        return fail("%s is not in a git repository, so there is nothing to roll back." % root)
+    ref = CHECKPOINT_REF % item_id
+    code, out, _err = run_git(root, "rev-parse", "--verify", "-q", ref)
+    checkpoint = out.strip()
+    if code != 0 or not checkpoint:
+        return rollback_refuse(as_json, item_id, "%s has no checkpoint (it was started before checkpoints existed)." % item_id,
+                               MANUAL_STEPS)
+    if run_git(root, "cat-file", "-e", checkpoint + "^{commit}")[0] != 0:
+        return rollback_refuse(as_json, item_id, "the checkpoint commit %s is missing from this repository." % checkpoint[:7],
+                               MANUAL_STEPS)
+    busy = operation_in_progress(root)
+    if busy:
+        return rollback_refuse(as_json, item_id, "a %s is in progress." % busy,
+                               ["Finish or abort it first: `git %s --continue` or `git %s --abort`." % (busy, busy),
+                                "Then run `plan rollback %s` again." % item_id])
+    task = ctx.tasks().get(item_id)
+    start_branch = None
+    note = task.field("checkpoint") if task is not None else None
+    m = CHECKPOINT_RE.match(note or "")
+    if m:
+        start_branch = m.group("branch")
+    branch = item_work_branch(ctx, item_id, task, start_branch)
+    if branch is None:
+        return rollback_refuse(as_json, item_id, "the branch with the item's commits cannot be found.", MANUAL_STEPS)
+    short = checkpoint[:7]
+    if run_git(root, "merge-base", "--is-ancestor", checkpoint, branch)[0] != 0:
+        return rollback_refuse(as_json, item_id, "the checkpoint %s is not in the history of %s." % (short, branch), MANUAL_STEPS)
+    code, out, _err = run_git(root, "log", "--format=%h %s", "--end-of-options", "%s..%s" % (checkpoint, branch))
+    shown = [ln for ln in out.splitlines() if ln.strip()] if code == 0 else []
+    if not shown:
+        msg = "Nothing to undo for %s: %s has no commits after the checkpoint %s." % (item_id, branch, short)
+        if as_json:
+            print(json.dumps({"ok": True, "id": item_id, "changed": False, "message": msg}, indent=2))
+        else:
+            print(msg)
+        return 0
+    _c, out, _e = run_git(root, "rev-list", "--end-of-options", "%s..%s" % (checkpoint, branch))
+    commits = out.split()  # newest first
+    _c, out, _e = run_git(root, "-c", "core.quotepath=off", "diff", "--name-only", checkpoint, branch)
+    files = [ln for ln in out.splitlines() if ln.strip()]
+    # Method (ADR-0029 rule 2).
+    base = default_branch(root)
+    on_base = branch in ("main", "master", base) or branch == start_branch
+    merged = base != "HEAD" and branch != base and branch_exists(root, base) and \
+        run_git(root, "merge-base", "--is-ancestor", branch, base)[0] == 0
+    if on_base:
+        why_not_reset = "%s is not a branch of its own for %s" % (branch, item_id)
+    elif merged:
+        why_not_reset = "%s is already merged into %s" % (branch, base)
+    else:
+        why_not_reset = None
+    reset_ok = why_not_reset is None
+    if args.method == "reset" and not reset_ok:
+        return rollback_refuse(as_json, item_id, "reset is unsafe here: %s, so history would be rewritten." % why_not_reset,
+                               ["Use `plan rollback %s --method revert`, which adds new commits instead." % item_id])
+    method = args.method or ("reset" if reset_ok else "revert")
+    why = ("%s is its own branch and not merged, so it moves back to the checkpoint %s." % (branch, short)
+           if method == "reset" and reset_ok else
+           "%s; history is kept and new commits undo the item's commits." % (why_not_reset or "you asked for revert"))
+    current = gwstatus.current_branch(root)
+    if method == "reset":
+        elsewhere = branch_worktrees(root).get(branch)
+        if current != branch and elsewhere and os.path.realpath(elsewhere) != os.path.realpath(root):
+            return rollback_refuse(as_json, item_id, "%s is checked out in another worktree (%s)." % (branch, elsewhere),
+                                   ["Run `plan rollback %s` from %s." % (item_id, elsewhere)])
+    else:
+        commits = [c for c in run_git(root, "rev-list", "--no-merges", "--end-of-options",
+                                       "%s..%s" % (checkpoint, branch))[1].split()]
+        if any(run_git(root, "merge-base", "--is-ancestor", c, "HEAD")[0] != 0 for c in commits):
+            return rollback_refuse(as_json, item_id, "the current branch (%s) does not contain the item's commits; they are on %s." % (
+                current, branch),
+                ["Switch to the branch that has them: `git switch %s` (after saving uncommitted work)." % branch,
+                 "Run `plan rollback %s` again." % item_id])
+        if not commits:
+            msg = "Nothing to undo for %s: only merge commits follow the checkpoint." % item_id
+            print(msg)
+            return 0
+    # Uncommitted work (ADR-0029 rule 3): ask before the confirm.
+    # whatsnext's own files (plan, progress, handoffs, session state) are not the user's work: they stay in place,
+    # and the reset below uses --keep, so git refuses rather than overwrite one of them.
+    code, out, _err = run_git(root, "status", "--porcelain", "-uall")
+    try:
+        from . import drift as gwdrift
+        own = tuple(gwdrift.ignored_prefixes(root, ctx.effective))
+    except Exception:
+        own = ()
+    dirty = [ln for ln in out.splitlines() if ln.strip()
+             and not any(ln[3:].split(" -> ")[-1].strip('"').startswith(p) for p in own)] if code == 0 else []
+    # A save commit on the branch being reset would be dropped by the reset, so commit is offered only for a revert.
+    choices = ("stash", "commit", "cancel") if method == "revert" else ("stash", "cancel")
+    if dirty and args.dirty == "commit" and "commit" not in choices:
+        return fail("--dirty commit cannot be used with a reset: the reset would drop that commit. Use --dirty stash or cancel.")
+    if dirty and not args.dirty:
+        opts = [option("stash", "Stash them (recommended)", "Stash them, new files included, and bring them back with `git stash pop`.")]
+        if "commit" in choices:
+            opts.append(option("commit", "Commit them", "Commit them first on the current branch."))
+        opts.append(option("cancel", "Cancel", "Change nothing."))
+        return ask(as_json, "dirty", "There are %d uncommitted change%s. Before rolling back %s, what should happen to them?" % (
+            len(dirty), "" if len(dirty) == 1 else "s", item_id),
+            options=opts, recommended="stash", context={"id": item_id, "files": [ln[3:] for ln in dirty]},
+            answer="--dirty " + "|".join(choices))
+    if dirty and args.dirty == "cancel":
+        print("Cancelled. Nothing changed.")
+        return 0
+    listing = "; ".join(shown[:10]) + ("; and %d more" % (len(shown) - 10) if len(shown) > 10 else "")
+    fshown = ", ".join(files[:10]) + (", and %d more" % (len(files) - 10) if len(files) > 10 else "")
+    if not args.yes:
+        return ask(as_json, "rollback", "Roll back %s by %s? %s Commits to undo (%d): %s. Files they change (%d): %s.%s" % (
+            item_id, method, why, len(commits) if method == "revert" else len(shown), listing, len(files), fshown or "none",
+            " Work outside git (databases, deployed services) is not rolled back."),
+            options=[option("yes", "Roll back", "Undo these commits by %s." % method), option("no", "Leave it", "Change nothing.")],
+            recommended="yes", why=why,
+            context={"id": item_id, "method": method, "why": why, "branch": branch, "checkpoint": short,
+                     "commits": shown, "files": files, "dirty": args.dirty if dirty else None},
+            answer="--yes")
+    # Act.
+    stamp = now_utc().strftime("%Y-%m-%dT%H:%MZ")
+    notes = []
+    if dirty and args.dirty == "stash":
+        code, _o, err = run_git(root, "stash", "push", "--include-untracked", "-m", "whatsnext rollback %s %s" % (item_id, stamp))
+        if code != 0:
+            return fail("Could not stash the changes: %s. Nothing was rolled back." % err)
+        notes.append("Your uncommitted work is in the stash \"whatsnext rollback %s %s\". Bring it back with `git stash pop`." % (item_id, stamp))
+    elif dirty and args.dirty == "commit":
+        code, _o, err = run_git(root, "add", "-A")
+        if code == 0:
+            code, _o, err = run_git(root, "commit", "-m", "whatsnext: save work before rollback of %s" % item_id)
+        if code != 0:
+            return fail("Could not commit the changes: %s. Nothing was rolled back." % err)
+        saved = gwstatus.current_commit(root)
+        notes.append("Your uncommitted work is saved as commit %s%s." % (
+            saved, "; a reset leaves it out of %s, so bring it back with `git cherry-pick %s`" % (branch, saved)
+            if method == "reset" and current == branch else ""))
+    undone = [c[:7] for c in commits] if method == "revert" else [ln.split(" ", 1)[0] for ln in shown]
+    if method == "reset":
+        if current == branch:
+            code, _o, err = run_git(root, "reset", "--keep", checkpoint)
+        else:
+            code, _o, err = run_git(root, "branch", "-f", branch, checkpoint)
+        if code != 0:
+            return fail("Could not move %s back to %s: %s" % (branch, short, err))
+        result = "Moved %s back to the checkpoint %s, undoing %d commit%s." % (branch, short, len(undone), "" if len(undone) == 1 else "s")
+    else:
+        code, _o, err = run_git(root, "revert", "--no-edit", *commits)
+        if code != 0:
+            print("Revert stopped: %s" % err, file=sys.stderr)
+            print("Git is in the middle of the revert. Fix the conflicts, then run `git revert --continue`, or run `git revert --abort` "
+                  "to undo the attempt. The item is not reopened and its claim is kept.", file=sys.stderr)
+            for n in notes:
+                print(n, file=sys.stderr)
+            return 1
+        result = "Reverted %d commit%s on %s; history is kept." % (len(undone), "" if len(undone) == 1 else "s", current)
+    # After a rollback (rule 4).
+    reopened = False
+    if is_checked(ctx, item_id):
+        ok, _msg, _data = reopen_item(ctx, item_id, "rolled back")
+        reopened = ok
+    released = gwclaims.read(root, item_id) is not None
+    if released:
+        release_claim(ctx, item_id)
+    journal = os.path.join(ctx.folder, "journal", item_id + ".md")
+    try:
+        gwjournal.append_line(journal, item_id, "- %s rollback %s undone: %s" % (stamp, method, ", ".join(undone)))
+    except OSError as e:
+        print("warning: could not write %s: %s" % (gwconfig.display_path(journal, root), e), file=sys.stderr)
+    notes.append("%s is open again%s; its claim is released. The checkpoint ref %s stays." % (
+        item_id, " (reopened: rolled back)" if reopened else "", ref))
+    notes.append("Work outside git (databases, deployed services) is not rolled back.")
+    data = {"ok": True, "id": item_id, "method": method, "branch": branch, "checkpoint": short, "undone": undone,
+            "reopened": reopened, "claim_released": released, "notes": notes}
+    if as_json:
+        print(json.dumps(dict(data, message=result), indent=2))
+    else:
+        print(result)
+        for n in notes:
+            print(n)
+    return 0
+
+
 # ---- command line ----------------------------------------------------------
 
 
@@ -2282,6 +2570,12 @@ def build_parser():
     p.add_argument("--reason", required=True, help="why it is reopened")
     p.add_argument("--done-means", help="a new done means, set in the same step")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("rollback", help="undo an item's commits back to its start checkpoint (ADR-0029; exit 4: the agent must ask the user)")
+    p.add_argument("id")
+    p.add_argument("--yes", action="store_true", help="the user approved the rollback (asked for when left out)")
+    p.add_argument("--method", choices=("reset", "revert"), help="override the method; reset only where it is safe")
+    p.add_argument("--dirty", choices=("stash", "commit", "cancel"), help="what to do with uncommitted changes")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("add", help="add an item to the plan (the next free id, in the plan's format)")
     p.add_argument("title")
     p.add_argument("--done-means", help="how we know it is done, ideally a command (asked for when left out)")
@@ -2322,7 +2616,7 @@ def run(argv, cwd=None):
     ctx = Ctx.load(cwd)
     if args.action is None:
         args.action, args.json = "list", False
-    handler = {"list": cmd_list, "next": cmd_next, "check": cmd_check, "start": cmd_start, "done": cmd_done, "review": cmd_review, "test": cmd_test, "edit": cmd_edit, "reopen": cmd_reopen,
+    handler = {"list": cmd_list, "next": cmd_next, "check": cmd_check, "start": cmd_start, "done": cmd_done, "review": cmd_review, "test": cmd_test, "edit": cmd_edit, "reopen": cmd_reopen, "rollback": cmd_rollback,
                "keep": cmd_keep, "put-back": cmd_release, "add": cmd_add, "drop": cmd_drop, "move": cmd_move,
                "import": cmd_import, "close-tracker": cmd_close_tracker}[args.action]
     return handler(ctx, args)
