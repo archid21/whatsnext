@@ -9,6 +9,7 @@ import json
 import re
 
 from . import claims as gwclaims
+from . import drift as gwdrift
 from . import capture as gwcapture
 from . import packet as gwpacket
 from . import plan as gwplan
@@ -67,6 +68,9 @@ def build(ctx, session=None, limit=READY_LIMIT):
     for claim, since in gwclaims.stale_in_worktree(ctx.root, ctx.effective):
         out["warnings"].append("%s is stale: idle since %s. Done, keep or put back?" % (
             claim.get("id"), since.strftime("%Y-%m-%dT%H:%MZ") if since else "an unknown time"))
+    note = gwdrift.pending_note(ctx.root, session)  # ADR-0028: shown until answered
+    if note:
+        out["warnings"].append(note["text"])
     return out
 
 

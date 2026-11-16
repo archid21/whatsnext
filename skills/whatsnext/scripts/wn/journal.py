@@ -30,7 +30,7 @@ SESSION_KEEP_DAYS = 14  # a session's state files go once none of them has chang
 # Only the files the hooks write per session: `<id>.json`, `<id>.handoff.json`, `<id>.summary.md.bak` and so on.
 # `health-*.json` (doctor's evidence) and any other name are never pruned.
 SESSION_FILE_RE = re.compile(r"^(?P<id>[A-Za-z0-9_-]+)"
-                             r"(?:\.(?:handoff|compact|idle|resume|wrapup|summary))?(?:\.json|\.summary\.md(?:\.bak)?)$")
+                             r"(?:\.(?:handoff|compact|idle|resume|wrapup|summary|drift))?(?:\.json|\.summary\.md(?:\.bak)?)$")
 
 
 def prune_sessions(root, keep_session=None, days=SESSION_KEEP_DAYS, now=None):

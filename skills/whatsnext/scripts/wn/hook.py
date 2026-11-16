@@ -18,6 +18,7 @@ every event does nothing.
 - idle-offer: asked by the hooks module before it shows the opt-in tip; prints `{"offer": true|false}` (P-42).
 - idle-check: asked by the hooks module 45 minutes after the last turn; prints `{"fire": true|false}` (ADR-0016, P-40).
 - post-compact: Claude Code's PostCompact; keeps `compact_summary` in git-ignored session state (P-21).
+- stop: the drift note when work moved off the claimed item (ADR-0028, P-73); never blocks.
 - stop / pre-compact / session-end: also write the facts (journal line and progress header, ADR-0005).
 
 Gemini CLI and Cursor (ADR-0027, P-77; fields from geminicli.com/docs/hooks and cursor.com/docs/hooks):
@@ -39,6 +40,7 @@ import re
 
 from . import capture as gwcapture
 from . import config as gwconfig
+from . import drift as gwdrift
 from . import idle as gwidle
 from . import journal as gwjournal
 from . import packet as gwpacket
@@ -485,6 +487,16 @@ def with_welcome(out, welcome, agent):
     return json.dumps(payload) + "\n"
 
 
+def drift_output(note, agent):
+    """The drift note (ADR-0028) as turn-end output: Codex and Gemini CLI show `systemMessage` to the person.
+    Claude Code shows the note on the band (hooks/register.tsx), Cursor's stop hook has no channel that only shows
+    text (`followup_message` would start another turn), so both print nothing here; `status` shows the note.
+    The turn is never blocked."""
+    if not note or agent not in ("codex", "gemini"):
+        return ""
+    return json.dumps({"systemMessage": "whatsnext: " + note}) + "\n"
+
+
 def observe(root, agent, event, status="observed", detail=None):
     """Per-agent, per-event evidence. This reports execution, not hook trust or end-to-end success."""
     if agent not in AGENTS:
@@ -595,6 +607,7 @@ def handle_event(event, data, agent=None):
                 observe(root, agent or "claude-code", "handoff", "observed", "handoff recorded at Stop")
         except Exception:  # recording a wrap-up must never break the agent's session
             pass
+        out = drift_output(gwdrift.check(root, effective, data), agent)
     if event in FACT_EVENTS:
         try:
             gwjournal.record(root, effective, event, data)
