@@ -75,6 +75,7 @@ One line per item: `- [ ] P-N Title · done means: <how we know it is done>`.
 - [ ] P-70 Plan side panel: the checklist, the current item and who has what, always visible · done means: a panel beside the chat shows open items, the active item and claims from whatsnext status --json and updates at each turn end; `claude plugin test /Users/home/Projects/whatsnext`
 - [ ] P-62 plan report shows sessions, commits, elapsed time and verify attempts per item from the journal · done means: plan report prints one line per item from journal facts only; `python3 -m unittest discover -s tests`
 - [x] P-82 Takeover is not plan approval: after taking over an item whose plan was only shown, ask for approval before running its steps · done means: SKILL.md and the resume note say a takeover yes does not approve a shown plan; a test checks the rule text and that status --json reports the plan status; `python3 -m unittest discover -s tests` · evidence: verified: python3 -m unittest discover -s tests passed in 448 s (2026-11-16T21:05Z) at d680621 t:9cc270be
+- [ ] P-83 Item overviews in what's next: each offered item shows what it is, how it works, and its impact and importance · done means: SKILL.md says that "what's next?" shows a short overview for each offered item; a test checks it; `python3 -m unittest discover -s tests`
 
 ## Later
 
