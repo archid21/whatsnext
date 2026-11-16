@@ -17,7 +17,7 @@ claude plugin marketplace add archid21/whatsnext
 claude plugin install whatsnext@whatsnext
 ```
 
-Codex: from a checkout, run `python3 skills/whatsnext/scripts/whatsnext.py install-hooks`, then review the new hooks in Settings > Hooks (desktop) or `/hooks` (CLI).
+Codex: from a checkout, run `python3 skills/whatsnext/scripts/whatsnext.py install-hooks`, then review the new hooks in Settings > Hooks (desktop) or `/hooks` (CLI). Gemini CLI and Cursor: add `--agent gemini` or `--agent cursor` (writes `~/.gemini/settings.json` or `~/.cursor/hooks.json`; `--project` for the repo; `--dry-run` and `--undo` work the same).
 
 ## Key steps
 
@@ -138,8 +138,8 @@ whatsnext works in any coding agent, at one of three tiers ([ADR-0027](docs/deci
 |---|---|---|
 | Claude Code | Hooks | Supported |
 | Codex | Hooks | Supported; tips, idle wrap-up and compact-summary comparison are Claude-only |
-| Gemini CLI | Instructions (hooks planned, P-77) | Experimental |
-| Cursor | Instructions (hooks planned, P-77) | Experimental |
+| Gemini CLI | Hooks: `install-hooks --agent gemini` (all five events) | Experimental |
+| Cursor | Hooks: `install-hooks --agent cursor` (no prompt hook: Cursor cannot add text to a prompt, so `wrap up` stays at the Instructions tier) | Experimental |
 | Other agents that read `AGENTS.md` or skills | Instructions | Experimental |
 | Any agent | Files | Works: the files are plain Markdown |
 
@@ -212,7 +212,7 @@ Claude Code loads `hooks/hooks.json` with the plugin. For Codex, run `install-ho
 - **Session-aware handoff:** a note is fresh for a session only when that session's sidecar exists, its SHA-256 is the file's, and no turn came after the file was written. Any other note is *foreign* (another session wrote it, it was edited since, or it predates the sidecar). A foreign note is never carried into a compact: the text says another session wrote it and gives the path. The resume note adds `Handoff: <path> (read it first)` when the note's `Session:` is this session or its `Task:` is the active task, else `Handoff: <path> (another session's note)`. When a related note has a Next action, the `Next` line shows the newer of it and the progress file's Next, labeled `Next (confirmed <UTC>)` or `Next (handoff <UTC>)`; without one it stays `Next:`.
 - **Compact:** `compact-instructions` prints the text for `/compact` in an open session, built from the handoff note. `--json` also returns a one-line `compact_line`. A note another session wrote is never carried into a compact.
 - **Init:** `whatsnext init` (git repositories only) creates what is missing: `PLAN.md`, `.whatsnext/config.json`, the progress and journal folders, the `.whatsnext/sessions/` line in `.gitignore`, and a block in `AGENTS.md` between `<!-- whatsnext:start -->` and `<!-- whatsnext:end -->`. `--dry-run` prints the plan and writes nothing. `--undo` removes only the `AGENTS.md` block.
-- **Hooks:** the resume note at session start, after `/clear` and after compaction; plan capture when the agent shows a plan; the facts journal. Claude Code loads `hooks/hooks.json` with the plugin. For Codex, run `install-hooks` (it also links the skill into `~/.agents/skills/whatsnext`), then review changed hooks in Settings > Hooks (desktop) or `/hooks` (CLI). See [ADR-0005](docs/decisions/ADR-0005-hooks-and-journal.md).
+- **Hooks:** the resume note at session start, after `/clear` and after compaction; plan capture when the agent shows a plan; the facts journal. Claude Code loads `hooks/hooks.json` with the plugin. For Codex, run `install-hooks` (it also links the skill into `~/.agents/skills/whatsnext`), then review changed hooks in Settings > Hooks (desktop) or `/hooks` (CLI). For Gemini CLI or Cursor, run `install-hooks --agent gemini|cursor`; each agent's events are mapped in [P-77's progress file](docs/project/progress/P-77.md). See [ADR-0005](docs/decisions/ADR-0005-hooks-and-journal.md).
 
 Commands: `status`, `plan`, `progress`, `config show`, `config set --user`, `init`, `install-hooks`, `compact-instructions` and `fresh-instructions`. The script is `skills/whatsnext/scripts/whatsnext.py`.
 

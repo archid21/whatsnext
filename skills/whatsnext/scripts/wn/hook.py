@@ -19,6 +19,15 @@ every event does nothing.
 - idle-check: asked by the hooks module 45 minutes after the last turn; prints `{"fire": true|false}` (ADR-0016, P-40).
 - post-compact: Claude Code's PostCompact; keeps `compact_summary` in git-ignored session state (P-21).
 - stop / pre-compact / session-end: also write the facts (journal line and progress header, ADR-0005).
+
+Gemini CLI and Cursor (ADR-0027, P-77; fields from geminicli.com/docs/hooks and cursor.com/docs/hooks):
+- Gemini sends `session_id`, `cwd`, `transcript_path` and `prompt` under the names used here, and wants JSON on stdout:
+  SessionStart and BeforeAgent take `hookSpecificOutput.additionalContext`. PreCompress, AfterAgent and SessionEnd
+  cannot add model context, so they only write facts. SessionStart never says `compact`, so pre-compact leaves the
+  Codex resume marker and the next BeforeAgent prints the note once.
+- Cursor sends `conversation_id` and `workspace_roots` (no `cwd`); `normalize` maps them to `session_id` and `cwd`.
+  sessionStart takes `{"additional_context": ...}`. beforeSubmitPrompt cannot add context, so there is no prompt-time
+  output and the adapter installs no prompt hook; preCompact and sessionEnd only write facts.
 """
 
 import argparse
@@ -48,7 +57,8 @@ CARRY_WORK_CAP = 150  # characters of the subagents and todo line repeated there
 OPEN_WORK_CAP = 500  # characters for the subagents and todo line (P-25)
 REQUEST_CAP = 2000  # characters of the user's latest request kept verbatim (P-6)
 FACT_EVENTS = ("stop", "pre-compact", "session-end", "interrupt")  # these write the facts layer
-AGENTS = ("claude-code", "codex")
+AGENTS = ("claude-code", "codex", "gemini", "cursor")
+COMMAND_LINE_AGENTS = ("codex", "gemini", "cursor")  # no plugin folder to resolve `whatsnext` against
 # Events that leave runtime evidence (`health-<agent>-<event>.json`) for `whatsnext doctor`. The frequent events
 # (pre-edit, permission, plan-shown, idle-check, ...) write nothing, so a hook stays quiet on disk.
 OBSERVED_EVENTS = ("session-start", "prompt-submit", "stop", "pre-compact", "session-end", "interrupt")
@@ -227,22 +237,44 @@ def export_session(session_id):
         pass
 
 
-def command_line(session_id=None):
-    """The line that tells an agent with no plugin folder how to run whatsnext (Codex). A session id adds a
-    sentence that names it, for `plan start --session` (ADR-0020)."""
+def normalize(data, agent):
+    """The hook JSON with the names this module reads. Cursor sends `conversation_id` (every event) and
+    `workspace_roots` (no `cwd`): they become `session_id` and `cwd`. Other agents' data comes back as it is."""
+    if agent != "cursor" or not isinstance(data, dict):
+        return data
+    out = dict(data)
+    for key in ("conversation_id", "session_id"):
+        if isinstance(data.get(key), str) and data[key].strip():
+            out["session_id"] = data[key]
+            break
+    if not (isinstance(out.get("cwd"), str) and out["cwd"]):
+        roots = [r for r in data.get("workspace_roots") or [] if isinstance(r, str) and os.path.isdir(r)] \
+            if isinstance(data.get("workspace_roots"), list) else []
+        pick = next((r for r in roots if project({"cwd": r})), roots[0] if roots else None)
+        if pick:
+            out["cwd"] = pick
+    return out
+
+
+def command_line(session_id=None, agent="codex"):
+    """The line that tells an agent with no plugin folder how to run whatsnext (Codex, Gemini CLI, Cursor). A session
+    id adds a sentence that names it, for `plan start --session` (ADR-0020)."""
     script = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "whatsnext.py"))
     extra = (" Your session id is %s: pass --session %s to `plan start`." % (session_id, session_id)
              if isinstance(session_id, str) and SAFE_SESSION_RE.match(session_id) else "")
-    return ('whatsnext command: WHATSNEXT_AGENT=codex python3 "%s" <command>. Run `plan start <id>` and `plan done <id> --verify "<cmd>"` '
-            "with it, and start the item before you create files; do not tick PLAN.md by hand." % script) + extra
+    return ('whatsnext command: WHATSNEXT_AGENT=%s python3 "%s" <command>. Run `plan start <id>` and `plan done <id> --verify "<cmd>"` '
+            "with it, and start the item before you create files; do not tick PLAN.md by hand." % (agent, script)) + extra
 
 
-def session_start(root, effective, data, agent=None):
+def session_note_text(root, effective, data, agent=None):
+    """(text, result): the resume note as plain text for this agent, or ("", None). Codex, Gemini CLI and Cursor have
+    no plugin folder to resolve `whatsnext` against: the note ends with a line that names the command (it is
+    injected, never written to a file)."""
     try:  # old sessions' state files (ADR-0018); a failed prune never stops the resume note
         gwjournal.prune_sessions(root, keep_session=data.get("session_id"))
     except Exception:
         pass
-    if agent != "codex":
+    if agent not in COMMAND_LINE_AGENTS:
         export_session(data.get("session_id"))
     if data.get("source") == "compact":
         gwwrapup.take_resume_marker(root, data.get("session_id"))  # SessionStart said it: the prompt need not
@@ -250,11 +282,26 @@ def session_start(root, effective, data, agent=None):
                             session_id=data.get("session_id"))
     text = result["text"] if result else None
     if not text:
+        return "", None
+    if agent in COMMAND_LINE_AGENTS:
+        text += "\n" + command_line(data.get("session_id"), agent)
+    return text, result
+
+
+def session_start(root, effective, data, agent=None):
+    text, result = session_note_text(root, effective, data, agent)
+    if not text:
         return ""
-    if agent == "codex":  # Codex has no plugin folder to resolve `whatsnext` against; the note is not committed
-        text += "\n" + command_line(data.get("session_id"))
+    if agent == "codex":
         return text + "\n"
-    return claude_session_start(text, result)
+    if agent == "cursor":  # sessionStart: {"additional_context": ...} joins the conversation's initial context
+        return json.dumps({"additional_context": text}) + "\n"
+    return claude_session_start(text, result)  # Gemini CLI reads the same JSON shape as Claude Code
+
+
+def gemini_context(text, event):
+    """Gemini CLI: `text` as `hookSpecificOutput.additionalContext` (BeforeAgent appends it to this turn's prompt)."""
+    return json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": text}}) + "\n" if text else ""
 
 
 NEXT_LINE_RE = re.compile(r"^Next[^:\n]*:\s*(.+)$", re.M)
@@ -332,7 +379,7 @@ def precompact(root, effective, data, agent=None):
     """PreCompact (P-4, P-20, P-26). Records "compacted without wrap-up" when this session has no fresh handoff
     note (the resume note shows it after the compact). Claude Code: returns plain text, at most PRECOMPACT_CAP
     characters: the compact instructions and a facts block, or the facts block alone when the user typed
-    `/compact <text>`. Codex ignores PreCompact output, so it gets no text."""
+    `/compact <text>`. Codex, Gemini CLI and Cursor cannot take PreCompact text for the model, so they get none."""
     session_id = data.get("session_id") if isinstance(data.get("session_id"), str) else None
     task = branch_task(root, effective, session_id)
     if task is None:  # no active task on this branch: nothing to carry, nothing written
@@ -342,8 +389,10 @@ def precompact(root, effective, data, agent=None):
     when = gwstatus.stamp_time() if state["stale"] else None
     carry = carry_text(transcript) if effective.get("note.carryAfterCompact") else None
     gwwrapup.mark_compacted(root, session_id, when, carry)
-    if agent == "codex":
-        gwwrapup.set_resume_marker(root, session_id)  # Codex may not pass source=compact; the next prompt shows the note
+    if agent in ("codex", "gemini"):
+        gwwrapup.set_resume_marker(root, session_id)  # no source=compact at SessionStart; the next prompt shows the note
+        return ""
+    if agent == "cursor":  # preCompact only takes `user_message` for the person; Cursor has no prompt-time context
         return ""
     from . import compact as gwcompact  # imported here: compact imports this module
     lines = ["whatsnext facts:", gwcompact.facts_text(root, effective, task)]
@@ -425,7 +474,7 @@ def with_welcome(out, welcome, agent):
     `systemMessage`; Codex prints plain text."""
     if not welcome:
         return out
-    if agent == "codex":
+    if agent in ("codex", "cursor"):  # Cursor has no channel for the person at sessionStart: the welcome is not taken
         return welcome + "\n" + out
     try:
         payload = json.loads(out) if out.strip() else {}
@@ -448,6 +497,7 @@ def observe(root, agent, event, status="observed", detail=None):
 
 
 def handle(event, data, agent=None):
+    data = normalize(data, agent)
     result = handle_event(event, data, agent)
     found = project(data) if event in OBSERVED_EVENTS and isinstance(data, dict) else None
     if found:
@@ -460,10 +510,11 @@ def handle(event, data, agent=None):
 
 def handle_event(event, data, agent=None):
     """The text to print for one event ("" for nothing)."""
+    data = normalize(data, agent)
     if not isinstance(data, dict):
         return ""
     welcome = ""
-    if event == "session-start":
+    if event == "session-start" and agent != "cursor":
         try:  # the first-run welcome (P-44): once per install, in any folder
             welcome = gwwelcome.take_first_run(data)
         except Exception:  # a welcome must never break the session
@@ -484,6 +535,15 @@ def handle_event(event, data, agent=None):
         capture(root, effective, "approved", agent or "claude-code", session=session_of(data))
     elif event == "prompt-submit":
         prompt = data.get("prompt")
+        if agent == "cursor":  # beforeSubmitPrompt cannot add context: nothing to print, nothing to record
+            return ""
+        if agent == "gemini":  # BeforeAgent: additionalContext is appended to this turn's prompt
+            note = ""
+            if gwwrapup.take_resume_marker(root, data.get("session_id")):
+                note = session_note_text(root, effective, dict(data, source="compact"), agent)[0]
+            if isinstance(prompt, str) and prompt.strip() == gwwrapup.PROMPT:
+                note = (note + "\n" if note else "") + gwwrapup.begin(root, effective, data, agent)
+            return gemini_context(note, "BeforeAgent")
         if isinstance(prompt, str) and prompt.strip() == gwwrapup.PROMPT:
             resume = ""
             if agent == "codex" and gwwrapup.take_resume_marker(root, data.get("session_id")):
@@ -494,7 +554,7 @@ def handle_event(event, data, agent=None):
                 return session_start(root, effective, dict(data, source="compact"), agent)
             return ""
         mode = data.get("permission_mode")
-        if agent != "codex" and isinstance(mode, str) and mode != "plan" and \
+        if isinstance(mode, str) and mode != "plan" and \
                 plan_status(root, effective, session_of(data)) == gwcapture.STATUS_TEXT["shown"]:
             capture(root, effective, "unapproved", agent or "claude-code", session=session_of(data))
     elif event == "pre-compact":

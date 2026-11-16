@@ -1,4 +1,10 @@
-"""`whatsnext install-hooks`: whatsnext's hooks for Codex (ADR-0005).
+"""`whatsnext install-hooks`: whatsnext's hooks for Codex, Gemini CLI and Cursor (ADR-0005, ADR-0027).
+
+`--agent codex|gemini|cursor` (default codex) picks the adapter. Gemini CLI: `~/.gemini/settings.json` or
+`<repo>/.gemini/settings.json` (a `hooks` key in the settings file; timeouts in milliseconds). Cursor:
+`~/.cursor/hooks.json` or `<repo>/.cursor/hooks.json` (`version: 1`, a flat handler list per event; timeouts in
+seconds). Each agent's events are listed in its table below, with the doc page they come from. Everything below
+about Codex holds for the other two: the entries are recognised by their command, and nothing else is touched.
 
 Writes `hooks.json` next to a
 Codex config layer: `~/.codex/hooks.json` (--user, the default) or
@@ -38,6 +44,59 @@ EVENTS = (
 AGENT = "codex"
 OWN_COMMAND = re.compile(r"whatsnext\.py[\"']?\s+hook\s+\S+\s+--agent\s+codex\b")
 TRUST_NOTE = "Next: in Codex, open /hooks and trust the whatsnext hooks. Codex skips new or changed hooks until you do."
+
+# Gemini CLI event -> (whatsnext event, matcher, timeout in MILLISECONDS, None). https://geminicli.com/docs/hooks/
+# Gemini's PreCompress and SessionEnd print nothing back to the model; they only record the facts. Not mapped:
+# BeforeTool (the plan-tick guard) is outside P-77.
+GEMINI_EVENTS = (
+    ("SessionStart", "session-start", "*", 10000, None),
+    ("BeforeAgent", "prompt-submit", "*", 10000, None),
+    ("AfterAgent", "stop", "*", 10000, None),
+    ("PreCompress", "pre-compact", "*", 10000, None),
+    ("SessionEnd", "session-end", "*", 3000, None),
+)
+# Cursor event -> (whatsnext event, matcher, timeout in SECONDS, None). https://cursor.com/docs/hooks
+# No `prompt-submit`: Cursor's beforeSubmitPrompt can only allow or block a prompt, it cannot add text to it, so it
+# could neither carry the `wrap up` instructions nor a resume note. That gap is recorded in P-77's progress file.
+CURSOR_EVENTS = (
+    ("sessionStart", "session-start", None, 10, None),
+    ("stop", "stop", None, 10, None),
+    ("preCompact", "pre-compact", None, 10, None),
+    ("sessionEnd", "session-end", None, 3, None),
+)
+
+
+class Adapter:
+    """One agent's hook file: where it is, how its JSON is shaped, which events it maps."""
+
+    def __init__(self, name, label, events, folder, dirname, filename, flat=False, base=None, trust=None, project_note=None):
+        self.name, self.label, self.events, self.folder, self.dirname, self.filename = name, label, events, folder, dirname, filename
+        self.flat = flat  # Cursor: hooks.<event> is a list of handlers; others: a list of matcher groups
+        self.base = base or {}  # keys the file needs besides `hooks` (Cursor: version 1)
+        self.trust, self.project_note = trust, project_note
+        self.own = re.compile(r"whatsnext\.py[\"']?\s+hook\s+\S+\s+--agent\s+%s\b" % re.escape(name))
+
+
+def gemini_dir():
+    return os.path.join(home(), ".gemini")
+
+
+def cursor_dir():
+    return os.path.join(home(), ".cursor")
+
+
+def adapters():
+    return {
+        "codex": Adapter("codex", "Codex", EVENTS, codex_dir, ".codex", "hooks.json", trust=TRUST_NOTE,
+                         project_note="Note: Codex loads project hooks only when this project's .codex/ folder is trusted."),
+        "gemini": Adapter("gemini", "Gemini CLI", GEMINI_EVENTS, gemini_dir, ".gemini", "settings.json",
+                          trust="Next: in Gemini CLI, run /hooks panel to see the whatsnext hooks. "
+                                "Hooks run only while hooksConfig.enabled is true (the default)."),
+        "cursor": Adapter("cursor", "Cursor", CURSOR_EVENTS, cursor_dir, ".cursor", "hooks.json", flat=True,
+                          base={"version": 1},
+                          trust="Next: Cursor reloads hooks.json when it is saved; restart Cursor if the hooks do not load.",
+                          project_note="Note: Cursor runs project hooks only in a trusted workspace."),
+    }
 
 
 def home():
@@ -134,26 +193,34 @@ def quote(path):
     return '"%s"' % re.sub(r'(["\\$`])', r"\\\1", path)
 
 
-def handler_for(spec, script):
-    _codex_event, event, _matcher, timeout, limit = spec
-    handler = {"type": "command", "command": "python3 %s hook %s --agent %s" % (quote(script), event, AGENT),
+def handler_for(spec, script, ad=None):
+    ad = ad or adapters()[AGENT]
+    _agent_event, event, _matcher, timeout, limit = spec
+    handler = {"type": "command", "command": "python3 %s hook %s --agent %s" % (quote(script), event, ad.name),
                "timeout": timeout}
+    if ad.name == "gemini":  # Gemini names a hook for its logs and `/hooks enable|disable <name>`
+        handler = dict([("name", "whatsnext-" + event)], **handler)
+    if ad.flat and spec[2]:
+        handler["matcher"] = spec[2]
     if limit:
         handler["additionalContextLimit"] = limit
     return handler
 
 
-def is_own(handler):
-    return isinstance(handler, dict) and isinstance(handler.get("command"), str) and bool(
-        OWN_COMMAND.search(handler["command"]))
+def is_own(handler, ad=None):
+    own = (ad or adapters()[AGENT]).own
+    return isinstance(handler, dict) and isinstance(handler.get("command"), str) and bool(own.search(handler["command"]))
 
 
-def without_own(groups):
+def without_own(groups, ad=None):
     """`groups` without whatsnext's handlers; a group left with no handler is dropped."""
+    ad = ad or adapters()[AGENT]
+    if ad.flat:
+        return [h for h in groups if not is_own(h, ad)]
     out = []
     for group in groups:
         handlers = group.get("hooks", [])
-        kept = [h for h in handlers if not is_own(h)]
+        kept = [h for h in handlers if not is_own(h, ad)]
         if len(kept) == len(handlers):
             out.append(group)
         elif kept:
@@ -161,22 +228,28 @@ def without_own(groups):
     return out
 
 
-def install_event(groups, spec, script):
+def install_event(groups, spec, script, ad=None):
     """The groups for one event with whatsnext's entry in place (an exact match leaves the list as it is)."""
-    want = {"hooks": [handler_for(spec, script)]}
+    ad = ad or adapters()[AGENT]
+    if ad.flat:
+        want = handler_for(spec, script, ad)
+        own = [h for h in groups if is_own(h, ad)]
+        return groups if own == [want] else without_own(groups, ad) + [want]
+    want = {"hooks": [handler_for(spec, script, ad)]}
     if spec[2]:
         want = dict([("matcher", spec[2])], **want)
-    own = [g for g in groups if any(is_own(h) for h in g.get("hooks", []))]
+    own = [g for g in groups if any(is_own(h, ad) for h in g.get("hooks", []))]
     if own == [want]:
         return groups
-    return without_own(groups) + [want]
+    return without_own(groups, ad) + [want]
 
 
-def scope_file(scope, root):
-    """(path, shown) of the hooks.json for a scope."""
+def scope_file(scope, root, ad=None):
+    """(path, shown) of the hook file for a scope."""
+    ad = ad or adapters()[AGENT]
     if scope == "project":
-        return os.path.join(root, ".codex", "hooks.json"), ".codex/hooks.json"
-    path = os.path.join(codex_dir(), "hooks.json")
+        return os.path.join(root, ad.dirname, ad.filename), "%s/%s" % (ad.dirname, ad.filename)
+    path = os.path.join(ad.folder(), ad.filename)
     prefix = os.path.join(home(), "")
     return path, ("~/" + path[len(prefix):]) if path.startswith(prefix) else path
 
@@ -201,29 +274,36 @@ def read_doc(path, shown):
     return data, old, None
 
 
-def plan(scope, remove, script=None, root=None):
+def plan(scope, remove, script=None, root=None, agent=AGENT):
     """The change as a dict: path, shown, old, new text, events, error. Writes nothing."""
+    ad = adapters()[agent]
     script = script or script_path()
     root = root or gwconfig.find_root()
-    path, shown = scope_file(scope, root)
+    path, shown = scope_file(scope, root, ad)
     data, old, error = read_doc(path, shown)
-    out = {"scope": scope, "path": path, "shown": shown, "old": old, "new": old, "events": [], "error": error}
+    out = {"scope": scope, "path": path, "shown": shown, "old": old, "new": old, "events": [], "error": error,
+           "agent": agent}
     if error:
         return out
     hooks = data.get("hooks", {})
     if not isinstance(hooks, dict):
         out["error"] = "%s: hooks is not an object; fix it first, install-hooks left it unchanged" % shown
         return out
-    for spec in EVENTS:
+    for spec in ad.events:
         groups = hooks.get(spec[0], [])
-        if not isinstance(groups, list) or not all(isinstance(g, dict) and isinstance(g.get("hooks", []), list)
-                                                   for g in groups):
-            out["error"] = "%s: hooks.%s is not a list of matcher groups; fix it first" % (shown, spec[0])
+        if ad.flat:
+            ok = isinstance(groups, list) and all(isinstance(h, dict) for h in groups)
+        else:
+            ok = isinstance(groups, list) and all(isinstance(g, dict) and isinstance(g.get("hooks", []), list)
+                                                  for g in groups)
+        if not ok:
+            out["error"] = "%s: hooks.%s is not a list of %s; fix it first" % (
+                shown, spec[0], "hook handlers" if ad.flat else "matcher groups")
             return out
     hooks = json.loads(json.dumps(hooks))  # a copy
-    for spec in EVENTS:
+    for spec in ad.events:
         groups = hooks.get(spec[0], [])
-        new = without_own(groups) if remove else install_event(groups, spec, script)
+        new = without_own(groups, ad) if remove else install_event(groups, spec, script, ad)
         if new != groups:
             out["events"].append(spec[0])
             if new:
@@ -234,9 +314,13 @@ def plan(scope, remove, script=None, root=None):
         data = dict(data)
         if hooks:
             data["hooks"] = hooks
+            for key, value in ad.base.items():  # Cursor needs `version`, first in the file
+                if key not in data:
+                    data = dict([(key, value)], **data)
         else:
             data.pop("hooks", None)
-        out["new"] = json.dumps(data, indent=2, ensure_ascii=False) + "\n" if data else ""
+        empty = not data or (remove and data == ad.base)  # a bare `{"version": 1}` is no entry of anyone's
+        out["new"] = "" if empty else json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     return out
 
 
@@ -249,7 +333,7 @@ def apply(result):
     path = result["path"]
     if not result["new"]:  # nothing else was in the file: take it away
         os.remove(path)
-        if result["scope"] == "project":  # never the user's own Codex folder
+        if result["scope"] == "project":  # never the user's own agent folder
             try:
                 os.rmdir(os.path.dirname(path))
             except OSError:
@@ -262,10 +346,12 @@ def apply(result):
 
 def build_parser():
     parser = argparse.ArgumentParser(prog="whatsnext install-hooks",
-                                     description="Install whatsnext's hooks for Codex (hooks.json).")
+                                     description="Install whatsnext's hooks for Codex (default), Gemini CLI or Cursor.")
+    parser.add_argument("--agent", choices=("codex", "gemini", "cursor"), default=AGENT,
+                        help="which agent's hook file to write (default: codex)")
     where = parser.add_mutually_exclusive_group()
-    where.add_argument("--user", action="store_true", help="~/.codex/hooks.json (the default)")
-    where.add_argument("--project", action="store_true", help="<repo>/.codex/hooks.json")
+    where.add_argument("--user", action="store_true", help="the agent's user file, e.g. ~/.codex/hooks.json (the default)")
+    where.add_argument("--project", action="store_true", help="the agent's project file, e.g. <repo>/.codex/hooks.json")
     parser.add_argument("--dry-run", action="store_true", help="print the change; write nothing")
     parser.add_argument("--remove", "--undo", dest="remove", action="store_true",
                         help="take out whatsnext's entries only (also the wn link)")
@@ -277,13 +363,14 @@ def build_parser():
 def run(argv, script=None, root=None):
     args = build_parser().parse_args(argv)
     scope = "project" if args.project else "user"
-    no_codex = scope == "user" and not args.remove and not os.path.isdir(codex_dir())
-    if no_codex:  # still offer the wn link; Codex hooks need Codex
-        print("Codex folder not found: %s. Skipping the Codex hooks; install Codex first, or use --project."
-              % codex_dir())
-        result = {"events": [], "error": None, "shown": codex_dir(), "new": None}
+    ad = adapters()[args.agent]
+    no_codex = scope == "user" and not args.remove and not os.path.isdir(ad.folder())
+    if no_codex:  # still offer the wn link; the agent's hooks need the agent
+        print("%s folder not found: %s. Skipping the %s hooks; install %s first, or use --project."
+              % (ad.label, ad.folder(), ad.label, ad.label))
+        result = {"events": [], "error": None, "shown": ad.folder(), "new": None}
     else:
-        result = plan(scope, args.remove, script=script, root=root)
+        result = plan(scope, args.remove, script=script, root=root, agent=args.agent)
     if result["error"]:
         print(result["error"], file=sys.stderr)
         return 1
@@ -308,8 +395,8 @@ def run(argv, script=None, root=None):
             print("wn: " + wn[2] + ".")
         return 0
     if result["events"]:
-        print("%s whatsnext hooks for Codex in %s (%s)" % ("Remove" if args.remove else "Install", result["shown"],
-                                                          ", ".join(result["events"])))
+        print("%s whatsnext hooks for %s in %s (%s)" % ("Remove" if args.remove else "Install", ad.label,
+                                                       result["shown"], ", ".join(result["events"])))
         print(diff(result), end="")
     if skill[2]:
         print(("Skill: " if skill[0] == "skip" else "") + (("would " if args.dry_run and skill_changes else "") + skill[2]))
@@ -330,9 +417,9 @@ def run(argv, script=None, root=None):
         print("wn link %s." % ("removed" if wn[0] == "unlink" else "written"))
         if wn[0] == "link" and not on_path(os.path.dirname(wn[1])):
             print("Add ~/.local/bin to your PATH so `wn` is found.")
-    if scope == "project" and not args.remove:
-        print("Note: Codex loads project hooks only when this project's .codex/ folder is trusted.")
+    if scope == "project" and not args.remove and ad.project_note:
+        print(ad.project_note)
     if not args.remove:
-        if result["events"]:
-            print(TRUST_NOTE)
+        if result["events"] and ad.trust:
+            print(ad.trust)
     return 0
