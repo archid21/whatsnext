@@ -456,6 +456,13 @@ def instructions(root, effective, now=None, session_id=None, agent=None):
             line_template(),
             "or `/clear` for a fresh start",
         ]
+    elif agent == "gemini":  # AfterAgent copies the Next action; no hook carries a handoff into a compress
+        lines += [
+            "",
+            "End your reply with exactly these two lines and nothing after them:",
+            "Handoff written: %s" % rel,
+            "Start a new session and say \"what's next?\" to resume from it.",
+        ]
     else:  # Claude Code: the PreCompact hook carries the handoff into the compact, so no /compact template is printed
         lines += [
             "",

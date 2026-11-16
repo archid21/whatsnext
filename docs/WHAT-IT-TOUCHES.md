@@ -25,6 +25,7 @@ whatsnext is Python 3.9+, standard library only. It makes no network calls, runs
 | `<git common dir>/whatsnext/claims` | Soft claims: which session has which plan item. When `.git` cannot be written, `.whatsnext/claims/` (git-ignored) is used instead | `plan start` |
 | `~/.config/whatsnext/config.json` (or `$XDG_CONFIG_HOME`) | Your user settings | `config set --user`, and only that |
 | `~/.codex/hooks.json` (or `$CODEX_HOME`) | whatsnext's hook entries, next to yours | `install-hooks`, and only that; `--remove` undoes it |
+| `~/.gemini/settings.json`, `~/.cursor/hooks.json` | whatsnext's hook entries, next to yours | `install-hooks --agent gemini\|cursor`, and only that; `--undo` removes only its entries |
 | `~/.agents/skills/whatsnext` | A symlink to this plugin's skill folder, so Codex finds the commands | `install-hooks --user`; never replaces anything it did not make; `--remove` deletes only that link |
 
 ## What it reads

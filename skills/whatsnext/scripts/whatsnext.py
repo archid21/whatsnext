@@ -36,7 +36,7 @@ COMMANDS = {
 
 # Hook events and the agents a hook may name with `--agent` (ADR-0005).
 HOOK_EVENTS = ("session-start", "plan-shown", "plan-approved", "prompt-submit", "stop", "pre-compact", "post-compact", "pre-edit", "session-end", "interrupt", "idle-check", "idle-offer", "permission")
-HOOK_AGENTS = ("claude-code", "codex")
+HOOK_AGENTS = ("claude-code", "codex", "gemini", "cursor")
 
 
 def config_show(args):
