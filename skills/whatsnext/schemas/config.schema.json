@@ -59,6 +59,11 @@
           "default": "warn",
           "description": "What happens when an agent ticks `- [ ] P-N` in PLAN.md by hand instead of running `plan done --verify` (ADR-0003): warn it (the default), say nothing, or deny the edit."
         },
+        "driftNote": {
+          "enum": ["on", "off"],
+          "default": "on",
+          "description": "At a turn end, one note when files changed outside the folders of the item this session claimed, with the answer to give (ADR-0028). The turn is never blocked. Set to off to turn the note off."
+        },
         "staleAfter": {
           "type": "string",
           "pattern": "^[1-9][0-9]*[mh]$",

@@ -540,8 +540,20 @@ def cmd_stamp(root, folder, effective, args):
               file=sys.stderr)
         return 1
     rel = stamp_file(root, folder, effective, args.task_id, state=args.state, files=args.files)
+    if args.files is not None:  # the answer to a drift note (ADR-0028): the item's files are now stated
+        from . import drift
+
+        drift.clear(root, item=args.task_id)
     print("stamped " + rel)
     emit(effective, args.task_id, rel, "stamp")
+    return 0
+
+
+def cmd_drift_dismiss(root, folder, effective, args):
+    from . import drift
+
+    count = drift.clear(root, session=args.session or env_session(), dismiss=True)
+    print("dismissed the drift note" if count else "no drift note to dismiss")
     return 0
 
 
@@ -672,6 +684,8 @@ def build_parser():
     stamp.add_argument("task_id")
     stamp.add_argument("--state", choices=STATES)
     stamp.add_argument("--files", help="comma-separated list that replaces the Files field")
+    dismiss = sub.add_parser("drift-dismiss", help="clear the drift note; its files are not noted again (ADR-0028)")
+    dismiss.add_argument("--session", help="this session's id (default: $WHATSNEXT_SESSION, else every session's note)")
     nxt = sub.add_parser("next", help="set the Next action (marked confirmed; --auto for a model-written one)")
     nxt.add_argument("task_id")
     nxt.add_argument("text")
@@ -702,7 +716,7 @@ def run(argv, cwd=None):
     effective = gwconfig.load(root)
     folder = status_folder(root, effective)
     handler = {"new": cmd_new, "stamp": cmd_stamp, "show": cmd_show, "list": cmd_list, "next": cmd_next, "capture": cmd_capture,
-               "resume-note": cmd_packet, "resume": cmd_resume, "pr-body": cmd_pr_body}
+               "drift-dismiss": cmd_drift_dismiss, "resume-note": cmd_packet, "resume": cmd_resume, "pr-body": cmd_pr_body}
     try:
         return handler[args.action](root, folder, effective, args)
     except FormatError as e:

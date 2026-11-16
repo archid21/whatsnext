@@ -16,6 +16,12 @@ let hasCheckedTask = false
 const LONG_SESSION_TURNS = 20
 const PROGRESS_FOLDER = 'docs/project/progress'
 
+// Drift note (P-73, ADR-0028). At each main-thread turn end the module reads the pending note that the Stop hook wrote to
+// `.whatsnext/sessions/<session>.drift.json`. It shows above the prompt with Add to <item> and Dismiss until answered.
+// The wrap-up band wins while it shows; the note comes back after it. The Python side decides everything; this only shows it.
+type Drift = { item: string; files: string[]; text: string }
+let drift: Drift | undefined
+
 // Idle wrap-up (P-40, ADR-0016). A timer starts at the end of each main-thread turn and stops when any prompt is
 // submitted. When it runs out, `wrap up` is submitted once, if the whatsnext check and Claude Code's settings agree.
 // After that no timer starts until the person sends a prompt of their own.
@@ -294,6 +300,52 @@ async function checkWrapUp($: EngineInterface, askedAt: number) {
   }
 }
 
+// Read this session's pending drift note. Any problem means no note.
+async function readDrift($: EngineInterface): Promise<Drift | undefined> {
+  try {
+    const session = await $.session.id()
+    if (!/^[A-Za-z0-9._-]+$/.test(session)) return undefined
+    const state = JSON.parse(await $.fs.read(`.whatsnext/sessions/${session}.drift.json`)) as { pending?: Partial<Drift> | null }
+    const p = state.pending
+    if (p && typeof p.item === 'string' && typeof p.text === 'string' && Array.isArray(p.files)) {
+      return { item: p.item, text: p.text, files: p.files.filter((f): f is string => typeof f === 'string') }
+    }
+  } catch {
+    // no note
+  }
+
+  return undefined
+}
+
+async function checkDrift($: EngineInterface) {
+  drift = await readDrift($)
+  $.ui.invalidate('ui.render')
+}
+
+// Run a `progress` command for the note's answer, then drop the note from the band. The note stays when the command fails.
+async function answerDrift($: EngineInterface, args: string[], done: string) {
+  try {
+    const ran = await $.process.run(['python3', `${$.plugin.root}/${SCRIPT}`, 'progress', ...args], {
+      cwd: await $.session.cwd(),
+      timeoutMs: 10_000,
+    })
+    if (ran.exitCode !== 0) throw new Error('failed')
+    drift = undefined
+    notice = done
+  } catch {
+    notice = 'Could not answer the drift note. Run: whatsnext progress drift-dismiss'
+  }
+  $.ui.invalidate('ui.render')
+}
+
+function addDrift($: EngineInterface, note: Drift) {
+  return answerDrift($, ['stamp', note.item, '--files', note.files.join(',')], `Added ${note.files.length} file(s) to ${note.item}.`)
+}
+
+async function dismissDrift($: EngineInterface) {
+  return answerDrift($, ['drift-dismiss', '--session', await $.session.id()], 'Drift note dismissed.')
+}
+
 function hideWrapUp($: EngineInterface) {
   afterWrap = false
   copyFailed = false
@@ -499,6 +551,7 @@ export const register: Register = on => {
         wrapByRightsize = false
         if (!byRightsize) await checkWrapUp($, askedAt)
       }
+      await checkDrift($)
       await afterTurn($)
     }
 
@@ -547,6 +600,25 @@ export const register: Register = on => {
               onPress={() => hideWrapUp($)}
             />
           </Box>
+        </Box>
+      )
+    }
+    if (drift) {
+      const note = drift
+
+      return (
+        <Box>
+          <Text>{note.text} </Text>
+          <Button
+            key="drift-add"
+            label={`Add to ${note.item}`}
+            onPress={() => addDrift($, note)}
+          />
+          <Button
+            key="drift-dismiss"
+            label="Dismiss"
+            onPress={() => dismissDrift($)}
+          />
         </Box>
       )
     }
