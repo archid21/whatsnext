@@ -20,6 +20,7 @@ All logic is in one script: `python3 scripts/whatsnext.py <command>` (Python 3.9
 | "rename P-13", "change P-13's done means" | `plan edit P-13 --title "<text>"` and/or `--done-means "<text>"`: the id and other fields stay; the old text goes to the progress file's `## History`. A done item's done means cannot change: reopen it |
 | "reopen P-13" | `plan reopen P-13 --reason "<the user's reason>"` (optional `--done-means "<new check>"`): unchecks it, moves its evidence to `## History`, and a fresh `plan done` is needed. Ask for the reason if the user gave none |
 | "approve P-13", "P-13 looks good" | `plan review P-13`: only for an item `awaiting review`, and only after the person approves in chat. "reject P-13 because …" → `plan review P-13 --reject "<their reason>"`; the item is open again and needs a fresh `--verify` |
+| "plan this: <goal>", "add this to the plan" | Plan from a goal (below): draft items with a done means each, show them, then `plan add` on the OK |
 | "keep working on P-12" (a stale item) | `plan keep P-12` |
 | "import ready items from Beads / GitHub Issues" | `plan import --from beads\|github`. It runs your own `bd ready --json` or `gh issue list` (whatsnext makes no network call), skips items already in the plan, then asks (exit 4) for one done means for all, then for the OK with the list. Show the list and the done means to the user; on the OK run again with `--done-means "<text>" --yes`. Each item gets a `tracker: gh#12` or `tracker: bd:<id>` field |
 | `plan done` printed an `Offer:` (`tracker_offer` in `--json`) | Ask the user whether to close the item in its tracker. Only on a yes run `plan close-tracker <id>`. PLAN.md stays the source of truth: a failed close leaves the item done |
@@ -102,6 +103,17 @@ When the user asks to add, drop or reorder plan items, use the commands. Do not 
 - `plan move <id> --to Now|Next|Later`, or `--before <id>` or `--after <id>`.
 
 Run `plan check` after a batch of changes and show the result.
+
+## Plan from a goal
+
+When the user asks to plan a goal in plain words ("plan this: CSV export", "add this to the plan"), turn it into plan items. If the user only mentions an idea in passing, ask once: "Turn this into plan items?" Add nothing without a yes.
+
+1. Read the plan first (`plan list --json`). If an open item already covers part of the goal, show it and reuse it as a `blocked by` instead of adding a duplicate.
+2. If the goal is unclear, ask at most 3 short questions, one at a time. Otherwise go on.
+3. One item per piece of work someone could start and finish, not one per step. Usually 1 to 5 items.
+4. Each item gets a done means, ideally a command in backticks that `plan done --verify` can run (a test or check). If no command is obvious, ask the user what proves it done. Never invent one.
+5. Show the whole list: each title, its `blocked by` and its done means. In the same question, ask where the new items go: **Next (default)**, Now or Later. They go at the end of that section; existing items are never moved or reordered (moving one is a separate `plan move` request). Wait for the OK.
+6. After the OK, add each item with `plan add "<title>" --done-means "<text>" --section <answer>`, blockers first so `--blocked-by` can name their new ids. Never edit PLAN.md by hand. Then run `plan check` and show the result.
 
 ## Import a plan from another file
 
