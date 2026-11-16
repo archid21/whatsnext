@@ -367,7 +367,7 @@ async function turnOnIdle($: EngineInterface, tip: Tip) {
   current = undefined
   notice = ok
     ? 'Auto wrap-up is on: after 45 idle minutes whatsnext will say "wrap up" for you, once. Turn it off: whatsnext config set --user wrapup.autoIdle false.'
-    : 'Could not turn on auto wrap-up. Run: python3 <plugin>/skills/whatsnext/scripts/whatsnext.py config set --user wrapup.autoIdle true'
+    : 'Could not turn on auto wrap-up. Run: wn config set --user wrapup.autoIdle true'
   $.ui.invalidate('ui.render')
 }
 

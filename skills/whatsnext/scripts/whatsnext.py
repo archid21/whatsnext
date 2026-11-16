@@ -14,7 +14,7 @@ import os
 import sys
 
 # Make the wn package importable however the script is started.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
 VERSION = "0.4.0"
 
@@ -28,6 +28,7 @@ COMMANDS = {
     "handoff": "run the handoff note's `Verify:` line and archive the note when it passes (handoff verify)",
     "doctor": "check that the hooks are in place for Claude Code and Codex, and when one last fired",
     "compact-instructions": "print the text for `/compact` in an open session (ADR-0009)",
+    "wrap-up-instructions": "print the handoff instructions that the `wrap up` hook adds, for an agent with no hooks (ADR-0027)",
     "fresh-instructions": "print what a caller needs to wrap up and start a fresh chat from the handoff (ADR-0025)",
     "status": "one call for what's next and where we left off: current item, handoff, ready items, warnings",
     "welcome": "print the table of what whatsnext does (shown once after install)",
@@ -150,6 +151,10 @@ def main(argv=None):
         from wn import compact as wncompact
 
         return wncompact.cmd_instructions(args.args)
+    if args.command == "wrap-up-instructions":
+        from wn import wrapup as wnwrapup
+
+        return wnwrapup.cmd_instructions(args.args)
     if args.command == "fresh-instructions":
         from wn import fresh as wnfresh
 

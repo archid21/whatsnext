@@ -1,43 +1,44 @@
 # Handoff
-Session: 5d4400f2-b3fc-4601-8665-243a059f171c
+Session: 4cfcc767-bc5b-4950-b1a9-8749aa6dd9ca
 Task: none
-Written: 2026-11-15T23:03Z
-Branch: main
+Written: 2026-11-16T01:24Z
+Branch: p-75-hook-free-mode-the-agents-md-block-and-s
 
 ## Goal
 
-Make whatsnext work in any coding agent (ADR-0027), then build the 0.6 items. Roadmap: Now = P-74 to P-78, Next = P-79, P-72, P-73, P-71, P-70, P-62, Later = P-63, P-80, P-81.
+Make whatsnext work in any coding agent (ADR-0027). Now: P-75 hook-free mode, then P-76 to P-78.
 
 ## Next action
 
-Ask the user to commit the plan and ADR changes, then `python3 skills/whatsnext/scripts/whatsnext.py plan start P-74 --agent claude-code --branch branch` (P-76 is also ready, no blocker).
-Verify: the output says `Started P-74` and a new branch from main.
-If it fails: exit 4 means ask the user the question it prints.
+Get the P-75 live run done in an agent with no whatsnext hooks: say "what's next?" then "wrap up" in a scratch repo after `init`. Log the result in docs/project/progress/P-75.md, then `plan done P-75 --evidence "..."`.
+Verify: the agent ran `status`, and its HANDOFF.md has the eight sections.
+If it fails: ask the user to run it, or use Codex without hooks.
 
 ## State
 
-State on Sun 2026-11-15 3:03 PM PST (Pacific): the roadmap is in docs/project/PLAN.md and ADR-0027 is accepted; nothing is committed or pushed. Last check: `python3 -m unittest discover -s tests` passed 684 tests in 554 s; `tests.test_docs` and `tests.test_features` passed again after the ADR status edit; `plan check` shows no problem with P-74 to P-81 (only old "code has changed since" warnings). P-69 is still unticked in Later although its commits are merged (87f3451, a980bb2).
+State on Sun 2026-11-15 5:24 PM PST (Pacific): P-75 code, docs and tests are done but not committed, on branch p-75-hook-free-mode-the-agents-md-block-and-s. `python3 -m unittest discover -s tests` passed 690 tests. P-75 is stamped blocked: the live run has not happened.
 
 ## What changed
 
-- docs/project/PLAN.md: added P-74 to P-78 (Now), P-79 (Next), P-80 and P-81 (Later); moved P-72, P-73, P-71, P-70, P-62 from Later to Next. Uncommitted.
-- docs/decisions/ADR-0027-any-agent-support.md: new, accepted. Uncommitted.
-- docs/decisions/README.md: row 0027. Uncommitted.
-- Commits since the last note: P-69 work and 576ce68 (README and FEATURES for 0.4.0, version 0.4.0), from other sessions.
+- f2af4e1, 780e3b0 on main: roadmap, ADR-0027, handoff files. b894e32 + merge 008d786: P-74 tier tables in README and docs/GUIDE.md; P-69 marked done.
+- New `wrap-up-instructions` command (skills/whatsnext/scripts/whatsnext.py, wn/wrapup.py: HOOKLESS variant). Uncommitted.
+- wn/initcmd.py block: run `whatsnext status` at start; on `wrap up` with no hook, run `wrap-up-instructions`. Uncommitted.
+- skills/whatsnext/SKILL.md: both rules plus a command-table row. Uncommitted.
+- tests/test_hookless.py is new (6 tests); tests/test_init.py checks the new block words. Uncommitted.
 
 ## Decisions
 
-docs/decisions/ADR-0027-any-agent-support.md, accepted by the user 2026-11-15: three support tiers (files, instructions, hooks); the instructions tier must be enough alone; tracker sync is read-first; claims on a git ref; a per-session MCP server is allowed. Tracker sync moved to 0.6 (P-79) at the user's request. MCP is one layer, not the foundation: a server cannot run at session start or before a compact.
+The hook-free wrap-up reuses wrapup.begin() with agent "none". It drops the Stop-hook promises and tells the agent to run `progress next` itself. Recorded in code only, because it follows ADR-0027 tier 2.
 
 ## Constraints
 
-Local only: do not push or create a remote without asking. Standard library only, Python 3.9+. Ask before each commit and merge. Leave docs/project/progress/journal/P-52.md uncommitted. An ADR stays proposed until the user accepts it. P-77: check Gemini CLI and Cursor hook events against official docs first; the Cursor facts (`.cursor/hooks.json`: sessionStart, beforeSubmitPrompt, stop, sessionEnd) are from one GitHub issue, unverified. Copilot CLI hooks: unknown. Answers: short, answer first, lists of 5 or fewer.
+Local only: do not push. Ask before each commit and merge. Standard library only, Python 3.9+. Leave docs/project/progress/journal/P-52.md uncommitted. Show the plan steps inside the approval question. Claude Code's auto mode blocks `gemini --yolo`.
 
 ## Open questions and blockers
 
-The user has not said whether to commit PLAN.md, ADR-0027 and the index. docs/project/handoffs/20261111T0320Z-none.md is untracked. P-69 open in the plan but merged: ask whether to mark it done.
+How to do the P-75 live run: the user runs it, or Codex without hooks? P-75 is not committed yet. For the README or P-77: Gemini CLI reads GEMINI.md, not AGENTS.md, by default. The block's `<plugin>` path needs P-76.
 
 ## Dead ends
 
-- MCP as the only route to every agent: dropped; it is pull-only, so no resume note unasked, no compact safety net, no journal.
-- `W="python3 ... plan"; $W add` in zsh: fails with "no such file or directory" (no word splitting); use a shell function.
+- Gemini CLI 0.67.0 live run: `IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals`.
+- `gemini --yolo`: denied by the Claude Code auto mode classifier.

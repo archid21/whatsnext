@@ -23,6 +23,7 @@ import re
 import sys
 
 from . import config as gwconfig
+from .ask import ask, option
 
 # Codex event -> (whatsnext event, matcher or None, timeout in seconds, additionalContextLimit or None).
 EVENTS = (
@@ -89,6 +90,43 @@ def apply_skill(action, path):
     if action in ("link", "relink"):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         os.symlink(skill_target(), path)
+
+
+def wn_link():
+    return os.path.join(home(), ".local", "bin", "wn")
+
+
+def wn_plan(remove):
+    """(action, path, message): action is 'link', 'unlink', 'keep' or 'skip'. Writes nothing."""
+    path, target = wn_link(), script_path()
+    shown = "~/.local/bin/wn"
+    if os.path.islink(path):
+        current = os.readlink(path)
+        mine = os.path.realpath(path) == os.path.realpath(target) or (
+            os.path.abspath(os.path.join(os.path.dirname(path), current)) == target)
+        if not mine:
+            return "skip", path, "%s is a link to %s, not whatsnext.py; left as it is" % (shown, current)
+        if remove:
+            return "unlink", path, "remove the wn link %s" % shown
+        return "keep", path, "the wn link %s is already in place" % shown
+    if os.path.exists(path):
+        return "skip", path, "%s exists and is not a link; left as it is" % shown
+    if remove:
+        return "keep", path, ""
+    return "link", path, "link wn: %s -> %s" % (shown, target)
+
+
+def apply_wn(action, path):
+    if action == "unlink":
+        os.remove(path)
+    if action == "link":
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        os.symlink(script_path(), path)
+
+
+def on_path(folder):
+    real = os.path.realpath(folder)
+    return any(p and os.path.realpath(p) == real for p in os.environ.get("PATH", "").split(os.pathsep))
 
 
 def quote(path):
@@ -229,27 +267,45 @@ def build_parser():
     where.add_argument("--user", action="store_true", help="~/.codex/hooks.json (the default)")
     where.add_argument("--project", action="store_true", help="<repo>/.codex/hooks.json")
     parser.add_argument("--dry-run", action="store_true", help="print the change; write nothing")
-    parser.add_argument("--remove", action="store_true", help="take out whatsnext's entries only")
+    parser.add_argument("--remove", "--undo", dest="remove", action="store_true",
+                        help="take out whatsnext's entries only (also the wn link)")
+    parser.add_argument("--wn", choices=("link", "skip"), help="user scope: link ~/.local/bin/wn to whatsnext.py, or not")
+    parser.add_argument("--json", action="store_true", help="print a question as JSON")
     return parser
 
 
 def run(argv, script=None, root=None):
     args = build_parser().parse_args(argv)
     scope = "project" if args.project else "user"
-    if scope == "user" and not args.remove and not os.path.isdir(codex_dir()):
-        print("Codex folder not found: %s. Install Codex first, or use --project." % codex_dir(), file=sys.stderr)
-        return 1
-    result = plan(scope, args.remove, script=script, root=root)
+    no_codex = scope == "user" and not args.remove and not os.path.isdir(codex_dir())
+    if no_codex:  # still offer the wn link; Codex hooks need Codex
+        print("Codex folder not found: %s. Skipping the Codex hooks; install Codex first, or use --project."
+              % codex_dir())
+        result = {"events": [], "error": None, "shown": codex_dir(), "new": None}
+    else:
+        result = plan(scope, args.remove, script=script, root=root)
     if result["error"]:
         print(result["error"], file=sys.stderr)
         return 1
-    skill = skill_plan(args.remove) if scope == "user" else ("keep", None, "")
+    skill = skill_plan(args.remove) if scope == "user" and not no_codex else ("keep", None, "")
     skill_changes = skill[0] in ("link", "unlink", "relink")
-    if not result["events"] and not skill_changes:
+    wn = wn_plan(args.remove) if scope == "user" else ("keep", None, "")
+    if wn[0] == "link" and args.wn == "skip":
+        wn = ("keep", None, "")
+    wn_changes = wn[0] in ("link", "unlink")
+    if wn[0] == "link" and not args.wn and not args.dry_run:
+        return ask(args.json, "wn_link",
+                   "Link `wn` to whatsnext, so agents can run `wn status` from any folder? "
+                   "It makes %s -> %s." % (wn_link(), script_path()),
+                   options=[option("link", "Link wn", "make the link"), option("skip", "Skip", "no link")],
+                   recommended="link", answer="--wn link|skip")
+    if not result["events"] and not skill_changes and not wn_changes:
         print("Nothing to change in %s: %s." % (result["shown"], "no whatsnext hooks there" if args.remove
                                                 else "the whatsnext hooks are already installed"))
         if skill[0] == "skip":
             print("Skill: " + skill[2] + ".")
+        if wn[0] == "skip":
+            print("wn: " + wn[2] + ".")
         return 0
     if result["events"]:
         print("%s whatsnext hooks for Codex in %s (%s)" % ("Remove" if args.remove else "Install", result["shown"],
@@ -257,6 +313,8 @@ def run(argv, script=None, root=None):
         print(diff(result), end="")
     if skill[2]:
         print(("Skill: " if skill[0] == "skip" else "") + (("would " if args.dry_run and skill_changes else "") + skill[2]))
+    if wn[2] and (wn_changes or wn[0] == "skip"):
+        print(("wn: " if wn[0] == "skip" else "") + (("would " if args.dry_run and wn_changes else "") + wn[2]))
     if args.dry_run:
         print("Dry run: nothing written.")
         return 0
@@ -267,6 +325,11 @@ def run(argv, script=None, root=None):
     if skill_changes:
         apply_skill(skill[0], skill[1])
         print("Skill link %s." % ("removed" if skill[0] == "unlink" else "written"))
+    if wn_changes:
+        apply_wn(wn[0], wn[1])
+        print("wn link %s." % ("removed" if wn[0] == "unlink" else "written"))
+        if wn[0] == "link" and not on_path(os.path.dirname(wn[1])):
+            print("Add ~/.local/bin to your PATH so `wn` is found.")
     if scope == "project" and not args.remove:
         print("Note: Codex loads project hooks only when this project's .codex/ folder is trusted.")
     if not args.remove:

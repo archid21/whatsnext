@@ -391,6 +391,9 @@ def line_template():
     return "/compact " + LINE_BASE + " " + slots
 
 
+HOOKLESS = "none"  # the agent name for the instructions tier: no hooks run (ADR-0027)
+
+
 def instructions(root, effective, now=None, session_id=None, agent=None):
     """The text the hook adds to the prompt `wrap up`. Codex (`agent == "codex"`) also gets the `/compact` line:
     Claude Code gets its PreCompact hook instead, so its reply ends with the handoff path and a plain `/compact` hint."""
@@ -428,8 +431,19 @@ def instructions(root, effective, now=None, session_id=None, agent=None):
         "",
         "Write exact values, not descriptions of them: file paths, ids, versions, URLs, commands and error text as they appear. "
         "Use only facts from this session and the repository; mark a guess as a guess. Never write secrets. Do not commit.",
-        "Do not write `## Files`, `## Links` or `## Skills` sections: whatsnext adds them from this session's tool calls when you stop.",
     ]
+    if agent == HOOKLESS:  # no Stop hook: nothing adds sections or copies the Next action after the reply
+        lines.append("Do not write `## Files`, `## Links` or `## Skills` sections.")
+        if task is not None:
+            lines.append("Then copy the note's Next action into the progress file: `whatsnext progress next \"<the Next action line>\"`.")
+        lines += [
+            "",
+            "End your reply with exactly these two lines and nothing after them:",
+            "Handoff written: %s" % rel,
+            "Start a new session and say \"what's next?\" to resume from it.",
+        ]
+        return "\n".join(lines) + "\n"
+    lines.append("Do not write `## Files`, `## Links` or `## Skills` sections: whatsnext adds them from this session's tool calls when you stop.")
     if task is not None:
         lines.append("Do not run commands to update the progress file's Next action: whatsnext copies it from your note.")
     if agent == "codex":
@@ -753,3 +767,20 @@ def compact_instructions(root, effective, session_id=None):
 
 def say(message):
     print(message, file=sys.stderr)
+
+
+def cmd_instructions(argv):
+    """`wrap-up-instructions`: the hook-free route to the `wrap up` text (ADR-0027, instructions tier)."""
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="whatsnext wrap-up-instructions",
+                                     description="Print the handoff instructions that the `wrap up` hook adds, for an agent with no hooks.")
+    parser.add_argument("--project", help="the project folder (default: this folder)")
+    args = parser.parse_args(argv)
+    if args.project and not os.path.isdir(args.project):
+        print("not a folder: %s" % args.project, file=sys.stderr)
+        return 1
+    root = gwconfig.find_root(args.project)
+    effective = gwconfig.load(root)
+    print(begin(root, effective, {}, agent=HOOKLESS).rstrip("\n"))
+    return 0

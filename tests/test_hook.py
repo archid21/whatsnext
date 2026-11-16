@@ -276,7 +276,7 @@ class InstallSkillLinkTests(HookBase):
         self.link = os.path.join(self.home, ".agents", "skills", "whatsnext")
 
     def user(self, *args):
-        return self.gw(["install-hooks", "--user"] + list(args))
+        return self.gw(["install-hooks", "--user", "--wn", "skip"] + list(args))
 
     def test_install_links_the_skill_and_remove_takes_it_away(self):
         r = self.user("--dry-run")

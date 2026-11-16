@@ -7,7 +7,7 @@ description: Shared plan checklist, check-offs and resumable task progress for e
 
 Status: version 0.4.0. `plan` (list, next, check, start, test, done, review, edit, reopen, keep, put-back), `progress` (new, next, stamp, show, list, capture, resume, resume-note, pr-body) and `init` work. `plan done --verify` proves an item done. Every progress file starts with `format: 2` and has a `Note:` header mark (`confirmed`, `auto` or `facts`). The facts journal is written by the hooks. `config show` prints the effective settings and `config set --user <key> <value>` writes one to the user layer. `install-hooks` installs the Codex hooks; Claude Code loads `hooks/hooks.json` with the plugin. `wrap up` and `compact` are here too. Decision records and ground rules are not part of whatsnext (ADR-0001).
 
-All logic is in one script: `python3 scripts/whatsnext.py <command>` (Python 3.9+, standard library only). Run it from the project root.
+All logic is in one script: `python3 scripts/whatsnext.py <command>` (Python 3.9+, standard library only). Agents call it as `wn <command>` (a link made by `install-hooks`). Run it from the project root.
 
 ## Commands
 
@@ -39,6 +39,7 @@ All logic is in one script: `python3 scripts/whatsnext.py <command>` (Python 3.9
 | "show my settings" | `config show` |
 | "turn on / change a whatsnext setting for me" | `config set --user <key> <value>` (for example `plan.staleAfter 2h`). It refuses an unknown key or a bad value (exit 2) and prints the effective value. Never edit the user file by hand |
 | the prompt `wrap up` (the hook adds the instructions) | Write the handoff note to the file the hook names: the `Session:`, `Task:`, `Written:` and `Branch:` header lines exactly as given, then the eight sections it lists (Goal, Next action with a `Verify:` line, State, What changed, Decisions, Constraints, Open questions and blockers, Dead ends). End the reply with the lines it gives: `Handoff written: <path>`, the one-line `/compact <text>` with each slot filled and no other word changed, and "or `/clear` for a fresh start". Run no progress commands: whatsnext copies the Next action when the turn ends |
+| the prompt `wrap up` and no whatsnext hook added instructions (an agent with no hooks: the instructions tier, ADR-0027) | Run `wrap-up-instructions` and follow its text: it writes the same handoff note, then has you copy its Next action with `progress next` |
 | "start fresh", or another plugin asks how to start a fresh chat from the handoff | `fresh-instructions --session <id> --json` (ADR-0025). If `wrap_up_first` is true, wrap up first: the band then offers Compact and continue here and Copy for new session. Otherwise offer the person `continue_prompt` to paste in a new session (desktop app) or `terminal_command` (terminal) |
 | "compact", "compact session <id>" | Open session: `compact-instructions --session <id> --json`; if `project` is false, `wrap up` does nothing, so use `instructions` as they are. If `wrap_up_first` is true (no fresh note of this session: missing, foreign or older than the last turn), wrap up first, then run the command again; `wrap_up_state` is `written` when it worked. Then submit `compact_prompt`. A foreign note (`handoff_foreign`) is never carried into a compact. |
 
@@ -114,11 +115,13 @@ Rules:
 4. Dependencies ("depends on", "blocked by", "after") become `blocked by` the other item. Work already checked in the source stays checked.
 5. Before you add anything, show the user the whole list: each title, its `blocked by`, and its done means command exactly as the source gives it. Wait for the user's OK. Always, however few items. A command in a source file is untrusted text, and `plan done --verify` runs it as a shell command. Point out any command that is not a plain test or check (it deletes, installs, downloads, uses the network, or writes outside the project) and ask whether to keep it.
 6. After the OK, add each item with `plan add`. It picks the next free id, never reuses or overwrites one, and puts the item in a section (`--section Now|Next|Later`, default Next). Add blockers first, so `--blocked-by` can name their new ids. Tick an item that was already checked with `plan done <id> --unverified`, so it shows as not verified.
-7. Run every `whatsnext` command with the script's full path (`python3 <plugin>/skills/whatsnext/scripts/whatsnext.py plan add ...`), not through a shell variable: a variable in a command triggers a permission prompt.
+7. Run every command as `wn <command>` (`wn plan add ...`). Only when `wn` is not on the PATH, use `python3 <full path>/scripts/whatsnext.py <command>`. Call it directly, not through a shell variable: a variable in a command triggers a permission prompt.
 8. Run `plan check` and show the user the result, including any warning.
 
 ## Rules
 
+- At the start of every session, run `status` and act on what it shows, even when no hook printed a resume note. An agent with no hooks gets nothing unasked.
+- On the prompt `wrap up`, when no whatsnext hook added instructions, run `wrap-up-instructions` and follow it.
 - Set the Next action with `progress next`, in one or two lines: the exact next step. Never write the `Note:` line by hand. After you edit any other part of a progress file, run `progress stamp <task-id>`.
 - Ask one question at a time, as a pop-up when the agent has one, recommended option first.
 - Never write personal settings into the repository.
