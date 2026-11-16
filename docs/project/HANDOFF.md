@@ -1,44 +1,38 @@
 # Handoff
-Session: 4cfcc767-bc5b-4950-b1a9-8749aa6dd9ca
+Session: c917f1f8-19b0-45f1-9836-930860cc4452
 Task: none
-Written: 2026-11-16T01:24Z
-Branch: p-75-hook-free-mode-the-agents-md-block-and-s
+Written: 2026-11-16T21:14Z
+Branch: main
 
 ## Goal
-
-Make whatsnext work in any coding agent (ADR-0027). Now: P-75 hook-free mode, then P-76 to P-78.
+Make whatsnext work in any coding agent (ADR-0027): hook-free mode, `wn` on the PATH, Gemini CLI and Cursor adapters, per-agent doctor and checklist.
 
 ## Next action
-
-Get the P-75 live run done in an agent with no whatsnext hooks: say "what's next?" then "wrap up" in a scratch repo after `init`. Log the result in docs/project/progress/P-75.md, then `plan done P-75 --evidence "..."`.
-Verify: the agent ran `status`, and its HANDOFF.md has the eight sections.
-If it fails: ask the user to run it, or use Codex without hooks.
+Pick the next item: run `wn status` and start the recommended one (P-79 tracker sync; also P-72, P-73 in Next) with `wn plan start <id> --agent <name>`.
+Verify: `wn plan list` shows the item in progress on a new branch.
+If it fails: run `wn plan check` and fix what it reports.
 
 ## State
-
-State on Sun 2026-11-15 5:24 PM PST (Pacific): P-75 code, docs and tests are done but not committed, on branch p-75-hook-free-mode-the-agents-md-block-and-s. `python3 -m unittest discover -s tests` passed 690 tests. P-75 is stamped blocked: the live run has not happened.
+State on Mon 2026-11-16 1:14 PM PST (Pacific): P-75, P-76, P-77, P-78 and P-82 are done and merged into main (last merge 0d07568). P-76, P-77, P-82 verified with `plan done --verify`; P-75 and P-78 are done* (evidence, live runs). Last full suite: OK (P-82 verify, 448 s). Nothing pushed.
 
 ## What changed
-
-- f2af4e1, 780e3b0 on main: roadmap, ADR-0027, handoff files. b894e32 + merge 008d786: P-74 tier tables in README and docs/GUIDE.md; P-69 marked done.
-- New `wrap-up-instructions` command (skills/whatsnext/scripts/whatsnext.py, wn/wrapup.py: HOOKLESS variant). Uncommitted.
-- wn/initcmd.py block: run `whatsnext status` at start; on `wrap up` with no hook, run `wrap-up-instructions`. Uncommitted.
-- skills/whatsnext/SKILL.md: both rules plus a command-table row. Uncommitted.
-- tests/test_hookless.py is new (6 tests); tests/test_init.py checks the new block words. Uncommitted.
+- 584d5e4 P-75 hook-free mode; 7e05a25 P-76 `wn` link (install-hooks --wn link|skip, --undo); merged 520b16d
+- 31fff27 P-77 Gemini CLI and Cursor adapters (install-hooks --agent, hook --agent); merged 189d21e
+- 8c42b82 P-78 doctor one line per agent; docs/CODEX-ACCEPTANCE.md per-agent; merged a0a54b9
+- d680621 added P-82; 3c1bd76 P-82 plan_status and ask-first line; merged 0d07568
+- Live results: docs/project/progress/P-75.md, P-77.md (event map), P-78.md
 
 ## Decisions
-
-The hook-free wrap-up reuses wrapup.begin() with agent "none". It drops the Stop-hook promises and tells the agent to run `progress next` itself. Recorded in code only, because it follows ADR-0027 tier 2.
+- Ship without a Cursor live check (user, 2026-11-16); recorded in docs/CODEX-ACCEPTANCE.md and `wn doctor`.
+- Cursor has no prompt hook mapped (beforeSubmitPrompt cannot add context); `wrap up` there uses `wn wrap-up-instructions`.
+- Gemini/Cursor hooks are optional in doctor: not installed is not a gap.
 
 ## Constraints
-
-Local only: do not push. Ask before each commit and merge. Standard library only, Python 3.9+. Leave docs/project/progress/journal/P-52.md uncommitted. Show the plan steps inside the approval question. Claude Code's auto mode blocks `gemini --yolo`.
+Standard library only, Python 3.9+. Do not push or create a remote without asking. Run `python3 -m unittest discover -s tests` before reporting done (about 7 to 12 minutes). Use plan commands, not hand edits to PLAN.md. Tests must use temp HOME, never the real ~/.codex, ~/.gemini, ~/.cursor or ~/.local/bin.
 
 ## Open questions and blockers
-
-How to do the P-75 live run: the user runs it, or Codex without hooks? P-75 is not committed yet. For the README or P-77: Gemini CLI reads GEMINI.md, not AGENTS.md, by default. The block's `<plugin>` path needs P-76.
+Gemini CLI steps 1 to 5 not run: Google sign-in refused (needs an API key). Cursor: live check not done; unknown whether `session_id` equals `conversation_id`. Gemini transcript format undocumented, so handoff sections may be thin there.
 
 ## Dead ends
-
-- Gemini CLI 0.67.0 live run: `IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals`.
-- `gemini --yolo`: denied by the Claude Code auto mode classifier.
+- Gemini CLI with Google sign-in: "client is no longer supported ... migrate to Antigravity".
+- Antigravity as a Gemini adapter test: it reads `.agents/hooks.json`, not `.gemini/settings.json`; used it as an AGENTS.md-only test instead.
