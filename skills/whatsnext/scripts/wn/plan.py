@@ -208,7 +208,7 @@ FIELD_WORD_RE = re.compile(r"\b(done means|evidence|blocked by|suggest|review|re
 def clean(text):
     """One line of plain text for a title or field: no `·` separator, and no `<field>:` a parser could read as a
     field (P-79: an imported title must never add a done means that `plan done --verify` would run)."""
-    text = " ".join((text or "").replace("·", "-").split())
+    text = " ".join((text or "").replace("·", "-").replace("<!--", "<! --").replace("-->", "- ->").split())
     return FIELD_WORD_RE.sub(lambda m: m.group(1) + m.group(2) + " -", text)
 
 
@@ -1510,7 +1510,13 @@ def cmd_import(ctx, args):
     for r in new:
         item_id = next_free_id(items, DEFAULT_PREFIX, retired)
         at = end_of_section(lines, items, section)
-        lines.insert(at, item_line(item_id, clean(r["title"]), done_means, []) + " · tracker: " + r["tracker"])
+        line = item_line(item_id, clean(r["title"]), done_means, []) + " · tracker: " + r["tracker"]
+        _l, parsed = parse_text(line)
+        if (len(parsed) != 1 or parsed[0].id != item_id or parsed[0].done_means != done_means
+                or plan_trackers(line) != [(r["tracker"], item_id)]):
+            return fail("%s's title would change the item's fields; nothing was added. Add it with `plan add` "
+                        "and a title of your own." % r["tracker"])
+        lines.insert(at, line)
         _lines, items = parse_text("\n".join(lines))
         added.append({"id": item_id, "tracker": r["tracker"], "title": clean(r["title"])})
     write_atomic(ctx.plan_path, "\n".join(lines))

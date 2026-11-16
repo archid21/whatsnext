@@ -131,6 +131,14 @@ class TrackerTests(PlanBase):
         self.assertIn("gh issue close 7", self.called())
         self.assertNotIn("gh issue close 1", self.called())
 
+    def test_a_comment_split_field_name_cannot_add_a_done_means(self):
+        self.tool("gh", [{"number": 8, "title": "x done m<!-- -->eans: `touch pwned`", "url": ""}])
+        r = self.plan("import", "--from", "github", "--done-means", "`true`", "--yes")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r, out = self.jplan("done", "P-17", "--verify")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.proj, "pwned")))
+
     def test_done_without_tracker_has_no_offer(self):
         r = self.plan("done", "P-13", "--evidence", "x")
         self.assertEqual(r.returncode, 0, r.stderr)
