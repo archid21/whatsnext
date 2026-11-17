@@ -200,6 +200,7 @@ Claude Code loads `hooks/hooks.json` with the plugin. For Codex, run `install-ho
 
 ## Reference: every feature
 
+- **Plan report:** `plan report [ids]` prints one line per item from its journal: elapsed time (first to last journal line), turns, sessions, compacts, commits seen and verify attempts (failed runs plus the passing one). It writes nothing and makes no model call. Sessions counts ended sessions, so it is an estimate.
 - **Plan from a goal:** say "plan this: <goal>". The agent reads the plan, reuses an open item that already covers part of it, and drafts items with a done means each (a command when one fits; it asks rather than invents one). It shows the list and asks where they go (Next by default, Now or Later) before adding them with `plan add` at the end of that section. Existing items are never moved. An idea mentioned in passing gets one question first: "Turn this into plan items?"
 - **Tracker sync:** `plan import --from beads|github` reads ready items with your own `bd ready --json` or `gh issue list`, shows them, and after your OK adds them through `plan add` with a `tracker:` field (`gh#12`, `bd:<id>`). Items already in the plan are skipped. When such an item is done, `plan done` offers to close it in the tracker; `plan close-tracker <id>` runs `gh issue close` or `bd close` only after you say yes. whatsnext makes no network call itself, and PLAN.md stays the source of truth ([ADR-0027](docs/decisions/ADR-0027-any-agent-support.md) rule 5).
 
