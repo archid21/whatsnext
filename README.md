@@ -69,6 +69,8 @@ whatsnext now works in any coding agent, and it can undo an item safely.
 - **Safer takeovers:** a plan that was only shown is not approved; a new agent asks before running it.
 
 
+## New in 0.4.0
+
 - **Review before done:** an item with `review: required` is not ticked when its check passes. It shows `awaiting review` until you run `plan review <id>` (or reject it with a reason).
 - **Reuse a passing run:** `plan test <id>` runs the saved check. `plan done --verify` reuses a passing run of the same command on the same code, so a long suite runs once. `--fresh` forces a new run.
 - **Edit and reopen:** `plan edit` keeps an item's id. `plan reopen` keeps the old evidence and asks for a fresh check.
