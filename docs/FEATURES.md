@@ -2,7 +2,7 @@
 
 Every whatsnext feature: what it is, how it works and what it gives you.
 
-Current release: 0.4.0
+Current release: 0.5.0
 
 **Since** is the release that added the feature. `Unreleased` means it is on `main` but not in a release yet.
 
@@ -28,6 +28,10 @@ Current release: 0.4.0
 | Run all steps | At start, choose to run every step of the item, then verify and mark it done. "run the ready plan items" approves a named set of items. | Hand over a whole item or batch and come back to a result. | 0.2 |
 | Edit and reopen an item | `plan edit` changes an item's text and keeps its id. `plan reopen` unticks a done item and keeps the old evidence in the progress file; if "done means" changed, a fresh check is required. | You can fix a plan item or redo finished work without losing its history. | 0.4 |
 | Done, not merged | `plan check` prints `done, not merged` for a ticked item whose branch is not merged into `main` (`git branch --merged`). | A ticked item whose code never reached `main` does not go unnoticed. | 0.4 |
+| Tracker sync | `plan import --from beads` or `--from github` reads ready items with your own `bd` or `gh` and adds them after your OK, keeping the tracker id. When such an item is done, `plan close-tracker` closes it there after you say yes. | Beads or GitHub Issues keep working; whatsnext adds the proven check-off and the handoff. | 0.5 |
+| Plan from a goal | "plan this: <goal>" drafts items with a done means each, reuses open items that overlap, shows the list and asks Next, Now or Later before `plan add`. | An idea becomes checkable work without editing the plan by hand. | 0.5 |
+| Item overview | When items are offered, each gets a short overview: what it is, how it will work, impact and importance. | You can pick without asking what an item is. | 0.5 |
+| Checkpoints and rollback | `plan start` saves the start commit; `plan rollback <id>` resets or reverts after asking and never drops uncommitted work. | An item that went wrong is undone exactly and safely, in any agent. | 0.5 |
 
 ## Check off
 
@@ -39,6 +43,7 @@ Current release: 0.4.0
 | Code state on verify | The evidence records the commit; `plan check` flags the item after new commits. | You know when a check-off is stale. | 0.1 |
 | Human review | An item with `review: required` in `PLAN.md` is not ticked when its check passes. The run is recorded, `plan list` shows `awaiting review`, and `plan review <id>` ticks it (or `--reject "<reason>"` reopens it). See ADR-0022. | Work a person must look at (a UI, copy, a design) is not ticked on a passing test alone. | 0.4 |
 | Reuse a passing run | `plan test <id>` runs the saved check without ticking. `plan done --verify` reuses a passing run of the same command on the same code (newer than `plan.reuseRunMax`, default 60 minutes); `--fresh` always runs it. See ADR-0023. | A 6 to 8 minute suite runs once, not twice, on the same code. | 0.4 |
+| Drift note | At turn end, files changed outside the claimed item's scope give one note (band in Claude Code, hook message in Codex and Gemini CLI, `status` everywhere). Never a block. | The record stays about the claimed item, or you know when it is not. | 0.5 |
 
 ## Save and resume
 
@@ -57,6 +62,7 @@ Current release: 0.4.0
 | Fresh-start hand-off | `fresh-instructions --session <id> --json` prints the handoff state and the texts to start fresh, read-only. Other plugins (rightsize) call it. See ADR-0025. | Another plugin can offer "wrap up and start fresh" without duplicating whatsnext's rules. | 0.4 |
 | Compact keeps the summary | The PostCompact hook saves the compact summary. Plan steps approved in a question are saved too, so the resume note can say `summary kept N of M steps`. | You can see how much of the plan survived a compact. | 0.4 |
 | Richer handoff | `HANDOFF.md` gains Files, Links and Skills sections filled from the session's tool calls, with no model call. | The next session sees what was read, created and used. | 0.4 |
+| Takeover is not plan approval | When a plan was only shown, `status` and the resume note say to ask before running its steps. | A new agent does not run a plan you never approved. | 0.5 |
 
 ## Progress and history
 
@@ -67,6 +73,7 @@ Current release: 0.4.0
 | Plan capture | A plan-mode plan is stored word for word in `docs/project/plans/`, with up to 20 steps in the progress file. | The approved plan survives the session. | 0.1 |
 | Session file pruning | SessionStart removes a session's state files once none has changed for 14 days. | `.whatsnext/sessions/` does not grow forever. | 0.3 |
 | PR description | `progress pr-body <id>` prints a PR description from the progress file: goal, done steps, decisions and verify evidence. No model call. | A PR body from recorded facts, not from memory. | 0.4 |
+| Plan report | `plan report` prints one line per item from its journal: time, turns, sessions, compacts, commits and verify attempts. | See what each item cost. | 0.5 |
 
 ## Setup and agents
 
@@ -80,3 +87,7 @@ Current release: 0.4.0
 | Welcome table | The first session after install shows what whatsnext does; `/whatsnext-welcome` shows it again. | New users learn the three phrases at once. | 0.2 |
 | Tips | Claude Code only. A band above the prompt teaches `wrap up`, `what's next?` and `mark P-13 done`, one tip at a time. | Users learn by doing, without reading docs. | 0.2 |
 | Star ask | Claude Code only. Once, at a turn end after the first verified `mark done`, the tip band asks for a GitHub star if `gh` says you have not starred whatsnext. **Star on GitHub** stars it with your `gh` sign-in, or opens the page; **No thanks** hides it for good. It is also the last tip **Next tip** reaches. With rightsize installed, one ask covers both (`~/.config/archid21/stars.json`, ADR-0021). | Asks once, at a calm moment, and never nags. | 0.3.1 |
+| Any agent, three tiers | Files for every agent, instructions through `AGENTS.md` and `SKILL.md`, hooks where the agent has them. Hook-free agents run `wn status` at start and `wn wrap-up-instructions` on wrap up. | whatsnext works in agents with no hooks. | 0.5 |
+| `wn` command | `install-hooks --wn link` puts `wn` on the PATH. | One short command in every agent. | 0.5 |
+| Gemini CLI and Cursor hooks | `install-hooks --agent gemini` or `--agent cursor` maps each agent's events to whatsnext's. Cursor is not live-checked yet. | The resume note and journal in more agents. | 0.5 |
+| Doctor per agent | `doctor` prints one line per agent with its hooks and what was observed. | See at a glance which agents are set up. | 0.5 |

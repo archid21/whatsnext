@@ -2,9 +2,9 @@
 
 **One plan, one next step, for every coding agent.**
 
-whatsnext is a plugin for Claude Code and Codex. It keeps a plan checklist, check-offs and a short resume note as plain files in your repository, so a new session, or a second agent, starts from where the last one stopped.
+whatsnext works in Claude Code, Codex, Gemini CLI, Cursor and any agent that reads `AGENTS.md`. It keeps a plan checklist, check-offs and a short resume note as plain files in your repository, so a new session, or a second agent, starts from where the last one stopped.
 
-**Status: 0.4.0.** See [New in 0.4.0](#new-in-040).
+**Status: 0.5.0.** See [New in 0.5.0](#new-in-050).
 
 MIT license · Python 3.9+, standard library only · no database, no background process
 
@@ -45,11 +45,29 @@ When an item is finished, say **"mark P-13 done"**. It is ticked only if its tes
 | Auto wrap-up | Opt-in. After 45 idle minutes, your handoff is saved before Claude Code's own idle compact. |
 | Task progress files | One file per task: goal, what is done, the exact next step, and a journal of commits and files changed. |
 | Tips | Claude Code only. A hint bar teaches the phrases above, one at a time. |
-| Claude Code and Codex | Both agents read and write the same plain files. Switching between them is experimental. |
+| Plan from a goal | "plan this: <goal>" turns an idea into items with a done means each, after your OK. |
+| Undo an item | "roll back P-12" returns to where the item started, after asking. Uncommitted work is never lost. |
+| Drift note | One note when your edits move off the item you claimed. Never blocks. |
+| Tracker sync | Import ready items from Beads or GitHub Issues; close them there when done, after asking. |
+| Plan report | Time, turns, sessions, commits and verify attempts per item, from the journal. |
+| Any coding agent | Claude Code and Codex with hooks; Gemini CLI and Cursor hooks; any other agent through `AGENTS.md` and the `wn` command. |
 
 Every feature, how it works, its value and the release that added it: [docs/FEATURES.md](docs/FEATURES.md).
 
-## New in 0.4.0
+## New in 0.5.0
+
+whatsnext now works in any coding agent, and it can undo an item safely.
+
+- **Any agent:** three support tiers: plain files for every agent, instructions through `AGENTS.md` and `SKILL.md`, hooks where the agent has them. Agents with no hooks run `wn status` at start and write the handoff on `wrap up`. See [Support tiers](#support-tiers).
+- **`wn` on your PATH:** `install-hooks --wn link` adds a short `wn` command. `--undo` removes everything it installed.
+- **Gemini CLI and Cursor hooks:** `install-hooks --agent gemini` or `--agent cursor`. `doctor` prints one line per agent. Cursor is not live-checked yet ([checklist](docs/CODEX-ACCEPTANCE.md)).
+- **Checkpoints and rollback:** `plan start` saves where an item began. "roll back P-12" (`plan rollback`) resets or reverts after asking, never rewrites a shared or merged branch, and never drops uncommitted work.
+- **Plan from a goal:** "plan this: <goal>" drafts items with a done means each, reuses items that overlap, and asks Next, Now or Later before adding them.
+- **Drift note:** one note when files change outside the item you claimed: on the band in Claude Code, as a hook message in Codex and Gemini CLI, and in `status`. Never a block. Turn it off with `config set --user plan.driftNote off`.
+- **Tracker sync:** `plan import --from beads` or `--from github` adds ready items through your own `bd` or `gh`, keeping the tracker id. `plan close-tracker` closes a done item there after you say yes.
+- **Plan report and item overviews:** `plan report` shows what each item cost. "what's next?" gives each offered item a short overview.
+- **Safer takeovers:** a plan that was only shown is not approved; a new agent asks before running it.
+
 
 - **Review before done:** an item with `review: required` is not ticked when its check passes. It shows `awaiting review` until you run `plan review <id>` (or reject it with a reason).
 - **Reuse a passing run:** `plan test <id>` runs the saved check. `plan done --verify` reuses a passing run of the same command on the same code, so a long suite runs once. `--fresh` forces a new run.
