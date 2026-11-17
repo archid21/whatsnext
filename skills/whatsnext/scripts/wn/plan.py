@@ -1442,6 +1442,91 @@ def cmd_add(ctx, args):
     return report(args, True, "Added %s to %s: %s" % (item_id, section, title), {"id": item_id, "section": section})
 
 
+# ---- report (P-62) ----------------------------------------------------------
+
+JOURNAL_LINE_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z) (\S+) (\S+)")
+
+
+def journal_facts(path):
+    """Counts from one item's journal: facts only, no model call (P-62)."""
+    facts = {"turns": 0, "sessions": 0, "compacts": 0, "failed_verifies": 0, "commits": 0, "first": None, "last": None}
+    commits = set()
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        m = JOURNAL_LINE_RE.match(line)
+        if not m:
+            continue
+        when, event, commit = m.groups()
+        facts["first"] = facts["first"] or when
+        facts["last"] = when
+        key = {"stop": "turns", "session-end": "sessions", "pre-compact": "compacts", "verify": "failed_verifies"}.get(event)
+        if key:
+            facts[key] += 1
+        if re.match(r"^[0-9a-f]{7,40}$", commit):
+            commits.add(commit)
+    facts["commits"] = len(commits)
+    return facts
+
+
+def elapsed_text(first, last):
+    if not first or not last:
+        return "-"
+    fmt = "%Y-%m-%dT%H:%MZ"
+    try:
+        mins = int((time.mktime(time.strptime(last, fmt)) - time.mktime(time.strptime(first, fmt))) // 60)
+    except ValueError:
+        return "-"
+    if mins < 60:
+        return "%dm" % mins
+    if mins < 48 * 60:
+        return "%dh %02dm" % (mins // 60, mins % 60)
+    return "%dd %dh" % (mins // 1440, (mins % 1440) // 60)
+
+
+def cmd_report(ctx, args):
+    """`plan report [ids]`: one line per item from its journal (P-62). Writes nothing."""
+    if not ctx.has_plan():
+        return fail(no_plan(ctx))
+    items = ctx.items()
+    if args.ids:
+        known = {it.id for it in items}
+        missing = [i for i in args.ids if i not in known]
+        if missing:
+            return fail("No item %s in %s." % (", ".join(missing), ctx.plan_rel))
+        items = [it for it in items if it.id in args.ids]
+    rows = []
+    for it in items:
+        facts = journal_facts(os.path.join(ctx.folder, "journal", it.id + ".md"))
+        if facts is None and not args.ids:
+            continue
+        row = {"id": it.id, "title": it.title, "done": it.checked, "journal": facts is not None}
+        if facts is not None:
+            verified = 1 if it.evidence.lower().startswith("verified") else 0
+            row.update(facts, verify_attempts=facts["failed_verifies"] + verified,
+                       elapsed=elapsed_text(facts["first"], facts["last"]))
+        rows.append(row)
+    if args.json:
+        print(json.dumps({"items": rows, "note": "sessions counts ended sessions; it is an estimate"}, indent=2))
+        return 0
+    if not rows:
+        print("No item has a journal yet.")
+        return 0
+    for r in rows:
+        mark = "x" if r["done"] else " "
+        if not r["journal"]:
+            print("[%s] %s no journal" % (mark, r["id"]))
+            continue
+        print("[%s] %s %s, %d turns, %d sessions, %d compacts, %d commits, %d verify attempt%s (%d failed)" % (
+            mark, r["id"], r["elapsed"], r["turns"], r["sessions"], r["compacts"], r["commits"],
+            r["verify_attempts"], "" if r["verify_attempts"] == 1 else "s", r["failed_verifies"]))
+    print("From the journal only. Sessions counts ended sessions, so it is an estimate.")
+    return 0
+
+
 # ---- tracker sync (P-79) ----------------------------------------------------
 
 
@@ -2584,6 +2669,9 @@ def build_parser():
     p.add_argument("--id", help="use this id instead of the next free one")
     p.add_argument("--prefix", help="id prefix for the next free id (default P)")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("report", help="one line per item from its journal: turns, sessions, commits, time, verify attempts (P-62)")
+    p.add_argument("ids", nargs="*")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("import", help="add ready items from Beads or GitHub Issues, keeping the tracker id (P-79)")
     p.add_argument("--from", dest="source", required=True, choices=gwtracker.SOURCES)
     p.add_argument("--done-means", help="done means for every imported item (asked for when left out)")
@@ -2618,5 +2706,5 @@ def run(argv, cwd=None):
         args.action, args.json = "list", False
     handler = {"list": cmd_list, "next": cmd_next, "check": cmd_check, "start": cmd_start, "done": cmd_done, "review": cmd_review, "test": cmd_test, "edit": cmd_edit, "reopen": cmd_reopen, "rollback": cmd_rollback,
                "keep": cmd_keep, "put-back": cmd_release, "add": cmd_add, "drop": cmd_drop, "move": cmd_move,
-               "import": cmd_import, "close-tracker": cmd_close_tracker}[args.action]
+               "import": cmd_import, "report": cmd_report, "close-tracker": cmd_close_tracker}[args.action]
     return handler(ctx, args)
