@@ -610,7 +610,7 @@ def handle_event(event, data, agent=None):
         out = drift_output(gwdrift.check(root, effective, data), agent)
     if event in FACT_EVENTS:
         try:
-            gwjournal.record(root, effective, event, data)
+            gwjournal.record(root, effective, event, data, agent)
         except Exception:  # the facts must never break the agent's session (the caller hides stderr anyway)
             pass
     return out

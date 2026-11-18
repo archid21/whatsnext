@@ -23,10 +23,13 @@ It never replaces a file, folder or link it did not make; `--remove` removes onl
 
 import argparse
 import difflib
+import hashlib
 import json
 import os
 import re
+import shutil
 import sys
+import time
 
 from . import config as gwconfig
 from .ask import ask, option
@@ -329,6 +332,96 @@ def diff(result):
                                         result["shown"], result["shown"]))
 
 
+def backup_dir():
+    """Where install-hooks keeps a copy of each file before it changes it (P-90): beside the user config."""
+    return os.path.join(os.path.dirname(gwconfig.user_config_path()), "backups")
+
+
+def text_hash(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def read_manifest():
+    try:
+        with open(os.path.join(backup_dir(), "manifest.json"), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_manifest(data):
+    os.makedirs(backup_dir(), exist_ok=True)
+    tmp = os.path.join(backup_dir(), "manifest.json.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, sort_keys=True)
+        f.write("\n")
+    os.replace(tmp, os.path.join(backup_dir(), "manifest.json"))
+
+
+def save_backup(result, now=None):
+    """Copy the file's current bytes to the backup folder before an install writes it; return the backup path
+    (None when the file did not exist). The manifest remembers the backup and a hash of the text we write, so
+    --undo can tell whether the file was changed after the install."""
+    path = result["path"]
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(now))
+    backup = None
+    if os.path.exists(path):
+        os.makedirs(backup_dir(), exist_ok=True)
+        name = "%s-%s-%s-%s" % (result.get("agent", AGENT), result["scope"],
+                                hashlib.sha256(path.encode("utf-8")).hexdigest()[:8], stamp)
+        backup = os.path.join(backup_dir(), name + os.path.splitext(path)[1])
+        n = 1
+        while os.path.exists(backup):
+            n += 1
+            backup = os.path.join(backup_dir(), "%s-%d%s" % (name, n, os.path.splitext(path)[1]))
+        shutil.copy2(path, backup)
+    manifest = read_manifest()
+    entry = manifest.get(path) if isinstance(manifest.get(path), dict) else None
+    if entry is None or entry.get("written") is None:  # keep the first original: a reinstall must not overwrite it
+        entry = {"backup": backup, "existed": backup is not None}
+    entry["written"] = text_hash(result["new"])
+    entry["when"] = stamp
+    manifest[path] = entry
+    write_manifest(manifest)
+    return backup
+
+
+def restore_plan(path):
+    """For --undo: the manifest entry when the file is still exactly what install-hooks wrote, else None."""
+    entry = read_manifest().get(path)
+    if not isinstance(entry, dict) or not entry.get("written"):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            current = f.read()
+    except OSError:
+        return None
+    if text_hash(current) != entry["written"]:
+        return None
+    if entry.get("existed") and not (entry.get("backup") and os.path.isfile(entry["backup"])):
+        return None
+    return entry
+
+
+def restore(path, entry):
+    """Put the original back byte for byte (or remove the file when there was none), and forget the entry."""
+    if entry.get("existed"):
+        shutil.copy2(entry["backup"], path)
+    else:
+        os.remove(path)
+    manifest = read_manifest()
+    manifest.pop(path, None)
+    write_manifest(manifest)
+
+
+def forget(path):
+    manifest = read_manifest()
+    if path in manifest:
+        manifest[path]["written"] = None  # changed since: undo removed only our entries; the backup stays
+        write_manifest(manifest)
+
+
 def apply(result):
     path = result["path"]
     if not result["new"]:  # nothing else was in the file: take it away
@@ -405,10 +498,31 @@ def run(argv, script=None, root=None):
     if args.dry_run:
         print("Dry run: nothing written.")
         return 0
-    if result["events"]:
+    if result["events"] and args.remove:
+        entry = restore_plan(result["path"])
+        if entry:
+            restore(result["path"], entry)
+            if not entry.get("existed") and result["scope"] == "project":  # as apply: take the empty folder away
+                try:
+                    os.rmdir(os.path.dirname(result["path"]))
+                except OSError:
+                    pass
+            print("Restored %s from its backup, byte for byte." % result["shown"] if entry.get("existed")
+                  else "Removed %s (install-hooks created it)." % result["shown"])
+        else:
+            backup = (read_manifest().get(result["path"]) or {}).get("backup")
+            apply(result)
+            forget(result["path"])
+            print("Removed %s (nothing else was in it)." % result["shown"] if not result["new"]
+                  else "Written: %s (only whatsnext's entries removed)" % result["shown"])
+            if backup and os.path.isfile(backup):
+                print("The file changed after the install, so it was not restored whole. Original copy: %s" % backup)
+    elif result["events"]:
+        backup = save_backup(result)
         apply(result)
-        print("Removed %s (nothing else was in it)." % result["shown"] if not result["new"]
-              else "Written: %s" % result["shown"])
+        print("Written: %s" % result["shown"])
+        if backup:
+            print("Backup of the previous file: %s" % backup)
     if skill_changes:
         apply_skill(skill[0], skill[1])
         print("Skill link %s." % ("removed" if skill[0] == "unlink" else "written"))

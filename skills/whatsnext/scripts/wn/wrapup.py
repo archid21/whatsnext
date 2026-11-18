@@ -93,9 +93,9 @@ def pacific_now(now=None):
 
 
 def parse_header(text):
-    """{'session', 'task', 'written', 'branch'} from the `Session:`, `Task:`, `Written:` and `Branch:` lines near
+    """{'session', 'task', 'written', 'branch', 'agent'} from the `Session:`, `Task:`, `Written:`, `Branch:` and `Agent:` lines near
     the top of a handoff note. A missing line is None (notes written before P-54 have no `Branch:`)."""
-    found = dict.fromkeys(("session", "task", "written", "branch"))
+    found = dict.fromkeys(("session", "task", "written", "branch", "agent"))
     for line in text.splitlines()[:HEADER_LINES]:
         name, sep, value = line.partition(":")
         key = name.strip().lower()
@@ -414,15 +414,16 @@ def instructions(root, effective, now=None, session_id=None, agent=None):
                      "fold those lines into the note, then delete that section from the progress file." % (task.id, task.rel))
     lines += [
         "",
-        "Write the file as a `# Handoff` title, then these four header lines exactly as shown, then these eight `##` sections, in this order. Short lines, plain words, no filler:",
+        "Write the file as a `# Handoff` title, then these five header lines exactly as shown, then these eight `##` sections, in this order. Short lines, plain words, no filler:",
         "Session: %s" % (session_id if isinstance(session_id, str) and session_id.strip() else "unknown"),
         "Task: %s" % (task.id if task is not None else "none"),
         "Written: %s" % utc,
         "Branch: %s" % (gwstatus.current_branch(root) or "none"),
+        "Agent: %s" % (agent if agent and agent != HOOKLESS else "unknown"),
         "",
         "1. `## Goal`: what the work is for, one or two lines (at most 200 characters).",
         "2. `## Next action`: the exact next step, one or two lines, with the command to run. Then a line `Verify: <the command or check that proves it worked>`, then a line `If it fails: <what to check or try next>`. Write paths relative to the repository root; never an absolute path, a home folder or the plugin's script path, because this file is committed and shared. At most 400 characters in all.",
-        "3. `## State`: begin with `State on %s (Pacific): ` then where the work stands and what was last checked, with its result." % local,
+        "3. `## State`: begin with `State on %s (Pacific): ` then where the work stands and what was last checked, with its result. End the section with `Check:` lines, one fact each, in these forms only: `Check: HEAD == <short sha>`, `Check: branch == <name>`, `Check: clean`, and ``Check: run `<command>` `` for a claim a command proves (for example that the tests pass). The next session re-checks them (ADR-0030)." % local,
         "4. `## What changed`: files and commits since the last handoff, one line each (at most 5 lines).",
         "5. `## Decisions`: what was decided and where it is recorded (ADR path); for a decision with no ADR, give the reason in a few words; `none` when nothing was. At most 400 characters.",
         "6. `## Constraints`: what the next session must keep: scope limits, files not to touch, the user's rules for this work, and the user's corrections to you in their own words; `none` when nothing. At most 600 characters.",
@@ -619,7 +620,7 @@ def settle(root, effective, data, agent=None):
         write_sidecar(root, data.get("session_id"), handoff, check)
     except OSError:  # without it the note counts as foreign: a stale answer, never a wrong one
         pass
-    gwjournal.record(root, effective, "wrap-up", data)
+    gwjournal.record(root, effective, "wrap-up", data, agent)
     if task is not None:
         copy_next_action(root, folder, task, handoff)
     return True

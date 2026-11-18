@@ -1277,7 +1277,7 @@ class VerifyTests(PlanBase):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("timed out after 1.0 s", r.stderr)
         self.assertEqual(self.get(PLAN_PATH), PLAN)
-        self.assertIn("verify failed (timed out after 1.0 s", self.get(JOURNAL))
+        self.assertIn("verify broken (timed out after 1.0 s", self.get(JOURNAL))
         self.assertIn("    started", self.get(JOURNAL))
 
     def test_evidence_still_marks_done_star(self):

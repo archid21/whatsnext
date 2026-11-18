@@ -1054,6 +1054,14 @@ def short_command(command):
     return text if len(text) <= VERIFY_CMD_MAX else text[:VERIFY_CMD_MAX - 3] + "..."
 
 
+BROKEN_EXIT_CODES = (126, 127)  # not runnable, not found (ADR-0030)
+
+
+def is_broken(result):
+    """True when the check could not tell: it did not start, was not runnable or not found, or timed out."""
+    return bool(result["error"] or result["timed_out"] or result["exit_code"] in BROKEN_EXIT_CODES)
+
+
 def failure_reason(result, timeout):
     if result["error"]:
         return result["error"]
@@ -1066,7 +1074,8 @@ def journal_failure(ctx, item_id, command, result, reason, stamp, tail):
     """Append the failed verify to the item's journal: one line, then the output tail indented 4 spaces.
     The first line has no commit word, so journal.last_commit never reads it as a facts line."""
     path = os.path.join(ctx.folder, "journal", item_id + ".md")
-    head = "- %s verify failed (%s, %s): %s" % (stamp, reason, format_seconds(result["seconds"]), short_command(command))
+    word = "broken" if is_broken(result) else "failed"  # ADR-0030: could not tell, apart from a real failure
+    head = "- %s verify %s (%s, %s): %s" % (stamp, word, reason, format_seconds(result["seconds"]), short_command(command))
     body = ["    " + ln for ln in tail] if tail else ["    (no output)"]
     entry = gwredact.clean("\n".join([head] + body), os.path.basename(path))
     try:
@@ -1160,9 +1169,9 @@ def done_verified(ctx, args):
         return report(args, ok, message, {"id": args.id, "done": ok, "verify": info})
     reason = failure_reason(result, timeout)
     tail = output_tail(result["output"])
-    info.update(error=result["error"], output_tail=tail)
+    info.update(error=result["error"], output_tail=tail, broken=is_broken(result))
     journal = journal_failure(ctx, args.id, command, result, reason, stamp, tail)
-    message = "Verify failed (%s, %s): %s. %s stays open." % (reason, format_seconds(result["seconds"]), short_command(command), args.id)
+    message = "Verify %s (%s, %s): %s. %s stays open." % ("broken" if info["broken"] else "failed", reason, format_seconds(result["seconds"]), short_command(command), args.id)
     if journal:
         message += " Output (last %d lines at most) is in %s." % (VERIFY_TAIL_LINES, journal)
     if args.json:
@@ -1449,7 +1458,8 @@ JOURNAL_LINE_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z) (\S+) (\S+)")
 
 def journal_facts(path):
     """Counts from one item's journal: facts only, no model call (P-62)."""
-    facts = {"turns": 0, "sessions": 0, "compacts": 0, "failed_verifies": 0, "commits": 0, "first": None, "last": None}
+    facts = {"turns": 0, "sessions": 0, "compacts": 0, "failed_verifies": 0, "broken_verifies": 0, "commits": 0, "first": None, "last": None,
+             "agents": []}
     commits = set()
     try:
         with open(path, encoding="utf-8") as f:
@@ -1466,8 +1476,14 @@ def journal_facts(path):
         key = {"stop": "turns", "session-end": "sessions", "pre-compact": "compacts", "verify": "failed_verifies"}.get(event)
         if key:
             facts[key] += 1
+        if event == "verify" and commit == "broken":  # ADR-0030: counted apart from failed
+            facts["failed_verifies"] -= 1
+            facts["broken_verifies"] += 1
         if re.match(r"^[0-9a-f]{7,40}$", commit):
             commits.add(commit)
+        agent = gwjournal.AGENT_RE.search(line.split(" files:", 1)[0])
+        if agent and agent.group("agent") not in facts["agents"]:
+            facts["agents"].append(agent.group("agent"))  # P-91: first-seen order
     facts["commits"] = len(commits)
     return facts
 
@@ -1506,7 +1522,7 @@ def cmd_report(ctx, args):
         row = {"id": it.id, "title": it.title, "done": it.checked, "journal": facts is not None}
         if facts is not None:
             verified = 1 if it.evidence.lower().startswith("verified") else 0
-            row.update(facts, verify_attempts=facts["failed_verifies"] + verified,
+            row.update(facts, verify_attempts=facts["failed_verifies"] + facts["broken_verifies"] + verified,
                        elapsed=elapsed_text(facts["first"], facts["last"]))
         rows.append(row)
     if args.json:
@@ -1522,7 +1538,9 @@ def cmd_report(ctx, args):
             continue
         print("[%s] %s %s, %d turns, %d sessions, %d compacts, %d commits, %d verify attempt%s (%d failed)" % (
             mark, r["id"], r["elapsed"], r["turns"], r["sessions"], r["compacts"], r["commits"],
-            r["verify_attempts"], "" if r["verify_attempts"] == 1 else "s", r["failed_verifies"]))
+            r["verify_attempts"], "" if r["verify_attempts"] == 1 else "s", r["failed_verifies"])
+              + (", %d broken" % r["broken_verifies"] if r["broken_verifies"] else "")
+              + (", by " + ", ".join(r["agents"]) if r["agents"] else ""))
     print("From the journal only. Sessions counts ended sessions, so it is an estimate.")
     return 0
 

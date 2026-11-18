@@ -7,7 +7,8 @@ no transcript reading. It does nothing outside git or without an active task.
 
 A journal line looks like (one line, at most MAX_LINE characters):
     - 2026-11-04T21:58Z stop 5367d1d design/x dirty=2 set=1a2b3c files: a.py, b.py
-(`set=` is a short hash of the dirty file names, left out when none are dirty; P-1)
+(`set=` is a short hash of the dirty file names, left out when none are dirty; P-1. `agent=` names the agent
+that ran the hook, P-91; lines written before P-91 have none.)
 """
 
 import hashlib
@@ -155,10 +156,23 @@ def last_state(path):
     return None
 
 
-def format_line(when, event, commit, branch, dirty, files, digest=None):
+AGENT_RE = re.compile(r" agent=(?P<agent>[a-z0-9-]{1,30})(?= |$)")
+
+
+def safe_agent(value):
+    """The agent name for a journal line or handoff: lower-case letters, digits and dashes, else None."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip().lower()
+    return value if re.match(r"^[a-z0-9-]{1,30}$", value) else None
+
+
+def format_line(when, event, commit, branch, dirty, files, digest=None, agent=None):
     head = "- %s %s %s %s dirty=%d" % (when, event, commit or gwstatus.NONE, branch, dirty)
     if digest:
         head += " set=" + digest
+    if safe_agent(agent):
+        head += " agent=" + safe_agent(agent)
     if not files:
         return head
     line = head + " files:"
@@ -204,7 +218,7 @@ def write_session_state(root, session_id, event, when, item, commit, branch):
     return path
 
 
-def record(root, effective, event, data=None):
+def record(root, effective, event, data=None, agent=None):
     """Write the facts for `event`. Returns the journal path, or None when nothing was written.
     Errors propagate: the hook caller turns them into silence."""
     if not gwstatus.in_git(root):
@@ -227,7 +241,8 @@ def record(root, effective, event, data=None):
     dirty_count = len(dirty_names)
     when = gwstatus.stamp_time()
     commit = gwstatus.current_commit(root)
-    append_line(journal, task.id, format_line(when, event, commit, branch, dirty_count, changed, dirty_digest(dirty_names)))
+    append_line(journal, task.id, format_line(when, event, commit, branch, dirty_count, changed, dirty_digest(dirty_names),
+                                             agent or "claude-code"))
     session_id = data.get("session_id") if isinstance(data, dict) else None
     write_session_state(root, session_id, event, when, task.id, commit, branch)
     gwstatus.stamp_file(root, folder, effective, task.id)

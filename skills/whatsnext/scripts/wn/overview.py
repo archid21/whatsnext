@@ -8,6 +8,8 @@ import argparse
 import json
 import re
 
+from . import handoffclaims as gwhandoffclaims
+from . import wrapup as gwwrapup
 from . import claims as gwclaims
 from . import drift as gwdrift
 from . import capture as gwcapture
@@ -64,6 +66,13 @@ def build(ctx, session=None, limit=READY_LIMIT):
                               "task_status": None, "next_action": "", "open_questions": "", "warnings": []}
         out["handoff"]["read_first"] = info["related"]
         out["handoff"]["label"] = "read it first" if info["related"] else "another session's note"
+        out["handoff"]["agent"] = info.get("agent")  # P-91
+        try:  # P-87: git facts only; a `run` check is never run here (ADR-0030)
+            path = gwwrapup.handoff_path(ctx.root, ctx.effective)
+            with open(path, encoding="utf-8", errors="replace") as f:
+                out["handoff"]["checks"] = gwhandoffclaims.check_all(ctx.root, f.read())
+        except Exception:
+            out["handoff"]["checks"] = []
         out["warnings"].extend(out["handoff"].get("warnings", []))
     for claim, since in gwclaims.stale_in_worktree(ctx.root, ctx.effective):
         out["warnings"].append("%s is stale: idle since %s. Done, keep or put back?" % (
@@ -93,9 +102,13 @@ def print_text(data):
     handoff = data["handoff"]
     if handoff:
         line = "Handoff: %s, written %s" % (handoff["path"], handoff.get("written") or "at an unknown time")
+        if handoff.get("agent") and handoff["agent"] != "unknown":
+            line += " by %s" % handoff["agent"]
         if handoff.get("label"):
             line += " (%s)" % handoff["label"]
         print(line)
+        if handoff.get("checks"):
+            print("  " + gwhandoffclaims.line(handoff["checks"]))
         if handoff.get("next_action"):
             print("  Next action: " + handoff["next_action"])
         if handoff.get("open_questions"):

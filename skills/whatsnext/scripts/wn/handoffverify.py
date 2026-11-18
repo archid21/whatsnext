@@ -11,6 +11,7 @@ import re
 import sys
 
 from . import config as gwconfig
+from . import handoffclaims as gwhandoffclaims
 from . import packet as gwpacket
 from . import plan as gwplan
 from . import status as gwstatus
@@ -111,6 +112,9 @@ def run(argv):
               % (rel, shown(command)), file=sys.stderr)
         return 2
     ctx = gwplan.Ctx(root, effective)
+    if gwhandoffclaims.checks(body):  # P-87: re-check the State facts, `run` checks too (the person started this; ADR-0030)
+        results = gwhandoffclaims.check_all(root, body, lambda c: gwplan.run_verify(root, c, gwplan.verify_timeout(ctx)))
+        print(gwhandoffclaims.line(results), flush=True)
     print("Running: %s" % shown(command), flush=True)
     result = gwplan.run_verify(root, command, gwplan.verify_timeout(ctx))
     took = gwplan.format_seconds(result["seconds"])

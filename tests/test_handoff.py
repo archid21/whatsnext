@@ -81,8 +81,8 @@ class HeaderAndSidecarTests(HandoffBase):
         self.assertFalse(os.path.exists(os.path.join(self.proj, ".whatsnext", "sessions", "s1.handoff.json")))
 
     def test_parse_header(self):
-        self.assertEqual(wnwrapup.parse_header(note()), {"session": "s1", "task": "P-13", "written": WRITTEN, "branch": None})
-        self.assertEqual(wnwrapup.parse_header(note(header=False)), {"session": None, "task": None, "written": None, "branch": None})
+        self.assertEqual(wnwrapup.parse_header(note()), {"session": "s1", "task": "P-13", "written": WRITTEN, "branch": None, "agent": None})
+        self.assertEqual(wnwrapup.parse_header(note(header=False)), {"session": None, "task": None, "written": None, "branch": None, "agent": None})
         self.assertEqual(wnwrapup.parse_header("# Handoff\n" * 2 + "\n" * 20 + "Session: late\n")["session"], None)
 
 
@@ -263,7 +263,7 @@ class ResumeNoteTests(HandoffBase):
     def test_p54_the_wrap_up_prompt_asks_for_a_branch_line(self):
         out = self.prompt("wrap up", session="s1")
         self.assertIn("Branch: %s" % self.branch(), out)
-        self.assertIn("four header lines", out)
+        self.assertIn("five header lines", out)
 
     def test_no_task_an_old_none_note_gives_neither_line(self):
         os.remove(self.p("%s/P-13.md" % STATUS))

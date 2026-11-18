@@ -35,7 +35,7 @@ class DigestTests(HookBase):
         self.hook("stop", {"session_id": "s1"})
         lines = [l for l in self.get("docs/project/progress/journal/P-13.md").splitlines() if l.startswith("- ")]
         self.assertNotIn(" set=", lines[0])
-        self.assertRegex(lines[1], r" dirty=1 set=[0-9a-f]{6} files: src/a.py$")
+        self.assertRegex(lines[1], r" dirty=1 set=[0-9a-f]{6} agent=claude-code files: src/a.py$")
         self.assertEqual(wnjournal.last_state(self.p("docs/project/progress/journal/P-13.md"))[0], 1)
 
     def test_digest_same_count_but_another_file_reads_as_set_changed(self):

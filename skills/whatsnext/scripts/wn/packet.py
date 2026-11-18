@@ -369,7 +369,7 @@ def handoff_info(root, effective, task, session_id, path=None):
     related = bool((session_id and header["session"] == session_id) or (task is not None and header["task"] == task.id)
                    or own_branch_note(root, effective, header, written))
     return {"rel": gwconfig.display_path(path, root), "related": related,
-            "next": gwwrapup.handoff_next(path) if related else "", "written": written}
+            "next": gwwrapup.handoff_next(path) if related else "", "written": written, "agent": header.get("agent")}
 
 
 def own_branch_note(root, effective, header, written):
@@ -386,8 +386,9 @@ def own_branch_note(root, effective, header, written):
 
 def handoff_line(info):
     """The Handoff line: the file, when it was wrapped up (UTC), and whether this task's session wrote it."""
-    return "Handoff: %s, wrapped up %s (%s)" % (info["rel"], utc_text(info["written"]),
-                                               "read it first" if info["related"] else "another session's note")
+    by = " by %s" % info["agent"] if info.get("agent") and info["agent"] != "unknown" else ""
+    return "Handoff: %s, wrapped up %s%s (%s)" % (info["rel"], utc_text(info["written"]), by,
+                                                 "read it first" if info["related"] else "another session's note")
 
 
 NO_HANDOFF = "Handoff: none, facts only."
