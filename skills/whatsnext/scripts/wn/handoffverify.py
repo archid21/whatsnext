@@ -89,6 +89,8 @@ def run(argv):
     parser.add_argument("action", choices=["verify"])
     parser.add_argument("--allow-tracked", action="store_true",
                         help="run the command even though git tracks the note (the repository wrote it)")
+    parser.add_argument("--run-checks", action="store_true",
+                        help="also run the note's `Check: run` commands (ADR-0030); each is printed first")
     args = parser.parse_args(argv)
     root = gwconfig.find_root()
     effective = gwconfig.load(root)
@@ -107,13 +109,18 @@ def run(argv):
         return 1
     command = found[0]
     if is_tracked(root, handoff) and not args.allow_tracked:
-        print("%s is tracked by git (or git cannot say), so its command may not be yours. "
-              "Nothing was run.\nRead the command: %s\nIf you trust it, run: whatsnext handoff verify --allow-tracked"
-              % (rel, shown(command)), file=sys.stderr)
+        runs = gwhandoffclaims.run_commands(body) if args.run_checks else []
+        print("%s is tracked by git (or git cannot say), so its commands may not be yours. "
+              "Nothing was run.\nRead the command: %s%s\nIf you trust %s, run: whatsnext handoff verify --allow-tracked%s"
+              % (rel, shown(command), "".join("\nRead the check: %s" % shown(c) for c in runs),
+                 "them all" if runs else "it", " --run-checks" if runs else ""), file=sys.stderr)
         return 2
     ctx = gwplan.Ctx(root, effective)
     if gwhandoffclaims.checks(body):  # P-87: re-check the State facts, `run` checks too (the person started this; ADR-0030)
-        results = gwhandoffclaims.check_all(root, body, lambda c: gwplan.run_verify(root, c, gwplan.verify_timeout(ctx)))
+        def run_check(c):
+            print("Running check: %s" % shown(c), flush=True)
+            return gwplan.run_verify(root, c, gwplan.verify_timeout(ctx))
+        results = gwhandoffclaims.check_all(root, body, run_check if args.run_checks else None)
         print(gwhandoffclaims.line(results), flush=True)
     print("Running: %s" % shown(command), flush=True)
     result = gwplan.run_verify(root, command, gwplan.verify_timeout(ctx))

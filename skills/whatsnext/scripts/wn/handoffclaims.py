@@ -6,6 +6,8 @@ person starts. No model call.
 
 import re
 
+from . import journal as gwjournal
+from . import packet as gwpacket
 from . import status as gwstatus
 
 CHECK_RE = re.compile(r"^check\s*:\s*(.+?)\s*$", re.IGNORECASE)
@@ -30,6 +32,11 @@ def checks(body):
         if m:
             found.append(m.group(1).strip())
     return found
+
+
+def run_commands(body):
+    """The commands of every `Check: run` line, for a person to read before they allow them."""
+    return [m.group(1) for m in (RUN_RE.match(t) for t in checks(body)) if m]
 
 
 def git_value(root, *args):
@@ -106,5 +113,7 @@ def line(results):
         return ""
     counts = [(v, sum(1 for r in results if r["verdict"] == v)) for v in (VERIFIED, STALE, BROKEN, NOT_RUN)]
     head = ", ".join("%d %s" % (n, v) for v, n in counts if n)
-    bad = ["%s: %s (%s)" % (r["verdict"], r["check"], r["detail"]) for r in results if r["verdict"] != VERIFIED]
+    def safe(text):  # the note may come from a commit: no control characters, short
+        return gwpacket.clip(gwpacket.clean(text), 120)
+    bad = ["%s: %s (%s)" % (r["verdict"], safe(r["check"]), safe(r["detail"])) for r in results if r["verdict"] != VERIFIED]
     return "Handoff checks: " + head + ("; " + "; ".join(bad) if bad else "")

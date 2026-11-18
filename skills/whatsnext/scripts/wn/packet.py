@@ -369,7 +369,7 @@ def handoff_info(root, effective, task, session_id, path=None):
     related = bool((session_id and header["session"] == session_id) or (task is not None and header["task"] == task.id)
                    or own_branch_note(root, effective, header, written))
     return {"rel": gwconfig.display_path(path, root), "related": related,
-            "next": gwwrapup.handoff_next(path) if related else "", "written": written, "agent": header.get("agent")}
+            "next": gwwrapup.handoff_next(path) if related else "", "written": written, "agent": gwjournal.safe_agent(header.get("agent"))}
 
 
 def own_branch_note(root, effective, header, written):

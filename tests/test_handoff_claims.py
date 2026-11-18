@@ -91,3 +91,51 @@ class BrokenVerifyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from fixtures import StatusBase  # noqa: E402
+from wn import packet  # noqa: E402
+
+NOTE = ("# Handoff\n\nSession: s0\nTask: P-13\nWritten: 2026-11-05T05:03Z\nAgent: x\x1b[31mevil\n\n## Next action\nRun it.\n"
+        "Verify: `test -f README.md`\n\n## State\nok\nCheck: run `touch CHECKED.txt`\nCheck: branch == \x1b[2Jx\n")
+
+
+class RunCheckGateTests(StatusBase):
+    """Security review of 28452db: a `run` check needs --run-checks, is listed with Verify for a tracked note,
+    and note text is cleaned before it is shown."""
+
+    def setUp(self):
+        super().setUp()
+        self.cfg()
+        self.put("README.md", "hi\n")
+
+    def test_run_checks_need_the_flag(self):
+        self.put("docs/project/HANDOFF.md", NOTE)
+        r = self.gw(["handoff", "verify"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(self.has("CHECKED.txt"))
+        self.assertIn("not run", r.stdout)
+        self.assertNotIn("\x1b", r.stdout)
+
+    def test_run_checks_run_with_the_flag_and_are_printed_first(self):
+        self.put("docs/project/HANDOFF.md", NOTE)
+        r = self.gw(["handoff", "verify", "--run-checks"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(self.has("CHECKED.txt"))
+        self.assertIn("Running check: touch CHECKED.txt", r.stdout)
+
+    def test_a_tracked_note_lists_its_run_checks_and_runs_nothing(self):
+        self.put("docs/project/HANDOFF.md", NOTE)
+        self.commit("track the note")
+        r = self.gw(["handoff", "verify", "--run-checks"])
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("Read the check: touch CHECKED.txt", r.stderr)
+        self.assertIn("--allow-tracked --run-checks", r.stderr)
+        self.assertFalse(self.has("CHECKED.txt"))
+
+    def test_an_unsafe_agent_header_is_dropped(self):
+        self.put("docs/project/HANDOFF.md", NOTE)
+        from wn import config
+        info = packet.handoff_info(self.proj, config.load(self.proj), None, "s0")
+        self.assertIsNone(info["agent"])
