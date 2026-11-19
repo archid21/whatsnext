@@ -233,19 +233,36 @@ def layer_files(root):
     ]
 
 
+# ADR-0031: what each `rigor` preset sets. standard sets nothing: it is the defaults.
+PRESETS = {
+    "light": {"plan.tickGuard": "off", "plan.driftNote": "off", "plan.branchOnStart": "stay",
+              "plan.concurrentStart": "stay"},
+    "standard": {},
+    "strict": {"plan.tickGuard": "deny", "plan.branchOnStart": "branch", "plan.concurrentStart": "worktree",
+               "plan.reuseRunMax": "15m"},
+}
+
+
 def load(root=None):
     """Merge all layers. Invalid keys are dropped and reported in errors."""
     root = root or find_root()
     schema = load_schema()
     entries = {k: Entry(v, "default", None) for k, v in default_values(schema).items()}
     errors = []
+    layers = []
     for name, path in layer_files(root):
         label = display_path(path, root)
         data, errs = read_layer(path, label, schema)
         errors.extend(errs)
-        if data is None:
-            continue
-        for key, value in flatten(data).items():
+        if data is not None:
+            layers.append((name, label, flatten(data)))
+    rigor = entries["rigor"].value
+    for _name, _label, flat in layers:  # the highest layer that names a preset picks it
+        rigor = flat.get("rigor", rigor)
+    for key, value in PRESETS.get(rigor, {}).items():  # ADR-0031: above the defaults, below every file layer
+        entries[key] = Entry(value, "preset: " + rigor, None)
+    for name, label, flat in layers:
+        for key, value in flat.items():
             entries[key] = Entry(value, name, label)
     return Effective(root, entries, errors)
 

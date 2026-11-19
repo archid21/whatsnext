@@ -10,13 +10,31 @@
       "type": "string",
       "description": "Path or URL of this schema, for editor autocomplete."
     },
+    "rigor": {
+      "type": "string",
+      "enum": [
+        "light",
+        "standard",
+        "strict"
+      ],
+      "default": "standard",
+      "description": "One switch for how strict whatsnext is (ADR-0031). light: no gates (tickGuard off, no drift note, stay on the branch). standard: today's defaults. strict: only plan done --verify can tick, a new branch per item, a worktree when another session is busy, reused runs at most 15m old. A key you set yourself in any layer still wins."
+    },
     "modules": {
       "type": "object",
       "description": "Turn modules on or off. A module that is off adds no hooks and no tokens.",
       "additionalProperties": false,
       "properties": {
-        "plan": { "type": "boolean", "default": true, "description": "PLAN.md, stable IDs, checklist, Start, soft checkout." },
-        "progress": { "type": "boolean", "default": true, "description": "Progress files (one per task), resume note, freshness check." }
+        "plan": {
+          "type": "boolean",
+          "default": true,
+          "description": "PLAN.md, stable IDs, checklist, Start, soft checkout."
+        },
+        "progress": {
+          "type": "boolean",
+          "default": true,
+          "description": "Progress files (one per task), resume note, freshness check."
+        }
       }
     },
     "paths": {
@@ -24,20 +42,59 @@
       "description": "Where each record lives, relative to the project root. Absolute paths and `..` are rejected.",
       "additionalProperties": false,
       "properties": {
-        "entry": { "type": "string", "x-relativePath": true, "default": "docs/project/README.md", "description": "Entry point: pointers only." },
-        "plan": { "type": "string", "x-relativePath": true, "default": "docs/project/PLAN.md", "description": "Plan file." },
-        "progress": { "type": "string", "x-relativePath": true, "default": "docs/project/progress", "description": "Progress folder: one progress file per task." },
-        "plans": { "type": "string", "x-relativePath": true, "default": "docs/project/plans", "description": "Captured plan-mode plans, one file per plan (ADR-0006)." },
-        "handoff": { "type": "string", "x-relativePath": true, "default": "docs/project/HANDOFF.md", "description": "The handoff note that `wrap up` writes and the compacts read (ADR-0008). A line `Handoff: <path>` in AGENTS.md names another path when this setting is left at its default." }
+        "entry": {
+          "type": "string",
+          "x-relativePath": true,
+          "default": "docs/project/README.md",
+          "description": "Entry point: pointers only."
+        },
+        "plan": {
+          "type": "string",
+          "x-relativePath": true,
+          "default": "docs/project/PLAN.md",
+          "description": "Plan file."
+        },
+        "progress": {
+          "type": "string",
+          "x-relativePath": true,
+          "default": "docs/project/progress",
+          "description": "Progress folder: one progress file per task."
+        },
+        "plans": {
+          "type": "string",
+          "x-relativePath": true,
+          "default": "docs/project/plans",
+          "description": "Captured plan-mode plans, one file per plan (ADR-0006)."
+        },
+        "handoff": {
+          "type": "string",
+          "x-relativePath": true,
+          "default": "docs/project/HANDOFF.md",
+          "description": "The handoff note that `wrap up` writes and the compacts read (ADR-0008). A line `Handoff: <path>` in AGENTS.md names another path when this setting is left at its default."
+        }
       }
     },
     "note": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "staleDays": { "type": "integer", "minimum": 1, "default": 7, "description": "The resume note warns that it is stale when the progress file was last updated more than this many days ago." },
-        "staleCommits": { "type": "integer", "minimum": 1, "default": 20, "description": "The resume note warns that it is stale when this many commits or more were made since the progress file's recorded commit." },
-        "carryAfterCompact": { "type": "boolean", "default": true, "description": "Before a compact, save the user's latest request and the open work, and repeat them in the resume note after it (ADR-0015). Set to false to turn it off." }
+        "staleDays": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 7,
+          "description": "The resume note warns that it is stale when the progress file was last updated more than this many days ago."
+        },
+        "staleCommits": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 20,
+          "description": "The resume note warns that it is stale when this many commits or more were made since the progress file's recorded commit."
+        },
+        "carryAfterCompact": {
+          "type": "boolean",
+          "default": true,
+          "description": "Before a compact, save the user's latest request and the open work, and repeat them in the resume note after it (ADR-0015). Set to false to turn it off."
+        }
       }
     },
     "plan": {
@@ -45,22 +102,38 @@
       "additionalProperties": false,
       "properties": {
         "branchOnStart": {
-          "enum": ["ask", "branch", "stay", "worktree"],
+          "enum": [
+            "ask",
+            "branch",
+            "stay",
+            "worktree"
+          ],
           "default": "ask",
           "description": "What Start does about the git branch (ADR-0002): ask each time, always create a new branch, always stay on the current branch, or always create a worktree."
         },
         "concurrentStart": {
-          "enum": ["ask", "worktree", "stay"],
+          "enum": [
+            "ask",
+            "worktree",
+            "stay"
+          ],
           "default": "ask",
           "description": "What Start does when another live session already has an item in progress in this checkout (ADR-0020): ask each time, always create a new worktree, or always stay on the current branch (the edits of the two sessions then mix). Separate from branchOnStart, which does not decide this case."
         },
         "tickGuard": {
-          "enum": ["warn", "off", "deny"],
+          "enum": [
+            "warn",
+            "off",
+            "deny"
+          ],
           "default": "warn",
           "description": "What happens when an agent ticks `- [ ] P-N` in PLAN.md by hand instead of running `plan done --verify` (ADR-0003): warn it (the default), say nothing, or deny the edit."
         },
         "driftNote": {
-          "enum": ["on", "off"],
+          "enum": [
+            "on",
+            "off"
+          ],
           "default": "on",
           "description": "At a turn end, one note when files changed outside the folders of the item this session claimed, with the answer to give (ADR-0028). The turn is never blocked. Set to off to turn the note off."
         },
@@ -88,14 +161,22 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "autoIdle": { "type": "boolean", "default": false, "description": "Claude Code only. When a session has been idle 45 minutes, submit `wrap up` once, before Claude Code's own idle compact (ADR-0016). Off by default. It also needs the context to be at or above CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS (default 200000, floor 100000), and does nothing when Claude Code's `idleCompaction` or `autoCompactEnabled` is false or the session already has a fresh wrap-up." }
+        "autoIdle": {
+          "type": "boolean",
+          "default": false,
+          "description": "Claude Code only. When a session has been idle 45 minutes, submit `wrap up` once, before Claude Code's own idle compact (ADR-0016). Off by default. It also needs the context to be at or above CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS (default 200000, floor 100000), and does nothing when Claude Code's `idleCompaction` or `autoCompactEnabled` is false or the session already has a fresh wrap-up."
+        }
       }
     },
     "backend": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string", "default": "local-files", "description": "Coordination backend that receives events. local-files reads and writes only the repository." }
+        "name": {
+          "type": "string",
+          "default": "local-files",
+          "description": "Coordination backend that receives events. local-files reads and writes only the repository."
+        }
       }
     }
   }
