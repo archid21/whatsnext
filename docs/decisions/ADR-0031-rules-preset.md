@@ -1,4 +1,4 @@
-# ADR-0031: one rigor setting for light, standard or strict rules
+# ADR-0031: one `rules` setting for light, standard or strict rules
 
 - **Date:** 2026-11-18T23:00Z
 - **Status:** accepted (user), 2026-11-18
@@ -11,8 +11,8 @@ whatsnext adds rules: a guard on hand-ticked items, a drift note, a branch quest
 
 ## Decision
 
-1. A setting `rigor` with the values `light`, `standard` (the default) and `strict`.
-2. The preset is a layer above the built-in defaults and below every file layer (user, project, local). A key set by hand in any file still wins. The highest file layer that sets `rigor` picks the preset.
+1. A setting `rules` with the values `light`, `standard` (the default) and `strict`.
+2. The preset is a layer above the built-in defaults and below every file layer (user, project, local). A key set by hand in any file still wins. The highest file layer that sets `rules` picks the preset.
 3. `config show` names the source of each value the preset set as `preset: <name>`.
 4. The presets, using only switches that exist today:
 
@@ -24,9 +24,10 @@ whatsnext adds rules: a guard on hand-ticked items, a drift note, a branch quest
 | plan.concurrentStart | stay | ask | worktree |
 | plan.reuseRunMax | 60m | 60m | 15m |
 
-5. `standard` sets nothing, so a project that never sets `rigor` behaves as before.
+5. `standard` sets nothing, so a project that never sets `rules` behaves as before.
 
 ## Consequences
 
-- One line, `config set --user rigor light`, turns the gates off.
+- One line, `config set --user rules light`, turns the gates off.
 - Review on every item and a warning for handoffs without `Check:` lines are not part of it: they need new settings first.
+- Renamed from `rigor` to `rules` on 2026-11-19, before any release (user).

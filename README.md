@@ -54,7 +54,7 @@ When an item is finished, say **"mark P-13 done"**. It is ticked only if its tes
 
 Every feature, how it works, its value and the release that added it: [docs/FEATURES.md](docs/FEATURES.md).
 
-**Fewer or more rules.** `wn config set --user rigor light` turns off the gates (hand ticks allowed, no drift note, no branch question). `strict` lets only `plan done --verify` tick an item and starts each item on its own branch. `standard` is the default. A setting you set yourself still wins: [ADR-0031](docs/decisions/ADR-0031-rigor-preset.md).
+**Fewer or more rules.** `wn config set --user rules light` turns off the gates (hand ticks allowed, no drift note, no branch question). `strict` lets only `plan done --verify` tick an item and starts each item on its own branch. `standard` is the default. A setting you set yourself still wins: [ADR-0031](docs/decisions/ADR-0031-rules-preset.md).
 
 ## New in 0.5.0
 

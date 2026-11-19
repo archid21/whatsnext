@@ -10,7 +10,7 @@
       "type": "string",
       "description": "Path or URL of this schema, for editor autocomplete."
     },
-    "rigor": {
+    "rules": {
       "type": "string",
       "enum": [
         "light",

@@ -233,7 +233,7 @@ def layer_files(root):
     ]
 
 
-# ADR-0031: what each `rigor` preset sets. standard sets nothing: it is the defaults.
+# ADR-0031: what each `rules` preset sets. standard sets nothing: it is the defaults.
 PRESETS = {
     "light": {"plan.tickGuard": "off", "plan.driftNote": "off", "plan.branchOnStart": "stay",
               "plan.concurrentStart": "stay"},
@@ -256,11 +256,11 @@ def load(root=None):
         errors.extend(errs)
         if data is not None:
             layers.append((name, label, flatten(data)))
-    rigor = entries["rigor"].value
+    rules = entries["rules"].value
     for _name, _label, flat in layers:  # the highest layer that names a preset picks it
-        rigor = flat.get("rigor", rigor)
-    for key, value in PRESETS.get(rigor, {}).items():  # ADR-0031: above the defaults, below every file layer
-        entries[key] = Entry(value, "preset: " + rigor, None)
+        rules = flat.get("rules", rules)
+    for key, value in PRESETS.get(rules, {}).items():  # ADR-0031: above the defaults, below every file layer
+        entries[key] = Entry(value, "preset: " + rules, None)
     for name, label, flat in layers:
         for key, value in flat.items():
             entries[key] = Entry(value, name, label)
