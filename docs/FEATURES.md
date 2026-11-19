@@ -2,7 +2,7 @@
 
 Every whatsnext feature: what it is, how it works and what it gives you.
 
-Current release: 0.5.0
+Current release: 0.6.0
 
 **Since** is the release that added the feature. `Unreleased` means it is on `main` but not in a release yet.
 
@@ -44,6 +44,7 @@ Current release: 0.5.0
 | Human review | An item with `review: required` in `PLAN.md` is not ticked when its check passes. The run is recorded, `plan list` shows `awaiting review`, and `plan review <id>` ticks it (or `--reject "<reason>"` reopens it). See ADR-0022. | Work a person must look at (a UI, copy, a design) is not ticked on a passing test alone. | 0.4 |
 | Reuse a passing run | `plan test <id>` runs the saved check without ticking. `plan done --verify` reuses a passing run of the same command on the same code (newer than `plan.reuseRunMax`, default 60 minutes); `--fresh` always runs it. See ADR-0023. | A 6 to 8 minute suite runs once, not twice, on the same code. | 0.4 |
 | Drift note | At turn end, files changed outside the claimed item's scope give one note (band in Claude Code, hook message in Codex and Gemini CLI, `status` everywhere). Never a block. | The record stays about the claimed item, or you know when it is not. | 0.5 |
+| Broken is not failed | A verify that could not run (exit 126 or 127, or a timeout) is journaled as `verify broken`, apart from `verify failed`; `plan report` counts them apart. | A missing tool is not mistaken for failing code. | 0.6 |
 
 ## Save and resume
 
@@ -63,6 +64,7 @@ Current release: 0.5.0
 | Compact keeps the summary | The PostCompact hook saves the compact summary. Plan steps approved in a question are saved too, so the resume note can say `summary kept N of M steps`. | You can see how much of the plan survived a compact. | 0.4 |
 | Richer handoff | `HANDOFF.md` gains Files, Links and Skills sections filled from the session's tool calls, with no model call. | The next session sees what was read, created and used. | 0.4 |
 | Takeover is not plan approval | When a plan was only shown, `status` and the resume note say to ask before running its steps. | A new agent does not run a plan you never approved. | 0.5 |
+| Handoff checks | Wrap-up ends State with `Check:` lines (HEAD, branch, clean, or `run` a command). `status` re-checks the git facts: VERIFIED, STALE or BROKEN. `run` checks need `handoff verify --run-checks`. | A resume shows at once when the note is out of date. | 0.6 |
 
 ## Progress and history
 
@@ -74,6 +76,7 @@ Current release: 0.5.0
 | Session file pruning | SessionStart removes a session's state files once none has changed for 14 days. | `.whatsnext/sessions/` does not grow forever. | 0.3 |
 | PR description | `progress pr-body <id>` prints a PR description from the progress file: goal, done steps, decisions and verify evidence. No model call. | A PR body from recorded facts, not from memory. | 0.4 |
 | Plan report | `plan report` prints one line per item from its journal: time, turns, sessions, compacts, commits and verify attempts. | See what each item cost. | 0.5 |
+| Who wrote it | Journal lines carry `agent=<name>` and handoffs an `Agent:` header; `status` and `plan report` show it. | See which agent did the work. | 0.6 |
 
 ## Setup and agents
 
@@ -91,3 +94,5 @@ Current release: 0.5.0
 | `wn` command | `install-hooks --wn link` puts `wn` on the PATH. | One short command in every agent. | 0.5 |
 | Gemini CLI and Cursor hooks | `install-hooks --agent gemini` or `--agent cursor` maps each agent's events to whatsnext's. Cursor is not live-checked yet. | The resume note and journal in more agents. | 0.5 |
 | Doctor per agent | `doctor` prints one line per agent with its hooks and what was observed. | See at a glance which agents are set up. | 0.5 |
+| Install backups | `install-hooks` copies each file to `~/.config/whatsnext/backups/` before it changes it; `--undo` restores the exact bytes when the file is unchanged since. | Undo never damages your settings. | 0.6 |
+| Rules preset | `rules` = light, standard or strict sets the rule switches at once (ADR-0031); a key you set yourself wins; `config show` names the preset. | Fewer rules, or more, with one setting. | 0.6 |

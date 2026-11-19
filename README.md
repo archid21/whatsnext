@@ -4,7 +4,7 @@
 
 whatsnext works in Claude Code, Codex, Gemini CLI, Cursor and any agent that reads `AGENTS.md`. It keeps a plan checklist, check-offs and a short resume note as plain files in your repository, so a new session, or a second agent, starts from where the last one stopped.
 
-**Status: 0.5.0.** See [New in 0.5.0](#new-in-050).
+**Status: 0.6.0.** See [New in 0.6.0](#new-in-060).
 
 MIT license · Python 3.9+, standard library only · no database, no background process
 
@@ -50,11 +50,22 @@ When an item is finished, say **"mark P-13 done"**. It is ticked only if its tes
 | Drift note | One note when your edits move off the item you claimed. Never blocks. |
 | Tracker sync | Import ready items from Beads or GitHub Issues; close them there when done, after asking. |
 | Plan report | Time, turns, sessions, commits and verify attempts per item, from the journal. |
+| Fewer or more rules | One setting, `rules`: light, standard or strict. A key you set yourself still wins. |
+| Handoff checks | `Check:` lines in the handoff are re-checked at resume: VERIFIED, STALE or BROKEN. |
+| Install backups | `install-hooks` keeps a copy of each file it changes; `--undo` restores it exactly. |
 | Any coding agent | Claude Code and Codex with hooks; Gemini CLI and Cursor hooks; any other agent through `AGENTS.md` and the `wn` command. |
 
 Every feature, how it works, its value and the release that added it: [docs/FEATURES.md](docs/FEATURES.md).
 
-**Fewer or more rules.** `wn config set --user rules light` turns off the gates (hand ticks allowed, no drift note, no branch question). `strict` lets only `plan done --verify` tick an item and starts each item on its own branch. `standard` is the default. A setting you set yourself still wins: [ADR-0031](docs/decisions/ADR-0031-rules-preset.md).
+## New in 0.6.0
+
+Choose how strict whatsnext is, and trust a handoff only as far as its facts still hold.
+
+- **Fewer or more rules:** `wn config set --user rules light` turns off the gates (hand ticks allowed, no drift note, no branch question). `strict` lets only `plan done --verify` tick an item and starts each item on its own branch. `standard` is the default. A setting you set yourself still wins ([ADR-0031](docs/decisions/ADR-0031-rules-preset.md)).
+- **Handoff checks:** wrap-up ends the State section with `Check:` lines (HEAD, branch, clean tree, or a command). `status` re-checks the git facts and shows VERIFIED, STALE or BROKEN. A `Check: run` command runs only with `handoff verify --run-checks` ([ADR-0030](docs/decisions/ADR-0030-handoff-claim-checks.md)).
+- **Broken is not failed:** a check that could not run (exit 126 or 127, or a timeout) is recorded as broken, apart from a real failure, in the journal and `plan report`.
+- **Who wrote it:** journal lines and handoffs name the agent (claude-code, codex, gemini, cursor). `status` and `plan report` show it.
+- **Install backups:** `install-hooks` keeps a copy of each settings file before it changes it. `--undo` puts the original back byte for byte when you have not edited the file since.
 
 ## New in 0.5.0
 
