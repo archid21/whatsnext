@@ -1,0 +1,220 @@
+{
+  "_doc": "P-86 gem test labels. Key = path of the note, then 1-based file line number. Value = [label, source or reason, mixed]. Label D = DERIVABLE (the fact is present in the named source at the note's time), G = GEM (absent from the sources and a fresh session would get it wrong), U = UNSURE (partly present, or absent but low impact, or present only outside the brief's sources). A line with several facts gets the worst label (G over U over D); mixed=1 marks a non-D line that also holds derivable clauses. Repo state used per note is in the 'at' field.",
+  "notes": {
+    "docs/project/handoffs/20261107T0625Z-none.md": {
+      "at": "8b1b172 (2026-11-06 22:25 PST)",
+      "lines": {
+        "9": ["D", "ADR-0015 Decision 1-2 (git show 8b1b172:docs/decisions/ADR-0015-carry-after-compact.md)"],
+        "13": ["G", "P-39 progress Next action is about the tips band, not the carry text; the note's in-flight live check is not in any source"],
+        "14": ["D", "AGENTS.md: the test command; the count 418 is re-measurable"],
+        "15": ["D", "tests/test_hook.py has test_compact_carry_* (lines 620, 635, 646)"],
+        "19": ["G", "'Not seen in a real Claude Code session yet' is unverified state; branch and commit are in git", 1],
+        "23": ["D", "git show --stat e235f70: hook.py, wrapup.py"],
+        "24": ["D", "git show e235f70: packet.py"],
+        "25": ["D", "git show e235f70: config.schema.json"],
+        "26": ["D", "git show --stat e235f70: tests, GUIDE.md, ADR-0015, index row"],
+        "30": ["U", "ADR-0015 holds the decision and 'Not built' list; '2,000 first estimated' is not in it, low impact", 1],
+        "34": ["G", "stdlib, no push, run suite are in AGENTS.md; 'do not name other plugins' and the 11-minute figure are in no source", 1],
+        "38": ["G", "git status shows dirty files, not that they are unrelated and must be left alone", 1]
+      }
+    },
+    "docs/project/handoffs/20261108T1734Z-P-48.md": {
+      "at": "ddc8b67 (commit of the then-uncommitted work; base 8d9e723)",
+      "lines": {
+        "9": ["D", "progress/P-48.md title; ADR-0017"],
+        "13": ["D", "progress/P-48.md 'Validation and activation' bullets; docs/CODEX-ACCEPTANCE.md header"],
+        "14": ["D", "AGENTS.md: the test command"],
+        "15": ["U", "generic advice, in no source, a fresh session would do it anyway"],
+        "19": ["U", "490 tests / 246 s and 'live acceptance unverified' are in progress/P-48.md; 'all seven hook registrations installed' is machine state (doctor would show it)", 1],
+        "23": ["D", "git show --stat ddc8b67 (hook.py, sessions.py, wrapup)"],
+        "24": ["D", "git show ddc8b67: plan.py"],
+        "25": ["D", "git show ddc8b67: doctor.py; ADR-0017 'per-agent runtime observations'"],
+        "26": ["D", "git show ddc8b67: tests/fixtures.py line 44"],
+        "30": ["D", "ADR-0017; progress/P-48.md Decisions"],
+        "34": ["D", "AGENTS.md; progress/P-48.md 'Validation and activation' (hook trust review, older marketplace copy)"],
+        "38": ["D", "progress/P-48.md 'Validation and activation'; docs/CODEX-ACCEPTANCE.md"],
+        "42": ["D", "progress/P-48.md: 'inherited WHATSNEXT_AGENT in a test fixture ... now isolates agent identity'"]
+      }
+    },
+    "docs/project/handoffs/20261109T1933Z-none.md": {
+      "at": "60b0af9 (2026-11-09 11:01 PST)",
+      "lines": {
+        "9": ["D", "PLAN.md roadmap P-50..P-64 (5bc3691); P-56 'Release 0.3.0'"],
+        "13": ["U", "PLAN.md P-52 holds the work; the flags '--dirty carry-on --branch stay' are session choices, in no source", 1],
+        "14": ["D", "AGENTS.md: the test command"],
+        "15": ["U", "generic advice; ADR-0020 (parallel sessions) did not exist yet"],
+        "19": ["D", "progress/P-50.md (14 PASS, 4 findings); PLAN.md P-50/P-51 evidence; git status; git log 60b0af9"],
+        "23": ["D", "git show --stat 5bc3691"],
+        "24": ["D", "git show 60b0af9: plan.py defines blocked_cycles, waiting_text, handoff_task_status"],
+        "25": ["D", "git log 3f9d0b6 (ADR-0019); 'another session' is minor"],
+        "26": ["U", "scratchpad p50/ is outside the repo; no source names it, a fresh session would not need it", 1],
+        "30": ["D", "PLAN.md order; PLAN.md P-58 'proposed ADR'; git log 3f9d0b6 added ADR-0019; no ADR in this session's commits"],
+        "34": ["G", "plan commands and 'plan done --verify' are in SKILL.md and AGENTS.md; tsconfig.json, concurrent-session rule and 'not delegated to Sonnet' are user rules in no source", 1],
+        "38": ["D", "progress/P-50.md findings F1, F2, F4"],
+        "42": ["G", "subagent failure story is in no source; it explains why the user does not want delegation"],
+        "43": ["U", "'timeout' missing on macOS: one failed command, in no source"],
+        "44": ["D", "progress/P-50.md: interrupt NOT APPLICABLE, Claude Code has no Interrupt hook event; finding F4"]
+      }
+    },
+    "docs/project/handoffs/20261109T2337Z-none.md": {
+      "at": "7db235f (2026-11-09 14:50 PST)",
+      "lines": {
+        "8": ["D", "PLAN.md: P-56 done, P-57 first in Next; release commit 21e28eb"],
+        "11": ["U", "'restart so 0.3.0 loads' is machine state; the P-57 command is in PLAN.md/SKILL.md", 1],
+        "12": ["D", "SKILL.md / overview.py: status shows the current item"],
+        "13": ["U", "generic advice; ADR-0020 not yet written when the note was made"],
+        "16": ["G", "'GitHub Release is Latest' and 'installed plugin updated' are external or machine state; tag v0.3.0 and the SHA are in git", 1],
+        "19": ["D", "git log f6e3494"],
+        "20": ["D", "git log 8bb1599"],
+        "21": ["D", "git log 30b4ac6"],
+        "22": ["D", "git log 21e28eb"],
+        "23": ["D", "git log 7db235f"],
+        "26": ["D", "ADR-0020 items 3, 5, 6; ADR-0019 'Later change (P-54)'"],
+        "29": ["G", "'local only' and 'run tests' are in AGENTS.md; another session's uncommitted files and 'stay on branch' are in no source", 1],
+        "32": ["G", "'no band for the always-worktree offer' contradicts ADR-0020 item 5 (a band); the 14-failure run is unconfirmed state"],
+        "35": ["U", "subagent process story, in no source, no effect on the code"]
+      }
+    },
+    "docs/project/handoffs/20261110T0810Z-none.md": {
+      "at": "e5a7e3d (2026-11-10 00:00 PST)",
+      "lines": {
+        "8": ["G", "whatsnext part: ADR-0021 and release commit e5a7e3d; the rightsize part is in-flight work in another repo", 1],
+        "11": ["U", "'restart so 0.3.1 loads' is machine state; the P-57 command is in PLAN.md/SKILL.md", 1],
+        "12": ["D", "SKILL.md / overview.py: status shows the current item"],
+        "13": ["U", "generic advice"],
+        "16": ["G", "tag and SHA are in git; 424 s run, 58 hook tests, live check in ~/scratch, Google Drive backup, 'Release is Latest' are in no source", 1],
+        "19": ["D", "git show --stat 413e6ec"],
+        "20": ["D", "git show --stat a7fc32f 1898a83: PLAN.md P-65 done, P-66 added"],
+        "21": ["D", "git show --stat be6bf2a"],
+        "22": ["D", "git show --stat e5a7e3d"],
+        "25": ["D", "ADR-0021 items 1, 2, 5; PLAN.md P-65 evidence (reused code, 669 s run); 'user choice' attribution is minor"],
+        "28": ["G", "'local only' is in AGENTS.md; do-not-commit list, keep rightsize star.ts in step, do not edit ~/Projects/rightsize are in no source", 1],
+        "31": ["G", "open bug and in-flight state in another repository, in no source"],
+        "34": ["U", "first sentence follows from ADR-0017 (verify must match the saved check); second sentence is a test-setup gotcha in no source", 1]
+      }
+    },
+    "docs/project/handoffs/20261110T2159Z-P-61.md": {
+      "at": "15e90e1 plus the uncommitted P-61 work (2026-11-10 13:59 PST)",
+      "lines": {
+        "9": ["D", "progress/P-61.md Goal; PLAN.md P-61"],
+        "13": ["G", "pending user approval and the commit/merge order (own branch, --ff-only) are in no source"],
+        "14": ["U", "the saved run's timestamp is in gitignored .whatsnext state"],
+        "15": ["D", "ADR-0023 items 3, 4: changed file means a fresh run; `plan test` exists (b5ddae2)"],
+        "19": ["U", "uncommitted/branch/main SHA/nothing pushed are in git; '660 tests in 407 s, saved for reuse' is in gitignored state", 1],
+        "23": ["D", "git status / git diff: prbody.py, status.py"],
+        "24": ["D", "git status / git diff: tests/test_prbody.py, SKILL.md"],
+        "25": ["D", "git log 3c4f92c..15e90e1"],
+        "26": ["D", "git log 9b488fb dfbf33f (commit messages)"],
+        "27": ["G", "reason for deleting tsconfig.json ('plugin tooling, not part of this project') is in no source; the file has since come back"],
+        "31": ["D", "ADR-0022, ADR-0023 files; git log -S'ADR-0021' on docs/decisions/README.md"],
+        "35": ["G", "AGENTS.md covers push and stdlib; ask-before-each-commit, branch per item, --ff-only, leave P-52 journal, plan steps in the approval question are in no repo source (the last is in auto-memory)", 1],
+        "39": ["G", "unanswered user question and not-done work from the old note are in no source; 'Now and Next are empty' is in PLAN.md", 1],
+        "43": ["D", "ADR-0023 item 4: the fingerprint covers content, not the commit"],
+        "44": ["D", "commit ad1fcdc message: git branch --merged plus git cherry for cherry-picks"]
+      }
+    },
+    "docs/project/handoffs/20261111T0320Z-none.md": {
+      "at": "4024a09 (2026-11-10 18:46 PST)",
+      "lines": {
+        "9": ["D", "PLAN.md: Now and Next empty, Later holds P-62, P-63, P-69..P-73"],
+        "13": ["U", "the recommendation of P-71 is a judgment in no source; the command is in SKILL.md", 1],
+        "14": ["D", "plan.py start output ('Started <id>') and branch creation"],
+        "15": ["D", "plan.py start help: 'exit 4: the agent must ask the user'"],
+        "19": ["G", "'buttons not tried in a real session' is unverified state; 66 plugin tests and 676 count are not in PLAN.md (527 s is)", 1],
+        "23": ["D", "git log 0f217bf 8058b43"],
+        "24": ["D", "git log 6c30fe7"],
+        "25": ["D", "git log 62d4da2 4c56fb2"],
+        "26": ["D", "git log 51d7102 a7e15b0"],
+        "27": ["D", "git log 02b9389 10088af 4024a09; ADR-0024"],
+        "31": ["D", "ADR-0024 Decision 1-3 and Why; PLAN.md P-62 title explains its place"],
+        "35": ["G", "AGENTS.md and SKILL.md cover stdlib, no push, ADR proposed, progress capture; ask-before-commit, branch per item, P-52 journal, plan steps in the approval question are in no repo source", 1],
+        "39": ["G", "a guess about the installed plugin version, unverified state"],
+        "43": ["D", "ADR-0024 Why: clearing must not be the only choice"],
+        "44": ["D", "ADR-0024 Trade-offs: the mod API has no call that opens a session"]
+      }
+    },
+    "docs/project/handoffs/20261115T2303Z-none.md": {
+      "at": "80175ee plus uncommitted plan/ADR edits (committed next as f2af4e1) (2026-11-15 15:03 PST)",
+      "lines": {
+        "9": ["D", "ADR-0027; PLAN.md roadmap (git diff, then f2af4e1)"],
+        "13": ["G", "pending user approval to commit the plan and ADR; P-76 readiness is derivable from plan next", 1],
+        "14": ["D", "plan.py start; AGENTS.md block flags in SKILL.md"],
+        "15": ["D", "plan.py start help: 'exit 4: the agent must ask the user'"],
+        "19": ["U", "ADR accepted, uncommitted, P-69 unticked with merged commits are in git/PLAN.md; 684 tests / 554 s and the doc-test reruns are past results", 1],
+        "23": ["D", "git diff docs/project/PLAN.md (then f2af4e1)"],
+        "24": ["D", "git status / f2af4e1: ADR-0027 file"],
+        "25": ["D", "git status / f2af4e1: decisions README row"],
+        "26": ["D", "git log 87f3451 a980bb2 576ce68"],
+        "30": ["U", "ADR-0027 holds tiers, instructions-enough, read-first, git-ref claims, per-session MCP; 'a server cannot run at session start or before a compact' is not stated", 1],
+        "34": ["G", "AGENTS.md covers push, stdlib, ADR proposed; P-52 journal, unverified Cursor facts, Copilot unknown are in no source (PLAN.md P-77 says only 'check official docs first')", 1],
+        "38": ["G", "unanswered user question about committing, and P-69 ask, are in no source", 1],
+        "42": ["U", "ADR-0027 says the instructions tier pulls the resume note and MCP comes after tiers 2 and 3; the full reason is not stated"],
+        "43": ["U", "zsh word-splitting gotcha in no source, one failed command"]
+      }
+    },
+    "docs/project/handoffs/20261116T0124Z-none.md": {
+      "at": "008d786 plus uncommitted P-75 work (2026-11-15 17:24 PST)",
+      "lines": {
+        "9": ["D", "ADR-0027; PLAN.md Now: P-75 then P-76..P-78"],
+        "13": ["D", "PLAN.md P-75 done means: one live run in an agent with no hooks, logged in the progress file"],
+        "14": ["D", "PLAN.md P-75 done means; code and SKILL.md in the diff"],
+        "15": ["U", "alternatives for the live run, in no source (the progress file says 'pick another host')"],
+        "19": ["U", "uncommitted/branch in git; 'stamped blocked' in progress/P-75.md; '690 tests passed' is a past result", 1],
+        "23": ["D", "git log f2af4e1 780e3b0 b894e32 008d786"],
+        "24": ["D", "git diff: wn/wrapup.py, whatsnext.py (wrap-up-instructions)"],
+        "25": ["D", "git diff: wn/initcmd.py"],
+        "26": ["D", "git diff: skills/whatsnext/SKILL.md"],
+        "27": ["D", "git status: tests/test_hookless.py, tests/test_init.py"],
+        "31": ["D", "git diff wn/wrapup.py (HOOKLESS variant); ADR-0027 tier 2"],
+        "35": ["G", "AGENTS.md covers push and stdlib; ask-before-each-commit, P-52 journal, plan steps in the approval question, 'auto mode blocks gemini --yolo' are in no repo source", 1],
+        "39": ["G", "'Gemini CLI reads GEMINI.md, not AGENTS.md' is a new fact in no source; the rest is in the progress file or PLAN.md", 1],
+        "43": ["D", "progress/P-75.md: Gemini CLI 0.67.0 refused auth (IneligibleTierError)"],
+        "44": ["D", "progress/P-75.md: --yolo blocked by Claude Code"]
+      }
+    },
+    "docs/project/handoffs/20261116T2114Z-none.md": {
+      "at": "0d07568 (2026-11-16 13:11 PST)",
+      "lines": {
+        "8": ["D", "ADR-0027; PLAN.md P-75..P-78"],
+        "11": ["D", "`wn status` recommended item; PLAN.md Next P-79, P-72, P-73"],
+        "12": ["D", "SKILL.md / plan.py: plan list shows in progress"],
+        "13": ["U", "generic advice"],
+        "16": ["D", "git log 0d07568; PLAN.md P-75..P-82 evidence (448 s); git status"],
+        "19": ["D", "git log 584d5e4 7e05a25 520b16d"],
+        "20": ["D", "git log 31fff27 189d21e"],
+        "21": ["D", "git log 8c42b82 a0a54b9"],
+        "22": ["D", "git log d680621 3c1bd76 0d07568"],
+        "23": ["D", "progress/P-75.md, P-77.md, P-78.md exist with live results"],
+        "26": ["D", "docs/CODEX-ACCEPTANCE.md 'Released without a live run (decision 2026-11-16)'"],
+        "27": ["D", "progress/P-77.md event map"],
+        "28": ["D", "progress/P-78.md; doctor code"],
+        "31": ["U", "AGENTS.md, SKILL.md and tests/fixtures.py (temp HOME) cover most; the named dirs ~/.codex ~/.gemini ~/.cursor ~/.local/bin as a rule are in no source", 1],
+        "34": ["U", "P-78.md and CODEX-ACCEPTANCE.md hold the sign-in and session_id facts; 'Gemini transcript format undocumented' is in no source", 1],
+        "37": ["D", "progress/P-75.md, P-78.md: Gemini CLI sign-in refused"],
+        "38": ["D", "docs/CODEX-ACCEPTANCE.md line 11 and progress/P-78.md: Antigravity with AGENTS.md only"]
+      }
+    },
+    "docs/project/HANDOFF.md": {
+      "at": "d762f03 (2026-11-16 16:30 PST)",
+      "lines": {
+        "8": ["D", "tag v0.5.0 at 178635c; README; docs/FEATURES.md"],
+        "11": ["D", "`wn status` recommended item; PLAN.md Later P-81, P-70, P-63, P-80"],
+        "12": ["D", "SKILL.md / plan.py: plan list shows in progress"],
+        "13": ["U", "generic advice"],
+        "16": ["U", "tag, SHA, origin/main, PLAN.md evidence are present; 'Latest' on GitHub Releases and 'suite OK before the release' are external or past results", 1],
+        "19": ["D", "git log ed3bb1f"],
+        "20": ["D", "git log 2118e4f a2c682f"],
+        "21": ["D", "git log 1c57e78 f609b04; ADR-0028, ADR-0029"],
+        "22": ["D", "git log 33ddeb7"],
+        "23": ["D", "git rev-list -n1 v0.5.0 = 178635c; git log d762f03 after it"],
+        "26": ["D", "docs/decisions/ADR-0028-drift-warning.md"],
+        "27": ["D", "docs/decisions/ADR-0029-checkpoints-and-rollback.md"],
+        "28": ["D", "git: tag at 178635c, README fix d762f03 is later"],
+        "31": ["U", "AGENTS.md, SKILL.md (item overview rule, plan commands) cover most; 'run in background' and 'numbered steps in the question' are not in repo sources (the latter is in auto-memory)", 1],
+        "34": ["G", "Cursor and Gemini gaps are in CODEX-ACCEPTANCE.md and P-78.md; 'drift band timing in Claude Code' and 'bd not installed' are in no source", 1],
+        "37": ["U", "commit d762f03 shows the heading was restored; 'release notes extraction failed and was redone' is in no source", 1],
+        "38": ["D", "git log b2dc7b1 message ('no save commit before a reset'); ADR-0029"]
+      }
+    }
+  }
+}
