@@ -32,6 +32,7 @@ COMMANDS = {
     "fresh-instructions": "print what a caller needs to wrap up and start a fresh chat from the handoff (ADR-0025)",
     "status": "one call for what's next and where we left off: current item, handoff, ready items, warnings",
     "message": "agent-to-agent messages: send, list, answer, close (ADR-0034)",
+    "mcp": "serve status, next, start, done and wrap_up as MCP tools over stdio, for agents with no shell (P-81)",
     "welcome": "print the table of what whatsnext does (shown once after install)",
 }
 
@@ -172,6 +173,10 @@ def main(argv=None):
         from wn import message as wnmessage
 
         return wnmessage.run(args.args)
+    if args.command == "mcp":
+        from wn import mcp as wnmcp
+
+        return wnmcp.run(args.args)
     if args.command == "welcome":
         from wn import welcome as wnwelcome
 
