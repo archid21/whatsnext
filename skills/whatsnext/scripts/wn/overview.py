@@ -67,7 +67,10 @@ def build(ctx, session=None, limit=READY_LIMIT):
         out["message"] = gwplan.no_plan(ctx)
         out["handoff"] = gwplan.handoff_block(ctx)
     try:  # ADR-0034: open messages for this session's item and agent; data, never permission
-        out["messages"] = gwmessage.open_for(ctx.root, session, items=[out["current"]["id"]] if out["current"] else ())
+        # The text stays out: an agent reads it with `message list`, which carries the never-permission warning.
+        out["messages"] = [{k: m.get(k) for k in ("id", "kind", "from", "to", "written", "in_reply_to")}
+                           for m in gwmessage.open_for(ctx.root, session,
+                                                       items=[out["current"]["id"]] if out["current"] else ())]
     except Exception:
         out["messages"] = []
     task = None

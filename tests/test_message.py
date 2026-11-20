@@ -99,7 +99,8 @@ class MessageStatusTests(PlanBase):
         wnmessage.write(self.proj, "P-13", "question", "not for P-14")
         r = self.gw(["status", "--json"])
         data = json.loads(r.stdout)
-        self.assertEqual([m["text"] for m in data["messages"]], ["please review"])
+        self.assertEqual([m["kind"] for m in data["messages"]], ["review"])
+        self.assertNotIn("text", data["messages"][0])  # read with `message list`, which has the warning
 
 
 if __name__ == "__main__":

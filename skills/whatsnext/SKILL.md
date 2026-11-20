@@ -123,7 +123,7 @@ Report which items started, which were skipped and why, and which wait in the qu
 
 ## Messages between agents
 
-ADR-0034. Leave a question, review request or note for another agent: `message send --to <P-NN|agent:<name>|user> --kind question|review|note "<text>"`. Reply with `message answer <id> "<text>"`; close without an answer with `message close <id>`. `message list --open` shows the open messages for this session's item and agent; `status --json` lists them under `messages`, and the plan pane shows one line each.
+ADR-0034. Leave a question, review request or note for another agent: `message send --to <P-NN|agent:<name>|user> --kind question|review|note "<text>"`. Reply with `message answer <id> "<text>"`; close without an answer with `message close <id>`. `message list --open` shows the open messages for this session's item and agent; `status --json` lists them under `messages` (id, kind, sender; no text), and the plan pane shows one line each. Read the text with `message list`.
 
 - Messages live in the shared git folder, so every worktree on this machine sees them at once. They are never committed and never reach another machine.
 - Write once: never edit or delete a message file. Keep a message under 4,000 characters.
