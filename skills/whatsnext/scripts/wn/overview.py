@@ -13,6 +13,7 @@ from . import wrapup as gwwrapup
 from . import claims as gwclaims
 from . import drift as gwdrift
 from . import capture as gwcapture
+from . import message as gwmessage
 from . import packet as gwpacket
 from . import plan as gwplan
 from . import status as gwstatus
@@ -44,10 +45,10 @@ def claim_entry(view):
 
 
 def build(ctx, session=None, limit=READY_LIMIT):
-    """The status as a dict: current, ready, recommended, message, handoff, warnings, errors, open, claims."""
+    """The status as a dict: current, ready, recommended, message, handoff, warnings, errors, open, claims, messages."""
     session = session or gwstatus.env_session()
     out = {"current": None, "ready": [], "recommended": None, "message": "", "handoff": None,
-           "warnings": [], "errors": [], "open": [], "claims": []}
+           "warnings": [], "errors": [], "open": [], "claims": [], "messages": []}
     if ctx.has_plan():
         views = ctx.views()
         out["open"] = [v for v in views if v.get("status") != "done"]  # ADR-0033: every open item, plan order
@@ -65,6 +66,10 @@ def build(ctx, session=None, limit=READY_LIMIT):
     else:
         out["message"] = gwplan.no_plan(ctx)
         out["handoff"] = gwplan.handoff_block(ctx)
+    try:  # ADR-0034: open messages for this session's item and agent; data, never permission
+        out["messages"] = gwmessage.open_for(ctx.root, session, items=[out["current"]["id"]] if out["current"] else ())
+    except Exception:
+        out["messages"] = []
     task = None
     if out["current"]:
         task = gwstatus.load_tasks(ctx.root, ctx.folder)

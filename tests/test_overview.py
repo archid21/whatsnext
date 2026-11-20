@@ -33,7 +33,7 @@ class StatusTests(PlanBase):
 
     def test_fields_are_always_there(self):
         data = self.status()
-        self.assertEqual(sorted(data), ["claims", "current", "errors", "handoff", "message", "open",
+        self.assertEqual(sorted(data), ["claims", "current", "errors", "handoff", "message", "messages", "open",
                                       "ready", "recommended", "warnings"])
 
     def test_open_lists_every_open_item_and_claims_lists_claimed_ones(self):  # ADR-0033

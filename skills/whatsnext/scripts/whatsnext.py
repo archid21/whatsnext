@@ -31,6 +31,7 @@ COMMANDS = {
     "wrap-up-instructions": "print the handoff instructions that the `wrap up` hook adds, for an agent with no hooks (ADR-0027)",
     "fresh-instructions": "print what a caller needs to wrap up and start a fresh chat from the handoff (ADR-0025)",
     "status": "one call for what's next and where we left off: current item, handoff, ready items, warnings",
+    "message": "agent-to-agent messages: send, list, answer, close (ADR-0034)",
     "welcome": "print the table of what whatsnext does (shown once after install)",
 }
 
@@ -167,6 +168,10 @@ def main(argv=None):
         from wn import overview as wnoverview
 
         return wnoverview.run(args.args)
+    if args.command == "message":
+        from wn import message as wnmessage
+
+        return wnmessage.run(args.args)
     if args.command == "welcome":
         from wn import welcome as wnwelcome
 

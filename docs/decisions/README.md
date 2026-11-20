@@ -37,3 +37,4 @@ Dates are UTC. This list is the current set of decisions for whatsnext. Earlier 
 | 0031 | 2026-11-18T23:00Z | One `rules` setting for light, standard or strict rules | accepted (user) | [ADR-0031](ADR-0031-rules-preset.md) |
 | 0032 | 2026-11-20T18:06Z | Fan out ready items: one separate session per item in its own worktree, capped by `plan.fanOutCap` | accepted (user) | [ADR-0032](ADR-0032-fan-out-ready-items.md) |
 | 0033 | 2026-11-20T19:29Z | Plan side panel: a Claude Code pane fed by `status --json` (adds `open` and `claims`) | accepted (user) | [ADR-0033](ADR-0033-plan-side-panel.md) |
+| 0034 | 2026-11-20T21:06Z | Agent-to-agent messages: one file per message in the shared git folder, addressed to an item, an agent or the user | accepted (user) | [ADR-0034](ADR-0034-agent-messages.md) |

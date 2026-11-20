@@ -71,6 +71,13 @@ test('the pane refreshes at each main-thread turn end, not after a subagent turn
   expect(calls()).toBe(before + 1)
 })
 
+test('an open message shows as one line with its sender and id, not its text', () => {
+  const rows = panelRows(parseStatus(JSON.stringify({ ...STATUS, messages: [
+    { id: 'M-1', kind: 'question', text: 'secret words', from: { agent: 'codex', item: 'P-88' } }] })), 80, 20)
+  expect(rows.map(r => r.text)).toContain('Message: question from codex (P-88) · M-1')
+  expect(rows.some(r => r.text.includes('secret words'))).toBe(false)
+})
+
 test('helpers: fallback line, missing fields and the overflow row', () => {
   expect(statusText(parseStatus(JSON.stringify(STATUS)))).toBe('P-70 active · 3 open')
   expect(statusText(parseStatus('{"handoff": null}'))).toBe('no active item · 0 open')

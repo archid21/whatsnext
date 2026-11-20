@@ -7,7 +7,8 @@ export const PANE_COMMAND = 'whatsnext-plan'
 
 type Claim = { id: string; agent?: string | null; branch?: string | null; since_short?: string | null; stale?: boolean }
 type Item = { id: string; title?: string; status?: string; blocked_on?: unknown }
-export type PlanStatus = { current?: Item | null; open?: Item[]; claims?: Claim[] }
+type Message = { id: string; kind?: string; to?: string; from?: { agent?: string; item?: string | null } }
+export type PlanStatus = { current?: Item | null; open?: Item[]; claims?: Claim[]; messages?: Message[] }
 
 export type Row = { text: string; bold?: boolean; dim?: boolean }
 
@@ -27,6 +28,7 @@ export function parseStatus(stdout: string): PlanStatus | undefined {
       current: data.current && typeof data.current.id === 'string' ? data.current : null,
       open: Array.isArray(data.open) ? data.open.filter(v => v && typeof v.id === 'string') : [],
       claims: Array.isArray(data.claims) ? data.claims.filter(c => c && typeof c.id === 'string') : [],
+      messages: Array.isArray(data.messages) ? data.messages.filter(m => m && typeof m.id === 'string') : [],
     }
   } catch {
     return undefined
@@ -47,6 +49,11 @@ export function panelRows(s: PlanStatus | undefined, columns = 40, room = 20): R
     const who = [c.agent ?? 'unknown', c.branch ? `on ${c.branch}` : '', c.since_short ? `since ${c.since_short}` : '']
       .filter(Boolean).join(' ')
     rows.push({ text: short(`  ${c.id} ${who}${c.stale ? ' (stale)' : ''}`, width), dim: !!c.stale })
+  }
+  // Open messages for this session (ADR-0034): who sent what kind, never the text itself.
+  for (const m of s.messages ?? []) {
+    const from = [m.from?.agent ?? 'unknown', m.from?.item ? `(${m.from.item})` : ''].filter(Boolean).join(' ')
+    rows.push({ text: short(`Message: ${m.kind ?? 'note'} from ${from} · ${m.id}`, width), bold: true })
   }
   const open = s.open ?? []
   rows.push({ text: `Open items: ${open.length}`, dim: !open.length })
