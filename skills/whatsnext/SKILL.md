@@ -95,6 +95,8 @@ After the user gives the same worktree answer twice in a row, Start returns `alw
 
 If the user says "always", run the command in `always_offer.answer` (`plan start <id> --concurrent worktree --always`); it saves `plan.concurrentStart = worktree` and takes no new takeover question. No answer means keep asking. Never offer "always stay": `stay` is saved only when the user asks for it in chat (`config set --user plan.concurrentStart stay`) or edits the config.
 
+The setting `plan.fanOutCap` (integer, 1 or more, default 4) is the most ready items one fan-out starts at once (ADR-0032). Set it with `config set --user plan.fanOutCap <n>`. See Run ready items in parallel.
+
 Hooks write only to the item this session started. A second session in the same folder never takes over the first session's item silently.
 
 ## Verification and status
@@ -106,6 +108,18 @@ After each meaningful step, report: **Completed; Current step; Next action; Bloc
 ## Run ready items
 
 “Run all steps” applies to one item's steps. When the user explicitly asks to run the plan or all ready items, show the ready item IDs, their order and exact completion commands. Reuse an explicit approval of that scope; otherwise ask once. Work only those approved IDs, starting each with `plan start`, reporting milestones, verifying it, and marking it done before selecting the next ready approved item. Recheck dependencies with `plan next --json` each time. Stop for failed verification, a blocker, takeover, changed completion criteria, missing permission or a user decision. Newly added items require new authorization. Never interpret a request for status or “what's next?” as approval to execute the whole plan.
+
+## Run ready items in parallel
+
+Only when the user explicitly asks to run ready items in parallel ("fan out", "run them side by side"). ADR-0032.
+
+1. Run `plan next --json` and take the ready items, up to `plan.fanOutCap` (default 4). Show the IDs, the cap and the items left in the queue. Ask once, unless the user already approved that scope.
+2. For each approved item, the parent claims it first: `plan start <id> --branch worktree --dirty carry-on --json`. If the claim fails (another agent or session holds it), skip that item and say so; go on with the others.
+3. Start one separate session per claimed item in its worktree folder, never a subagent (subagents share the parent's session id). Its brief: the item, its done means, the worktree folder, and to run `plan start <id> --takeover` there first so the claim moves to that session. In the Claude desktop app, propose the sessions in one turn; if more than the app accepts, propose the rest in a later turn.
+4. Each worker ends on its own branch. Merging stays with the user. Nothing is pushed.
+5. Codex, which cannot start sessions: give a numbered list, one line per item: open the worktree folder, start the agent there, run `plan start <id> --takeover`.
+
+Report which items started, which were skipped and why, and which wait in the queue.
 
 ## Change the plan
 

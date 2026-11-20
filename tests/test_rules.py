@@ -89,3 +89,49 @@ class RulesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FanOutCapTests(unittest.TestCase):
+    """P-63 (ADR-0032): `plan.fanOutCap` is an integer of 1 or more, default 4."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        base = os.path.realpath(tmp.name)
+        self.proj = os.path.join(base, "proj")
+        os.makedirs(os.path.join(self.proj, ".whatsnext"))
+        subprocess.run(["git", "init", "-q", self.proj], check=True)
+        patcher = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": os.path.join(base, "xdg")})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def write(self, value):
+        with open(os.path.join(self.proj, ".whatsnext", "config.json"), "w", encoding="utf-8") as f:
+            json.dump({"plan": {"fanOutCap": value}}, f)
+
+    def test_default_is_4(self):
+        eff = config.load(self.proj)
+        self.assertEqual(eff.get("plan.fanOutCap"), 4)
+        self.assertEqual(eff.source("plan.fanOutCap")[0], "default")
+
+    def test_valid_value_is_used(self):
+        self.write(2)
+        eff = config.load(self.proj)
+        self.assertEqual((eff.get("plan.fanOutCap"), eff.errors), (2, []))
+        self.assertEqual(eff.source("plan.fanOutCap")[0], "project")
+
+    def test_invalid_values_fall_back_to_the_default(self):
+        for bad in (0, -3, "3", 2.5, True):
+            self.write(bad)
+            eff = config.load(self.proj)
+            self.assertEqual(eff.get("plan.fanOutCap"), 4, bad)
+            self.assertEqual(len(eff.errors), 1, bad)
+            self.assertIn("plan.fanOutCap", eff.errors[0])
+
+    def test_config_set_rejects_below_one_and_non_integers(self):
+        def run(value):
+            return subprocess.run([sys.executable, SCRIPT, "config", "set", "--user", "plan.fanOutCap", value],
+                                  cwd=self.proj, capture_output=True, text=True)
+        self.assertEqual(run("3").returncode, 0)
+        self.assertEqual(run("0").returncode, 2)
+        self.assertEqual(run("two").returncode, 2)

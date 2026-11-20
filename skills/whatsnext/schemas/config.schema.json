@@ -120,6 +120,12 @@
           "default": "ask",
           "description": "What Start does when another live session already has an item in progress in this checkout (ADR-0020): ask each time, always create a new worktree, or always stay on the current branch (the edits of the two sessions then mix). Separate from branchOnStart, which does not decide this case."
         },
+        "fanOutCap": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 4,
+          "description": "Most ready items one fan-out starts at once, one separate session per item (ADR-0032). Items past the cap stay in the queue. The Claude desktop app limits session proposals per turn to about 4."
+        },
         "tickGuard": {
           "enum": [
             "warn",

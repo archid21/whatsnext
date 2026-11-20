@@ -33,3 +33,4 @@ Dates are UTC. This list is the current set of decisions for whatsnext. Earlier 
 | 0027 | 2026-11-15T22:52Z | whatsnext works in any coding agent, in three support tiers; tracker sync, cross-machine claims and an MCP server are allowed | accepted (user) | [ADR-0027](ADR-0027-any-agent-support.md) |
 | 0028 | 2026-11-16T22:35Z | A drift note when work moves off the claimed item: learned folder scope, one note per new file set, never a block | accepted (user) | [ADR-0028](ADR-0028-drift-warning.md) |
 | 0029 | 2026-11-16T23:03Z | A git checkpoint at each item start; plan rollback resets or reverts after asking and never drops uncommitted work | accepted (user) | [ADR-0029](ADR-0029-checkpoints-and-rollback.md) |
+| 0032 | 2026-11-20T18:06Z | Fan out ready items: one separate session per item in its own worktree, capped by `plan.fanOutCap` | accepted (user) | [ADR-0032](ADR-0032-fan-out-ready-items.md) |
