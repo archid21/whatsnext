@@ -33,13 +33,25 @@ def fold_drift(warnings):
     return rest
 
 
+CLAIM_KEYS = ("agent", "branch", "session", "since", "since_short", "idle_short", "stale")
+
+
+def claim_entry(view):
+    """One `claims` entry (ADR-0033): the item id and the claim's display fields."""
+    entry = {"id": view["id"]}
+    entry.update({k: view["claim"].get(k) for k in CLAIM_KEYS})
+    return entry
+
+
 def build(ctx, session=None, limit=READY_LIMIT):
-    """The status as a dict: current, ready, recommended, message, handoff, warnings, errors."""
+    """The status as a dict: current, ready, recommended, message, handoff, warnings, errors, open, claims."""
     session = session or gwstatus.env_session()
     out = {"current": None, "ready": [], "recommended": None, "message": "", "handoff": None,
-           "warnings": [], "errors": []}
+           "warnings": [], "errors": [], "open": [], "claims": []}
     if ctx.has_plan():
         views = ctx.views()
+        out["open"] = [v for v in views if v.get("status") != "done"]  # ADR-0033: every open item, plan order
+        out["claims"] = [claim_entry(v) for v in out["open"] if v.get("claim")]
         current = gwplan.current_work(ctx, views)
         ready = gwplan.candidates([v for v in views if not current or v["id"] != current["id"]], limit)
         out["current"] = current

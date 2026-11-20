@@ -15,7 +15,7 @@
 
 ## Not in this release
 
-Cross-machine claims, a model-written turn summary, a search index, tracker adapters (GitHub, Beads, Jira), folders without git, harnesses other than Claude Code and Codex, a checklist pane. Each needs a new decision before it is built.
+Cross-machine claims, a model-written turn summary, a search index, tracker adapters (GitHub, Beads, Jira), folders without git, harnesses other than Claude Code and Codex. Each needs a new decision before it is built. (The checklist pane was lifted by ADR-0033.)
 
 ## Why
 

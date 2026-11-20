@@ -33,7 +33,20 @@ class StatusTests(PlanBase):
 
     def test_fields_are_always_there(self):
         data = self.status()
-        self.assertEqual(sorted(data), ["current", "errors", "handoff", "message", "ready", "recommended", "warnings"])
+        self.assertEqual(sorted(data), ["claims", "current", "errors", "handoff", "message", "open",
+                                      "ready", "recommended", "warnings"])
+
+    def test_open_lists_every_open_item_and_claims_lists_claimed_ones(self):  # ADR-0033
+        self.task("P-14", next_action="Add the 429 test.")
+        self.set_claim("P-14", agent="codex", updated=ts(1), branch=self.branch())
+        data = self.status()
+        ids = [v["id"] for v in data["open"]]
+        self.assertIn("P-13", ids)
+        self.assertIn("P-14", ids)
+        self.assertTrue(all(v["status"] != "done" for v in data["open"]))
+        self.assertEqual([c["id"] for c in data["claims"]], ["P-14"])
+        self.assertEqual(data["claims"][0]["agent"], "codex")
+        self.assertEqual(data["claims"][0]["branch"], self.branch())
 
     def test_no_current_item_lists_ready_items_and_recommends_the_first(self):
         data = self.status()

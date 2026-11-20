@@ -73,8 +73,9 @@ test('submits wrap up once, 45 minutes after the last turn, after asking the wha
   expect(w.submitted).toEqual([])
   await w.clock.advance(1001)
   expect(w.submitted).toEqual(['wrap up'])
-  expect(w.ran).toHaveLength(1)
-  expect(w.ran[0]?.slice(-4)).toEqual(['hook', 'idle-check', '--agent', 'claude-code'])
+  const hooks = w.ran.filter(a => a.includes('hook')) // the plan pane's `status --json` runs at each turn end too (P-70)
+  expect(hooks).toHaveLength(1)
+  expect(hooks[0]?.slice(-4)).toEqual(['hook', 'idle-check', '--agent', 'claude-code'])
 })
 
 test('a prompt during the wait restarts it, and a turn end starts it again', async ($, on) => {

@@ -3,6 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import { BAND_FIRST, CONTINUE, COPIED_TOAST, COPY_FAILED, promptLine, terminalLine, writtenSince } from './newchat'
 import { IDLE_MS, WRAP_UP, minTokens, saveTipKind, skipReason, type IdleFacts } from './idle'
 import { ME, REPOS, SHARED_PATH, askText, blockedByClaim, parseShared, readStarCheck, reposToAsk, type Shared } from './star'
+import { PANE, PANE_COMMAND, PANE_TITLE, panelRows, parseStatus, statusText, type PlanStatus } from './panel'
 import { GUIDE, TIPS, loadState, markSeen, nextTip, restartTips, stopTips, type Tip } from './tips'
 
 // whatsnext tips band (P-36). One tip shows above the prompt, with Next tip and Stop tips.
@@ -251,6 +252,36 @@ async function idleFacts($: EngineInterface): Promise<IdleFacts> {
   }
 }
 
+// Plan side panel (P-70, ADR-0033). The module keeps the last `status --json` and redraws the pane at session start and
+// at each main-thread turn end. When the pane is not placed (narrow terminal, no surface) one status-line entry stands in.
+let planStatus: PlanStatus | undefined
+let paneShown = false
+
+async function refreshPlan($: EngineInterface) {
+  try {
+    const ran = await $.process.run(['python3', `${$.plugin.root}/${SCRIPT}`, 'status', '--json'], {
+      cwd: await $.session.cwd(),
+      env: { WHATSNEXT_SESSION: await $.session.id() },
+      timeoutMs: 10_000,
+    })
+    if (ran.exitCode === 0) planStatus = parseStatus(ran.stdout)
+  } catch {
+    // keep the last status: the panel must never break the session
+  }
+  $.ui.status(paneShown ? undefined : statusText(planStatus))
+  $.ui.invalidate('ui.render')
+}
+
+async function openPlan($: EngineInterface) {
+  try {
+    const { isPlaced } = await $.ui.open({ id: PANE, title: PANE_TITLE })
+    paneShown = isPlaced
+  } catch {
+    paneShown = false
+  }
+  $.ui.status(paneShown ? undefined : statusText(planStatus))
+}
+
 // Run one whatsnext hook command and read its one JSON line. undefined on any failure.
 async function whatsnextHook($: EngineInterface, event: string) {
   const cwd = await $.session.cwd()
@@ -483,9 +514,13 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'whatsnext-tips', description: 'Show the whatsnext tips again' })
     await $.command.register({ name: 'whatsnext-welcome', description: 'Show what whatsnext does, as a table' })
+    await $.command.register({ name: PANE_COMMAND, description: 'Show the whatsnext plan beside the chat' })
     await noteInstalled($)
+    const started = await next(e)
+    await refreshPlan($)
+    void openPlan($)
 
-    return next(e)
+    return started
   })
 
   // The welcome table (P-44) comes from the Python side, which also shows it once after install.
@@ -498,6 +533,24 @@ export const register: Register = on => {
     }
 
     return { text: `Could not show the welcome table. The guide has the same list: ${GUIDE}` }
+  })
+
+  on('command.run', { command: PANE_COMMAND }, async $ => {
+    await refreshPlan($)
+    await openPlan($)
+
+    return { text: paneShown ? 'Plan pane opened.' : `The window is too narrow for the plan pane. ${statusText(planStatus) ?? ''}`.trim() }
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    const rows = panelRows(planStatus, e.props?.bodyColumns ?? 40, Math.max(3, (e.props?.scroll?.bodyRows ?? 20)))
+
+    return (
+      <Box flexDirection="column">
+        {rows.map(r => <Text bold={r.bold} dimColor={r.dim}>{r.text}</Text>)}
+      </Box>
+    )
   })
 
   on('command.run', { command: 'whatsnext-tips' }, async ($, e, next) => {
@@ -553,6 +606,7 @@ export const register: Register = on => {
       }
       await checkDrift($)
       await afterTurn($)
+      await refreshPlan($)
     }
 
     return result
