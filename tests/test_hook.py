@@ -253,6 +253,26 @@ class InstallHooksTests(HookBase):
         self.install("--remove")
         self.assertEqual(self.hooks_file(), {"x": 1, "hooks": {"Stop": [{"hooks": [other]}]}})
 
+    def test_every_codex_handler_has_a_status_message(self):
+        self.install()
+        for event, groups in self.hooks_file()["hooks"].items():
+            for group in groups:
+                for h in group["hooks"]:
+                    self.assertTrue(h.get("statusMessage", "").startswith("whatsnext: "), event)
+
+    def test_upgrade_keeps_the_group_position(self):
+        self.install()
+        data = self.hooks_file()
+        old = data["hooks"]["Stop"][0]
+        del old["hooks"][0]["statusMessage"]
+        other = {"hooks": [{"type": "command", "command": "echo mine"}]}
+        data["hooks"]["Stop"] = [old, other]
+        self.put(".codex/hooks.json", json.dumps(data))
+        self.install()
+        stop = self.hooks_file()["hooks"]["Stop"]
+        self.assertEqual(stop[1], other)
+        self.assertEqual(stop[0]["hooks"][0]["statusMessage"], "whatsnext: stop")
+
     def test_remove_takes_away_a_file_it_alone_filled(self):
         self.install()
         self.install("--remove")

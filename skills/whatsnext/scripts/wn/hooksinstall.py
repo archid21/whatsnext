@@ -201,6 +201,8 @@ def handler_for(spec, script, ad=None):
     _agent_event, event, _matcher, timeout, limit = spec
     handler = {"type": "command", "command": "python3 %s hook %s --agent %s" % (quote(script), event, ad.name),
                "timeout": timeout}
+    if ad.name == "codex":  # Codex shows statusMessage as the hook's title in /hooks ("Unnamed hook" without it)
+        handler["statusMessage"] = "whatsnext: " + event
     if ad.name == "gemini":  # Gemini names a hook for its logs and `/hooks enable|disable <name>`
         handler = dict([("name", "whatsnext-" + event)], **handler)
     if ad.flat and spec[2]:
@@ -244,7 +246,12 @@ def install_event(groups, spec, script, ad=None):
     own = [g for g in groups if any(is_own(h, ad) for h in g.get("hooks", []))]
     if own == [want]:
         return groups
-    return without_own(groups, ad) + [want]
+    if own:  # replace in place: Codex keys hook trust by group index, so keep the position
+        at = groups.index(own[0])
+        rest = without_own(groups, ad)
+        kept_before = len(without_own(groups[:at], ad))
+        return rest[:kept_before] + [want] + rest[kept_before:]
+    return groups + [want]
 
 
 def scope_file(scope, root, ad=None):
