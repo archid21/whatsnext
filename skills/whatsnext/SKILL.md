@@ -49,6 +49,10 @@ All logic is in one script: `python3 scripts/whatsnext.py <command>` (Python 3.9
 | "start fresh", or another plugin asks how to start a fresh chat from the handoff | `fresh-instructions --session <id> --json` (ADR-0025). If `wrap_up_first` is true, wrap up first: the band then offers Compact and continue here and Copy for new session. Otherwise offer the person `continue_prompt` to paste in a new session (desktop app) or `terminal_command` (terminal) |
 | "compact", "compact session <id>" | Open session: `compact-instructions --session <id> --json`; if `project` is false, `wrap up` does nothing, so use `instructions` as they are. If `wrap_up_first` is true (no fresh note of this session: missing, foreign or older than the last turn), wrap up first, then run the command again; `wrap_up_state` is `written` when it worked. Then submit `compact_prompt`. A foreign note (`handoff_foreign`) is never carried into a compact. |
 
+## MCP tools (no shell)
+
+An agent with no shell can use `whatsnext mcp`, a stdio MCP server, instead of the commands above. Its tools `status`, `next`, `start`, `done` and `wrap_up` take typed arguments (`start` takes the answer flags as fields: `branch`, `dirty`, `current`, ...) and return the same JSON as `status --json`, `plan next --json`, `plan start --json`, `plan done --json` and `wrap-up-instructions`. Follow the same flows: a result with `ask` is a question to put to the user before calling again. `done` with `verify: true` (or `verify_part`, exact text) runs only the item's own done-means command. `start` cannot set a done means: when the item has none, ask the user to set it with the CLI.
+
 ## Start flow
 
 A command that needs an answer prints a question and exits 4 (add `--json` for data: `ask`, `question`, `options`, `recommended`, `context`, `answer_flag`). Ask it as one pop-up, recommended option first. Then run the same command again with all earlier flags plus the answer flag. Exit 0 is done, 1 is an error.
