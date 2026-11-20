@@ -45,7 +45,7 @@ TOOLS = [
     },
     {
         "name": "start",
-        "description": "Claim a plan item (`plan start <id> --json`). A result with `ask` is a question: ask the user, then call again with the answer field set.",
+        "description": "Claim a plan item (`plan start <id> --json`). A result with `ask` is a question: ask the user, then call again with the answer field set. An item with no done means cannot start here: a person sets it with the CLI, so a tool caller can never choose the command `done` runs.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -53,7 +53,6 @@ TOOLS = [
                 "agent": {"type": "string", "description": "your agent name"},
                 "session": {"type": "string"},
                 "takeover": {"type": "boolean"},
-                "done_means": {"type": "string", "description": "done means, when the item has none"},
                 "dirty": {"type": "string", "enum": ["commit", "stash", "carry-on"]},
                 "current": {"type": "string", "enum": ["done", "keep", "put-back"]},
                 "evidence": {"type": "string", "description": "evidence for current=done"},
@@ -154,7 +153,7 @@ def build_argv(tool, args):
     if tool == "next":
         return ["plan", "next", "--json"] + _flags(args, ["limit"])
     if tool == "start":
-        names = ["agent", "session", "takeover", "done_means", "dirty", "current", "evidence", "saved", "unverified", "branch", "concurrent", "always"]
+        names = ["agent", "session", "takeover", "dirty", "current", "evidence", "saved", "unverified", "branch", "concurrent", "always"]
         return ["plan", "start", args["id"], "--json"] + _flags(args, names)
     if tool == "done":
         if args.get("verify") and "verify_part" in args:

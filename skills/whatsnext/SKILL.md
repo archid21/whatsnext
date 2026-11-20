@@ -51,7 +51,7 @@ All logic is in one script: `python3 scripts/whatsnext.py <command>` (Python 3.9
 
 ## MCP tools (no shell)
 
-An agent with no shell can use `whatsnext mcp`, a stdio MCP server, instead of the commands above. Its tools `status`, `next`, `start`, `done` and `wrap_up` take typed arguments (`start` takes the answer flags as fields: `branch`, `dirty`, `current`, ...) and return the same JSON as `status --json`, `plan next --json`, `plan start --json`, `plan done --json` and `wrap-up-instructions`. Follow the same flows: a result with `ask` is a question to put to the user before calling again. `done` with `verify: true` (or `verify_part`, exact text) runs only the item's own done-means command.
+An agent with no shell can use `whatsnext mcp`, a stdio MCP server, instead of the commands above. Its tools `status`, `next`, `start`, `done` and `wrap_up` take typed arguments (`start` takes the answer flags as fields: `branch`, `dirty`, `current`, ...) and return the same JSON as `status --json`, `plan next --json`, `plan start --json`, `plan done --json` and `wrap-up-instructions`. Follow the same flows: a result with `ask` is a question to put to the user before calling again. `done` with `verify: true` (or `verify_part`, exact text) runs only the item's own done-means command. `start` cannot set a done means: when the item has none, ask the user to set it with the CLI.
 
 ## Start flow
 

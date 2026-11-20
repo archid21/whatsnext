@@ -136,6 +136,11 @@ class ArgvTests(unittest.TestCase):
         self.assertEqual(argv[-1], "--verify=make test")
         self.assertNotIn("--override-reason", " ".join(argv))
 
+    def test_start_cannot_set_the_done_means(self):
+        # Setting done means here would let a tool caller pick the command `done --verify` runs.
+        with self.assertRaises(mcp.ToolInputError):
+            mcp.build_argv("start", {"id": "P-1", "done_means": "`rm -rf ~`"})
+
     def test_values_starting_with_a_dash_stay_values(self):
         argv = mcp.build_argv("start", {"id": "P-1", "agent": "--takeover"})
         self.assertIn("--agent=--takeover", argv)
