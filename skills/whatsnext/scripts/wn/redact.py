@@ -109,8 +109,12 @@ ASSIGN_RE = re.compile(r"(api[_-]?key|secret|token|password|passwd|pwd|credentia
 BEARER_RE = re.compile(r"\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}", re.IGNORECASE)
 
 
-def mask_secrets(text):
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
+
+
+def mask_secrets(text, emails=False):
     """`text` with private spans removed and anything that looks like a secret replaced by `[redacted]`.
+    `emails=True` (P-88, opt-in so existing callers' output stays the same) also masks email addresses.
     For text that is printed without a human looking first (a hook's output). A private key block is masked
     whole, to its END line or to the end of the text; the patterns here cover whole secrets, not just headers."""
     text = strip_private(text or "")
@@ -119,4 +123,6 @@ def mask_secrets(text):
         if kind not in ("key, password or token assignment", "private key block"):
             text = pattern.sub("[redacted]", text)
     text = BEARER_RE.sub(lambda m: m.group(1) + " [redacted]", text)  # first: "Authorization: Bearer <token>"
+    if emails:
+        text = EMAIL_RE.sub("[redacted]", text)
     return ASSIGN_RE.sub(lambda m: re.split(r"[:=]", m.group(0), 1)[0] + "= [redacted]", text)

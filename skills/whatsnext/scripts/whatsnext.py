@@ -25,7 +25,7 @@ COMMANDS = {
     "config": "show the effective settings (config show) or set one in the user layer (config set --user <key> <value>)",
     "init": "adopt whatsnext in a git repository (--dry-run, --undo)",
     "install-hooks": "install the whatsnext hooks for Codex (hooks.json)",
-    "handoff": "run the handoff note's `Verify:` line and archive the note when it passes (handoff verify)",
+    "handoff": "run the handoff note's `Verify:` line and archive the note when it passes (handoff verify); write the note from a saved chat (handoff from-transcript)",
     "doctor": "check that the hooks are in place for Claude Code and Codex, and when one last fired",
     "compact-instructions": "print the text for `/compact` in an open session (ADR-0009)",
     "wrap-up-instructions": "print the handoff instructions that the `wrap up` hook adds, for an agent with no hooks (ADR-0027)",

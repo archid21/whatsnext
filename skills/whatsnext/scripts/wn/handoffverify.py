@@ -84,6 +84,10 @@ def archived_copy(root, effective):
 
 
 def run(argv):
+    if argv and argv[0] == "from-transcript":  # P-88 (ADR-0035)
+        from . import transcript as wntranscript
+
+        return wntranscript.run(argv[1:])
     parser = argparse.ArgumentParser(prog="whatsnext handoff verify",
                                      description="Run the handoff note's `Verify:` line; on exit 0, archive the note.")
     parser.add_argument("action", choices=["verify"])
