@@ -9,6 +9,7 @@ import json
 import re
 
 from . import handoffclaims as gwhandoffclaims
+from . import transcript as gwtranscript
 from . import wrapup as gwwrapup
 from . import claims as gwclaims
 from . import drift as gwdrift
@@ -87,6 +88,7 @@ def build(ctx, session=None, limit=READY_LIMIT):
         out["handoff"]["read_first"] = info["related"]
         out["handoff"]["label"] = "read it first" if info["related"] else "another session's note"
         out["handoff"]["agent"] = info.get("agent")  # P-91
+        out["handoff"]["source"] = gwtranscript.note_source(gwwrapup.handoff_path(ctx.root, ctx.effective))  # P-88
         try:  # P-87: git facts only; a `run` check is never run here (ADR-0030)
             path = gwwrapup.handoff_path(ctx.root, ctx.effective)
             with open(path, encoding="utf-8", errors="replace") as f:
@@ -127,6 +129,8 @@ def print_text(data):
         if handoff.get("label"):
             line += " (%s)" % handoff["label"]
         print(line)
+        if handoff.get("source"):
+            print("  Source: " + handoff["source"])
         if handoff.get("checks"):
             print("  " + gwhandoffclaims.line(handoff["checks"]))
         if handoff.get("next_action"):
