@@ -43,7 +43,9 @@ SOURCE_RE = re.compile(r"^source\s*:\s*(.+?)\s*$", re.IGNORECASE)
 
 
 def clip(text, head, tail):
-    """The first `head` and last `tail` characters, and how many were cut."""
+    """The first `head` and last `tail` characters, and how many were cut. The whole text is redacted first, so a
+    cut can never split a secret or a private span out of reach of the patterns."""
+    text = redact(text)
     if len(text) <= head + tail + 40:
         return text
     cut = len(text) - head - tail

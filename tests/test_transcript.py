@@ -306,5 +306,18 @@ class NoNetworkTests(unittest.TestCase):
             self.assertNotIn(word, code)
 
 
+
+class ClipRedactsFirstTests(unittest.TestCase):
+    def test_a_secret_or_private_span_cut_by_the_clip_is_still_removed(self):
+        from wn import transcript as wntranscript
+        key = "sk-ant-api03-" + "A" * 60
+        text = "x" * 990 + key + " <private>hidden words</private>" + "y" * 2000
+        out = wntranscript.clip(text, 1000, 300)
+        self.assertNotIn("AAAAAAAAAA", out)
+        self.assertNotIn("hidden words", out)
+        mail = "z" * 1500 + "someone@example.com" + "q" * 10
+        self.assertNotIn("someone@example.com", wntranscript.clip(mail, 1510, 0))
+
+
 if __name__ == "__main__":
     unittest.main()
