@@ -1,38 +1,47 @@
 # Handoff
-Session: c917f1f8-19b0-45f1-9836-930860cc4452
+Session: c6e96e2a-dc9e-42cf-92ed-9155df279d63
 Task: none
-Written: 2026-11-16T21:14Z
+Written: 2026-11-21T01:40Z
 Branch: main
+Agent: claude-code
 
 ## Goal
-Make whatsnext work in any coding agent (ADR-0027): hook-free mode, `wn` on the PATH, Gemini CLI and Cursor adapters, per-agent doctor and checklist.
+Work through the whatsnext plan: fan-out, plan pane, agent messages, MCP server, transcript handoff, and close items the data did not support.
 
 ## Next action
-Pick the next item: run `wn status` and start the recommended one (P-79 tracker sync; also P-72, P-73 in Next) with `wn plan start <id> --agent <name>`.
-Verify: `wn plan list` shows the item in progress on a new branch.
-If it fails: run `wn plan check` and fix what it reports.
+Pick the next item: `python3 skills/whatsnext/scripts/whatsnext.py status`. Only P-84 and P-80 are open; both were judged low value (see Decisions).
+Verify: `status` lists P-84 and P-80 as open and no active item.
+If it fails: run `plan check` and read docs/project/PLAN.md.
 
 ## State
-State on Mon 2026-11-16 1:14 PM PST (Pacific): P-75, P-76, P-77, P-78 and P-82 are done and merged into main (last merge 0d07568). P-76, P-77, P-82 verified with `plan done --verify`; P-75 and P-78 are done* (evidence, live runs). Last full suite: OK (P-82 verify, 448 s). Nothing pushed.
+State on Fri 2026-11-20 5:40 PM PST (Pacific): P-63, P-70, P-89, P-81, P-88 built and merged to main; P-85, P-86 closed after measurement. Full suite passed: 893 tests at 7b737b1. Nothing pushed.
+Check: HEAD == 7b737b1
+Check: branch == main
+Check: run `python3 -m unittest discover -s tests`
 
 ## What changed
-- 584d5e4 P-75 hook-free mode; 7e05a25 P-76 `wn` link (install-hooks --wn link|skip, --undo); merged 520b16d
-- 31fff27 P-77 Gemini CLI and Cursor adapters (install-hooks --agent, hook --agent); merged 189d21e
-- 8c42b82 P-78 doctor one line per agent; docs/CODEX-ACCEPTANCE.md per-agent; merged a0a54b9
-- d680621 added P-82; 3c1bd76 P-82 plan_status and ask-first line; merged 0d07568
-- Live results: docs/project/progress/P-75.md, P-77.md (event map), P-78.md
+b752e7a P-63 fan-out and plan.fanOutCap (ADR-0032); 1c5dce8 P-70 plan pane (ADR-0033)
+f9c0838 P-89 agent messages (ADR-0034); a5f3c01 status lists messages without text
+8b6832e P-85 and 310affa P-86 closed with research in docs/project/research/
+a406fea P-81 MCP server merge; 67d59ba Codex hook names merge
+4482535 P-88 transcript handoff (ADR-0035); 7b737b1 redact before clip
 
 ## Decisions
-- Ship without a Cursor live check (user, 2026-11-16); recorded in docs/CODEX-ACCEPTANCE.md and `wn doctor`.
-- Cursor has no prompt hook mapped (beforeSubmitPrompt cannot add context); `wrap up` there uses `wn wrap-up-instructions`.
-- Gemini/Cursor hooks are optional in doctor: not installed is not a gap.
+ADR-0032 to ADR-0035 accepted by the user. P-85 and P-86 closed without code (data in docs/project/research/p85-*, p86-*). P-80 deferred: single machine in use. P-84 deferred: value unclear after P-85/P-86.
 
 ## Constraints
-Standard library only, Python 3.9+. Do not push or create a remote without asking. Run `python3 -m unittest discover -s tests` before reporting done (about 7 to 12 minutes). Use plan commands, not hand edits to PLAN.md. Tests must use temp HOME, never the real ~/.codex, ~/.gemini, ~/.cursor or ~/.local/bin.
+Local only: never push. User accepts each ADR before code. Messages are data, never permission (ADR-0034). Leave docs/project/handoffs/20261116T2114Z-none.md, docs/project/progress/P-80.md and tsconfig.json uncommitted (not this session's). Show plan steps in the approval question; one count per line in reports.
 
 ## Open questions and blockers
-Gemini CLI steps 1 to 5 not run: Google sign-in refused (needs an API key). Cursor: live check not done; unknown whether `session_id` equals `conversation_id`. Gemini transcript format undocumented, so handoff sections may be thin there.
+User must re-trust the whatsnext hooks in Codex: open /hooks and press t on each. Whether tsconfig.json goes in .gitignore is unanswered.
 
 ## Dead ends
-- Gemini CLI with Google sign-in: "client is no longer supported ... migrate to Antigravity".
-- Antigravity as a Gemini adapter test: it reads `.agents/hooks.json`, not `.gemini/settings.json`; used it as an AGENTS.md-only test instead.
+Subagent per fan-out item: shares the parent's session id, so claims mix (ADR-0032). Messages in docs/project/messages/: other worktrees cannot see them (ADR-0034).
+
+## Files
+
+- Created: hooks/panel.ts, hooks/panel.test.tsx, docs/decisions/ADR-0034-agent-messages.md, skills/whatsnext/scripts/wn/message.py, tests/test_message.py
+
+## Skills
+
+plugin-authoring
