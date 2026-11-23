@@ -1,7 +1,7 @@
 # ADR-0036: A settled list: choices already made, copied from the handoff by code, so later sessions do not reopen them
 
 - **Date:** 2026-11-21
-- **Status:** proposed
+- **Status:** accepted (user), 2026-11-23
 
 Builds on ADR-0008 (the handoff note), ADR-0013 (Dead ends) and ADR-0035 (handoff from a transcript). For P-93. An agent's suggestion: it stays `proposed` until the user accepts it.
 

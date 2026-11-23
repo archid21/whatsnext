@@ -2,11 +2,23 @@
 
 **One plan, one next step, for every coding agent.**
 
-whatsnext works in Claude Code, Codex, Gemini CLI, Cursor and any agent that reads `AGENTS.md`. It keeps a plan checklist, check-offs and a short resume note as plain files in your repository, so a new session, or a second agent, starts from where the last one stopped.
+[![version 0.7.0](https://img.shields.io/badge/version-0.7.0-blue)](#new-in-070)
+[![license MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+![python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)
+![dependencies: none, standard library only](https://img.shields.io/badge/dependencies-none%20(standard%20library)-brightgreen)
+![works with Claude Code, Codex, Gemini CLI, Cursor](https://img.shields.io/badge/works%20with-Claude%20Code%20%7C%20Codex%20%7C%20Gemini%20CLI%20%7C%20Cursor-lightgrey)
 
-**Status: 0.6.0.** See [New in 0.6.0](#new-in-060).
+whatsnext works in Claude Code, Codex, Gemini CLI, Cursor and any agent that reads `AGENTS.md`. It keeps a plan checklist, check-offs, a short resume note and a list of settled choices as plain files in your repository, and lets agents leave each other messages, so a new session, or a second agent, starts from where the last one stopped.
 
-MIT license · Python 3.9+, standard library only · no database, no background process
+## Why whatsnext
+
+A coding agent forgets between sessions. So you pay in one of four ways, and whatsnext removes each one:
+
+- **You re-explain.** What was done, what is left and which branch it lives on. whatsnext keeps a plan and a short resume note that load at session start, after `/clear` and after a compact.
+- **Two agents take the same item.** Nothing says who has it. `plan start` refuses an item another agent has checked out.
+- **"Done" is a claim.** The agent says the tests pass; no one ran them. An item is ticked only when its test command exits 0.
+- **A compact keeps what the model thinks matters,** which may not be your goal or your rules. The `/compact` text is built from your handoff, so the summary keeps your goal.
+- **Nothing is hidden.** Everything is a Markdown or JSON file you can read and edit. There is no database and no background process. Recording a session event uses no model call.
 
 ## Install
 
@@ -17,9 +29,11 @@ claude plugin marketplace add archid21/whatsnext
 claude plugin install whatsnext@whatsnext
 ```
 
-Codex: from a checkout, run `python3 skills/whatsnext/scripts/whatsnext.py install-hooks`, then review the new hooks in Settings > Hooks (desktop) or `/hooks` (CLI). Gemini CLI and Cursor: add `--agent gemini` or `--agent cursor` (writes `~/.gemini/settings.json` or `~/.cursor/hooks.json`; `--project` for the repo; `--dry-run` and `--undo` work the same).
+Claude Code loads `hooks/hooks.json` with the plugin.
 
-## Key steps
+Codex: from a checkout, run `python3 skills/whatsnext/scripts/whatsnext.py install-hooks` (it also links the skill into `~/.agents/skills/whatsnext`), then review the new hooks in Settings > Hooks (desktop) or `/hooks` (CLI). Gemini CLI and Cursor: add `--agent gemini` or `--agent cursor` (writes `~/.gemini/settings.json` or `~/.cursor/hooks.json`; `--project` for the repo; `--dry-run` and `--undo` work the same).
+
+## Quickstart
 
 1. Say **"set up whatsnext in this repo"** and make a plan.
 2. Work. Say **"wrap up"** before you step away or clear the chat.
@@ -27,7 +41,20 @@ Codex: from a checkout, run `python3 skills/whatsnext/scripts/whatsnext.py insta
 
 When an item is finished, say **"mark P-13 done"**. It is ticked only if its test command passes.
 
-## Features
+**New here? Read the [user guide](docs/GUIDE.md):** what to say to save a session, resume it, pick work and mark it done.
+
+The first time a session starts after install, whatsnext shows a table of what it does (the feature, what it does in plain words, how it works) and a short diagram of how plan, handoff, compact and resume fit together. It shows once. See it again with `/whatsnext-welcome` in Claude Code, or `whatsnext welcome`.
+
+To try the commands from a checkout, in a git repository:
+
+```
+python3 skills/whatsnext/scripts/whatsnext.py init --dry-run
+python3 skills/whatsnext/scripts/whatsnext.py status --json
+python3 skills/whatsnext/scripts/whatsnext.py plan next
+python3 skills/whatsnext/scripts/whatsnext.py plan done P-13 --verify "python3 -m unittest discover -s tests"
+```
+
+## Key features
 
 | Feature | What it does |
 |---|---|
@@ -53,82 +80,58 @@ When an item is finished, say **"mark P-13 done"**. It is ticked only if its tes
 | Fewer or more rules | One setting, `rules`: light, standard or strict. A key you set yourself still wins. |
 | Handoff checks | `Check:` lines in the handoff are re-checked at resume: VERIFIED, STALE or BROKEN. |
 | Install backups | `install-hooks` keeps a copy of each file it changes; `--undo` restores it exactly. |
+| Settled list | Wrap-up copies choices already made into `docs/project/SETTLED.md`; the resume note shows them. |
+| Agent messages | Agents leave questions and notes for each other or for you, in the shared git folder. |
+| Plan side panel | Claude Code only. Open items, the active item and who has what, beside the chat. |
+| Run ready items in parallel | One session per ready item, each in its own worktree, up to `plan.fanOutCap`. |
+| MCP server | `whatsnext mcp` gives agents with no shell five typed tools. |
 | Any coding agent | Claude Code and Codex with hooks; Gemini CLI and Cursor hooks; any other agent through `AGENTS.md` and the `wn` command. |
 
 Every feature, how it works, its value and the release that added it: [docs/FEATURES.md](docs/FEATURES.md).
 
-## New in 0.6.0
+## New in 0.7.0
 
-Choose how strict whatsnext is, and trust a handoff only as far as its facts still hold.
+Agents remember what was settled, talk to each other, and run ready items side by side.
 
-- **Fewer or more rules:** `wn config set --user rules light` turns off the gates (hand ticks allowed, no drift note, no branch question). `strict` lets only `plan done --verify` tick an item and starts each item on its own branch. `standard` is the default. A setting you set yourself still wins ([ADR-0031](docs/decisions/ADR-0031-rules-preset.md)).
-- **Handoff checks:** wrap-up ends the State section with `Check:` lines (HEAD, branch, clean tree, or a command). `status` re-checks the git facts and shows VERIFIED, STALE or BROKEN. A `Check: run` command runs only with `handoff verify --run-checks` ([ADR-0030](docs/decisions/ADR-0030-handoff-claim-checks.md)).
-- **Handoff from a saved chat:** when a chat has sat idle past its cache time, `whatsnext handoff from-transcript <session.jsonl> --prepare` prints a helper prompt and the chat trimmed to 120 KB (tool output cut, thinking dropped, oldest messages dropped first), plus `AGENTS.md`, the old note, the active progress file and a git snapshot, with secrets, `<private>` spans and email addresses masked. Send that to your own cheaper model, then `handoff from-transcript <session.jsonl> --write <answer file>` (`-` for stdin) checks the answer (the eight sections in order, plus an optional ninth, Settled; size caps, one `Verify:`, one `If it fails:`, at least one `Check:`), archives the old note and writes the new one with the header `Source: transcript <session8>, unverified`, which `status` shows. A bad answer writes nothing and exits 1. whatsnext makes no model call and no network call ([ADR-0035](docs/decisions/ADR-0035-handoff-from-transcript.md)). Use it only when the cache is cold; a warm `wrap up` costs about the same.
-- **Broken is not failed:** a check that could not run (exit 126 or 127, or a timeout) is recorded as broken, apart from a real failure, in the journal and `plan report`.
-- **Who wrote it:** journal lines and handoffs name the agent (claude-code, codex, gemini, cursor). `status` and `plan report` show it.
-- **Install backups:** `install-hooks` keeps a copy of each settings file before it changes it. `--undo` puts the original back byte for byte when you have not edited the file since.
+- **Settled list:** wrap-up adds a `## Settled` section: approaches dropped, tools to use, and behavior that is expected. whatsnext copies new lines into `docs/project/SETTLED.md` without duplicates, and the resume note shows them ([ADR-0036](docs/decisions/ADR-0036-settled-list.md)).
+- **Handoff from a transcript:** `handoff from-transcript <file.jsonl> --prepare` prints a helper prompt with the trimmed chat and repo facts; `--write` checks the helper's note and saves it as the handoff. whatsnext makes no model call ([ADR-0035](docs/decisions/ADR-0035-handoff-from-transcript.md)).
+- **Agent messages:** `message send`, `list`, `answer` and `close` pass questions and notes between agents through the shared git folder. A message is data, never permission ([ADR-0034](docs/decisions/ADR-0034-agent-messages.md)).
+- **Plan side panel:** in Claude Code, a pane shows open items, the active item and claims. `status --json` adds `open`, `claims` and `messages` ([ADR-0033](docs/decisions/ADR-0033-plan-side-panel.md)).
+- **Run ready items in parallel:** one session per ready item, each claimed first and in its own worktree, up to `plan.fanOutCap` (default 4). Merging stays with you ([ADR-0032](docs/decisions/ADR-0032-fan-out-ready-items.md)).
+- **MCP server:** `whatsnext mcp` serves `status`, `next`, `start`, `done` and `wrap_up` over stdio for agents with no shell.
 
-## New in 0.5.0
+Release history: [CHANGELOG.md](CHANGELOG.md) (0.6.0 back to 0.2).
 
-whatsnext now works in any coding agent, and it can undo an item safely.
+## Core usage and configuration
 
-- **Any agent:** three support tiers: plain files for every agent, instructions through `AGENTS.md` and `SKILL.md`, hooks where the agent has them. Agents with no hooks run `wn status` at start and write the handoff on `wrap up`. See [Support tiers](#support-tiers).
-- **`wn` on your PATH:** `install-hooks --wn link` adds a short `wn` command. `--undo` removes everything it installed.
-- **Gemini CLI and Cursor hooks:** `install-hooks --agent gemini` or `--agent cursor`. `doctor` prints one line per agent. Cursor is not live-checked yet ([checklist](docs/CODEX-ACCEPTANCE.md)).
-- **Checkpoints and rollback:** `plan start` saves where an item began. "roll back P-12" (`plan rollback`) resets or reverts after asking, never rewrites a shared or merged branch, and never drops uncommitted work.
-- **Plan from a goal:** "plan this: <goal>" drafts items with a done means each, reuses items that overlap, and asks Next, Now or Later before adding them.
-- **Drift note:** one note when files change outside the item you claimed: on the band in Claude Code, as a hook message in Codex and Gemini CLI, and in `status`. Never a block. Turn it off with `config set --user plan.driftNote off`.
-- **Tracker sync:** `plan import --from beads` or `--from github` adds ready items through your own `bd` or `gh`, keeping the tracker id. `plan close-tracker` closes a done item there after you say yes.
-- **Plan report and item overviews:** `plan report` shows what each item cost. "what's next?" gives each offered item a short overview.
-- **Safer takeovers:** a plan that was only shown is not approved; a new agent asks before running it.
+Say these phrases to your agent: `set up whatsnext in this repo`, `what's next?`, `start P-13`, `mark P-13 done`, `wrap up`, `plan this: <goal>`, `roll back P-12`.
 
+Commands: `status`, `plan`, `progress`, `config show`, `config set --user`, `init`, `install-hooks`, `compact-instructions` and `fresh-instructions`. The script is `skills/whatsnext/scripts/whatsnext.py`.
 
-## New in 0.4.0
+```
+python3 skills/whatsnext/scripts/whatsnext.py plan next
+python3 skills/whatsnext/scripts/whatsnext.py plan done P-13 --verify "python3 -m unittest discover -s tests"
+python3 skills/whatsnext/scripts/whatsnext.py progress new P-13 --title "Add login"
+python3 skills/whatsnext/scripts/whatsnext.py progress next P-13 "Write the login tests"
+python3 skills/whatsnext/scripts/whatsnext.py progress capture --status shown --file plan.md
+python3 skills/whatsnext/scripts/whatsnext.py init --dry-run
+python3 skills/whatsnext/scripts/whatsnext.py install-hooks --dry-run
+python3 skills/whatsnext/scripts/whatsnext.py config set --user plan.staleAfter 2h
+```
 
-- **Review before done:** an item with `review: required` is not ticked when its check passes. It shows `awaiting review` until you run `plan review <id>` (or reject it with a reason).
-- **Reuse a passing run:** `plan test <id>` runs the saved check. `plan done --verify` reuses a passing run of the same command on the same code, so a long suite runs once. `--fresh` forces a new run.
-- **Edit and reopen:** `plan edit` keeps an item's id. `plan reopen` keeps the old evidence and asks for a fresh check.
-- **Start fresh after a wrap-up:** the band above the prompt offers **Compact and continue here** or **Copy for new session**. Other plugins can call `fresh-instructions` for the same choice.
-- **Resume one task:** `progress resume <id>` prints the note for one task from its newest handoff.
-- **Better handoffs and compacts:** `HANDOFF.md` lists files, links and skills used. After a compact, the resume note says how many plan steps the summary kept.
-- **More checks and output:** `plan check` flags done items whose branch is not merged into `main`. `progress pr-body <id>` prints a PR description from recorded facts.
+**Settings.** `config show` prints every effective setting with its layer. `config set --user <key> <value>` writes one setting to the user layer (`~/.config/whatsnext/config.json`), after checking the key and value type against `skills/whatsnext/schemas/config.schema.json`. It refuses an unknown key (exit 2), never overwrites a user file that is not valid JSON, and prints the effective value after (a project setting still wins and the line says so). Values: `true` or `false` for a boolean, digits for an integer, text for a string or enum.
 
-## New in 0.3.1
+**Rules preset.** The `rules` setting is `light`, `standard` (the default) or `strict`. `light` turns off the gates: hand ticks are allowed, there is no drift note and no branch question. `strict` lets only `plan done --verify` tick an item and starts each item on its own branch. A key you set yourself still wins ([ADR-0031](docs/decisions/ADR-0031-rules-preset.md)). Example: `python3 skills/whatsnext/scripts/whatsnext.py config set --user rules light`.
 
-- **Star ask:** once, after your first verified `mark done`, the tip band asks for a GitHub star. One click stars it with your `gh` sign-in; **No thanks** hides it for good. With rightsize installed, one ask covers both.
+## How it works
 
-## New in 0.3
+**Files in your repository.** `PLAN.md` (the checklist), `.whatsnext/` (settings and per-session state), `docs/project/progress/` (one file per task, with a `journal/` folder), `docs/project/HANDOFF.md` (the wrap-up note), `docs/project/SETTLED.md` (settled choices), `docs/project/plans/` (captured plans) and one marked block in `AGENTS.md`. Every file is plain Markdown or JSON. The full list of what whatsnext reads and writes, in and outside the repository: [docs/WHAT-IT-TOUCHES.md](docs/WHAT-IT-TOUCHES.md).
 
-- **One status call:** `whatsnext status` answers "what's next?" and "where did we leave off?": the current item, the handoff, the ready items and the warnings.
-- **Two chats in one folder:** Start asks for a new worktree when another session has work in progress here. Claims and the active task belong to a session.
-- **Your own note after `/clear`:** a recent `Task: none` handoff from this branch says "read it first".
-- **Safer plan:** claims are atomic locks, a dropped id is never reused, and `plan check` reports blocked-by cycles.
-- **Simpler wrap-up in Claude Code:** the reply ends with one `/compact` hint, and a recent handoff steers a new session.
+**Hooks.** The resume note at session start, after `/clear` and after compaction; plan capture when the agent shows a plan; the `wrap up` prompt; and the Stop, PreCompact and SessionEnd events that feed the facts journal. Details are in the Reference section.
 
-## New in 0.2
+**Journal.** At each of those events, one line goes to `docs/project/progress/journal/<item>.md`: time, event, commit, branch, dirty file count and files changed. No model call.
 
-- **Edit and import the plan:** `plan add`, `plan drop` and `plan move`, and import a plan from any spec or task file.
-- **Run the whole item:** at start, choose to run all steps, then verify and mark done.
-- **Stricter proof:** `--verify` runs the item's saved test command. A different command needs your approval, recorded with the evidence.
-- **Better resume:** after a compact, the resume note repeats your latest request. `plan next` puts the work in progress in this checkout first.
-- **Codex continuity:** `wrap up`, forked chats, interruptions and session end now work in Codex. `doctor` shows which hooks each agent has actually run.
-- **Opt-in auto wrap-up, a tip bar and a welcome table** after install.
-
-**New here? Read the [user guide](docs/GUIDE.md):** what to say to save a session, resume it, pick work and mark it done.
-
----
-
-## The problem: every session starts blank
-
-A coding agent forgets between sessions. So you pay in one of three ways:
-
-- **You re-explain.** What was done, what is left and which branch it lives on.
-- **Two agents take the same item.** Nothing says who has it.
-- **"Done" is a claim.** The agent says the tests pass; no one ran them.
-
-A compact does not fix this. It keeps whatever the model thinks matters, which may not be your goal or your rules.
-
-## What you get
+### What you get, in detail
 
 **A plan every agent reads.** `PLAN.md` is a checklist in your repository. `plan next` shows what is next; `plan start` asks a few questions first and refuses an item another agent has checked out. A claim is a lock on one machine: of two agents requesting the same item at once, only one gets it.
 
@@ -140,25 +143,11 @@ A compact does not fix this. It keeps whatever the model thinks matters, which m
 
 **A compact that keeps your goal.** `compact-instructions` builds the `/compact` text from that handoff, so the summary keeps what you wrote down: goal, next action, decisions, constraints.
 
-**Works in Claude Code and Codex.** Each agent reads and writes the same plain files. *Experimental:* switching between agents on one plan, or running two at once, has not been extensively tested. See [Known limits](#known-limits).
+### Execution and Codex continuity
 
-**Nothing hidden.** Everything is a Markdown or JSON file you can read and edit. Recording a session event (time, commit, branch, files changed) uses no model call.
+`what's next?` recommends current work before a new item and flags a handoff that references completed work. The agent reports completed work, current step, next action, blockers and verification at meaningful milestones. “Run all steps” covers one task; “run the ready plan items” approves an explicit set of tasks.
 
-## Where it fits
-
-whatsnext does plan, check-off and handoff in one repository. It does not remember facts across projects, search past conversations or write decision records. Established tools do that (memory plugins such as claude-mem and Mem0, and adr-kit for decision records), and whatsnext does not replace them. Use it next to them, or alone if a plan and a handoff are all you need.
-
-| | Rules file only (`CLAUDE.md`, `AGENTS.md`) | Memory plugin | Handoff-only plugin | whatsnext |
-|---|---|---|---|---|
-| What it keeps | Rules you write | Facts and summaries from past sessions | One handoff note per session | Plan, progress per task, handoff |
-| Recording needs a model call | No | Usually | Yes, the agent writes the note | Only the handoff note (the journal needs none) |
-| Check-off proved by a command | No | No | No | Yes |
-| Stops two agents taking one item | No | No | No | Yes, on one machine |
-| Works in Claude Code and Codex | Yes | Varies | Mostly Claude Code | Yes\* |
-
-\* Switching between agents on one plan, or running two at once, is experimental: it has not been extensively tested (see [Known limits](#known-limits)).
-
-*Based on a market check dated 2026-11-04 ([docs/project/research/groundwork-vs-memory-plugins.md](docs/project/research/groundwork-vs-memory-plugins.md)). The rows describe each kind of tool in general; check a specific tool before you rely on a cell.*
+Codex supports `wrap up`, request carryover after compaction, fork startup, session-end and interruption facts. `doctor` separates configured hooks from observed behavior for each agent. Automated two-way workflow coverage is in `tests/test_continuity.py`; live release validation is tracked in [the acceptance checklist](docs/CODEX-ACCEPTANCE.md). Tips, idle wrap-up and compact-summary comparison remain Claude-only.
 
 ## Support tiers
 
@@ -179,7 +168,23 @@ whatsnext works in any coding agent, at one of three tiers ([ADR-0027](docs/deci
 
 An agent is "supported" only after the live acceptance checklist passes for it and `doctor` reports its hooks.
 
-## Better with rightsize
+## Where it fits
+
+whatsnext does plan, check-off and handoff in one repository. It does not remember facts across projects, search past conversations or write decision records. Established tools do that (memory plugins such as claude-mem and Mem0, and adr-kit for decision records), and whatsnext does not replace them. Use it next to them, or alone if a plan and a handoff are all you need.
+
+| | Rules file only (`CLAUDE.md`, `AGENTS.md`) | Memory plugin | Handoff-only plugin | whatsnext |
+|---|---|---|---|---|
+| What it keeps | Rules you write | Facts and summaries from past sessions | One handoff note per session | Plan, progress per task, handoff |
+| Recording needs a model call | No | Usually | Yes, the agent writes the note | Only the handoff note (the journal needs none) |
+| Check-off proved by a command | No | No | No | Yes |
+| Stops two agents taking one item | No | No | No | Yes, on one machine |
+| Works in Claude Code and Codex | Yes | Varies | Mostly Claude Code | Yes\* |
+
+\* Switching between agents on one plan, or running two at once, is experimental: it has not been extensively tested (see [Known limits](#known-limits)).
+
+*Based on a market check dated 2026-11-04 ([docs/project/research/groundwork-vs-memory-plugins.md](docs/project/research/groundwork-vs-memory-plugins.md)). The rows describe each kind of tool in general; check a specific tool before you rely on a cell.*
+
+### Better with rightsize
 
 **whatsnext delivers more for you when used along with [rightsize](https://github.com/archid21/rightsize).** rightsize is a Claude Code plugin for the cost side of a session: it picks the model and effort for each prompt, and watches your prompt cache and usage windows. It decides *when* to wrap up or compact. whatsnext decides *what* the handoff and the compact keep, and writes the files.
 
@@ -194,15 +199,9 @@ Each works alone. A ★ marks where whatsnext does more because rightsize is the
 
 *These rightsize behaviors need rightsize 0.9.0 or later. whatsnext does not need rightsize for anything it does.*
 
-## First run
+## Limitations
 
-The first time a session starts after install, whatsnext shows a table of what it does (the feature, what it does in plain words, how it works) and a short diagram of how plan, handoff, compact and resume fit together. It shows once. See it again with `/whatsnext-welcome` in Claude Code, or `whatsnext welcome`.
-
-## Tips
-
-In Claude Code (terminal and desktop app only), a tip band above the prompt teaches the three phrases that matter: `wrap up`, `what's next?` and `mark P-13 done`. It shows one tip at a time, only when the tip applies, and never at startup. **Next tip** moves on, **Stop tips** hides the band for good, and `/whatsnext-tips` brings it back. Once, after your first verified `mark done`, the band also asks for a GitHub star. See [the guide](docs/GUIDE.md#tips).
-
-## Known limits
+### Known limits
 
 - **Using more than one agent on a plan is experimental.** Handing a plan from one agent to another works through the files, but it has not been extensively tested.
 - **Claims lock one machine only.** Of two agents asking for the same item at once on one machine, only one gets it. Agents in separate clones or on other machines do not see each other's claims.
@@ -210,27 +209,16 @@ In Claude Code (terminal and desktop app only), a tip band above the prompt teac
 - **Agents can skip the commands.** In our Codex runs the agent sometimes edited `PLAN.md` by hand or mistyped the script path. `plan check` finds items ticked without evidence.
 - **Codex support is new.** Run `install-hooks`, trust the hooks in `/hooks`, and expect some rough edges. Plan capture on Codex may stop working after a Codex update (ADR-0005).
 
-## What it never does
+### What it never does
 
 - It never pushes, and never creates a remote repository.
 - It starts no model call of its own. (`wrap up` uses your open session to write the note.)
 - Its `init` changes only `PLAN.md`, `.whatsnext/`, one line in `.gitignore` and one marked block in `AGENTS.md`. `init --dry-run` prints the plan and writes nothing; `init --undo` removes the block.
 - Outside the repository it writes only `~/.config/whatsnext/` (your settings, on `config set --user`) and, on `install-hooks`, Codex's `hooks.json` and one skill link in `~/.agents/skills/`. Full list: [What it touches](docs/WHAT-IT-TOUCHES.md). Security: [SECURITY.md](SECURITY.md).
 
-## Try it
+## Tips
 
-From a checkout, in a git repository:
-
-```
-python3 skills/whatsnext/scripts/whatsnext.py init --dry-run
-python3 skills/whatsnext/scripts/whatsnext.py status --json
-python3 skills/whatsnext/scripts/whatsnext.py plan next
-python3 skills/whatsnext/scripts/whatsnext.py plan done P-13 --verify "python3 -m unittest discover -s tests"
-```
-
-Claude Code loads `hooks/hooks.json` with the plugin. For Codex, run `install-hooks` (it also links the skill into `~/.agents/skills/whatsnext`), then review changed hooks in Settings > Hooks (desktop) or `/hooks` (CLI).
-
----
+In Claude Code (terminal and desktop app only), a tip band above the prompt teaches the three phrases that matter: `wrap up`, `what's next?` and `mark P-13 done`. It shows one tip at a time, only when the tip applies, and never at startup. **Next tip** moves on, **Stop tips** hides the band for good, and `/whatsnext-tips` brings it back. Once, after your first verified `mark done`, the band also asks for a GitHub star. See [the guide](docs/GUIDE.md#tips).
 
 ## Reference: every feature
 
@@ -249,26 +237,13 @@ Claude Code loads `hooks/hooks.json` with the plugin. For Codex, run `install-ho
 - **Facts journal:** the Stop, PreCompact and SessionEnd hooks add one line per event to `docs/project/progress/journal/<item>.md`: time, event, commit, branch, dirty file count and files changed. No model call. Per-session state lives in the git-ignored `.whatsnext/sessions/`; SessionStart removes a session's files once none has changed for 14 days ([ADR-0018](docs/decisions/ADR-0018-prune-session-files.md)).
 - **Resume note:** `progress resume-note` prints it, and the session-start hook adds it. Its first line is `continue <id> <title> (branch …, step N of M)`. It then lists `Done:`, `Next:`, a `Run` line with a safe test command, and `Since the note` (new commits and dirty files). It warns when the note is over 7 days old, and its last line gives the Note mark and age. It stays under 1,200 characters.
 - **Plan capture:** store a plan-mode plan in `docs/project/plans/` word for word, and write at most 20 of its steps into the task's progress file. The continue line says `plan shown` or `plan used without approval` when the plan is not approved. See [ADR-0006](docs/decisions/ADR-0006-plan-capture.md).
-- **Wrap up:** when the open session gets the exact prompt `wrap up`, the UserPromptSubmit hook tells the agent to write the handoff note to `docs/project/HANDOFF.md`, overwriting it. A `paths.handoff` setting or a line `Handoff: <path>` in `AGENTS.md` names another path. The note starts with `Session: <id>`, `Task: <id or none>` and `Written: <UTC>` lines under `# Handoff`, then has `## Goal`, `## Next action` (ending with a `Verify:` line), `## State` (dated in Pacific time), `## What changed`, `## Decisions`, `## Constraints` and `## Open questions and blockers`. An older note with `## Open questions` is still read. In Claude Code the agent ends its reply with `Handoff written: <path>` and one line that says to run `/compact` (the handoff is added to the compact for you) or to choose above the prompt, Compact and continue here or Copy for new session: the band shows those buttons until the next prompt ([ADR-0026](docs/decisions/ADR-0026-wrap-up-band-compact-or-paste.md)). Codex gets the same ending plus a one-line `/compact <text>` (the prompt shows it with a slot for each section), because Codex ignores the PreCompact hook. The person does nothing else. See [ADR-0019](docs/decisions/ADR-0019-wrap-up-ending-and-recent-handoff.md). At Stop, whatsnext records the `session.wrapup` event and a `wrap-up` journal line, writes the sidecar `.whatsnext/sessions/<session>.handoff.json` (`sha256`, `path`, `written_epoch`), and copies the note's Next action into the task's progress file as `auto` (it never replaces a confirmed one; it goes under `## Since wrap-up`). See [ADR-0008](docs/decisions/ADR-0008-wrap-up-and-handoff.md).
+- **Wrap up:** when the open session gets the exact prompt `wrap up`, the UserPromptSubmit hook tells the agent to write the handoff note to `docs/project/HANDOFF.md`, overwriting it. A `paths.handoff` setting or a line `Handoff: <path>` in `AGENTS.md` names another path. The note starts with `Session: <id>`, `Task: <id or none>` and `Written: <UTC>` lines under `# Handoff`, then has `## Goal`, `## Next action` (ending with a `Verify:` line), `## State` (dated in Pacific time), `## What changed`, `## Decisions`, `## Constraints`, `## Open questions and blockers`, `## Dead ends` and `## Settled` (new settled choices, copied into `docs/project/SETTLED.md`). An older note with `## Open questions` is still read. In Claude Code the agent ends its reply with `Handoff written: <path>` and one line that says to run `/compact` (the handoff is added to the compact for you) or to choose above the prompt, Compact and continue here or Copy for new session: the band shows those buttons until the next prompt ([ADR-0026](docs/decisions/ADR-0026-wrap-up-band-compact-or-paste.md)). Codex gets the same ending plus a one-line `/compact <text>` (the prompt shows it with a slot for each section), because Codex ignores the PreCompact hook. The person does nothing else. See [ADR-0019](docs/decisions/ADR-0019-wrap-up-ending-and-recent-handoff.md). At Stop, whatsnext records the `session.wrapup` event and a `wrap-up` journal line, writes the sidecar `.whatsnext/sessions/<session>.handoff.json` (`sha256`, `path`, `written_epoch`), and copies the note's Next action into the task's progress file as `auto` (it never replaces a confirmed one; it goes under `## Since wrap-up`). See [ADR-0008](docs/decisions/ADR-0008-wrap-up-and-handoff.md).
 - **Session-aware handoff:** a note is fresh for a session only when that session's sidecar exists, its SHA-256 is the file's, and no turn came after the file was written. Any other note is *foreign* (another session wrote it, it was edited since, or it predates the sidecar). A foreign note is never carried into a compact: the text says another session wrote it and gives the path. The resume note adds `Handoff: <path> (read it first)` when the note's `Session:` is this session or its `Task:` is the active task, else `Handoff: <path> (another session's note)`. When a related note has a Next action, the `Next` line shows the newer of it and the progress file's Next, labeled `Next (confirmed <UTC>)` or `Next (handoff <UTC>)`; without one it stays `Next:`.
 - **Compact:** `compact-instructions` prints the text for `/compact` in an open session, built from the handoff note. `--json` also returns a one-line `compact_line`. A note another session wrote is never carried into a compact.
 - **Init:** `whatsnext init` (git repositories only) creates what is missing: `PLAN.md`, `.whatsnext/config.json`, the progress and journal folders, the `.whatsnext/sessions/` line in `.gitignore`, and a block in `AGENTS.md` between `<!-- whatsnext:start -->` and `<!-- whatsnext:end -->`. `--dry-run` prints the plan and writes nothing. `--undo` removes only the `AGENTS.md` block.
 - **Hooks:** the resume note at session start, after `/clear` and after compaction; plan capture when the agent shows a plan; the facts journal. Claude Code loads `hooks/hooks.json` with the plugin. For Codex, run `install-hooks` (it also links the skill into `~/.agents/skills/whatsnext`), then review changed hooks in Settings > Hooks (desktop) or `/hooks` (CLI). For Gemini CLI or Cursor, run `install-hooks --agent gemini|cursor`; each agent's events are mapped in [P-77's progress file](docs/project/progress/P-77.md). See [ADR-0005](docs/decisions/ADR-0005-hooks-and-journal.md).
 
-Commands: `status`, `plan`, `progress`, `config show`, `config set --user`, `init`, `install-hooks`, `compact-instructions` and `fresh-instructions`. The script is `skills/whatsnext/scripts/whatsnext.py`.
-
-```
-python3 skills/whatsnext/scripts/whatsnext.py plan next
-python3 skills/whatsnext/scripts/whatsnext.py plan done P-13 --verify "python3 -m unittest discover -s tests"
-python3 skills/whatsnext/scripts/whatsnext.py progress new P-13 --title "Add login"
-python3 skills/whatsnext/scripts/whatsnext.py progress next P-13 "Write the login tests"
-python3 skills/whatsnext/scripts/whatsnext.py progress capture --status shown --file plan.md
-python3 skills/whatsnext/scripts/whatsnext.py init --dry-run
-python3 skills/whatsnext/scripts/whatsnext.py install-hooks --dry-run
-python3 skills/whatsnext/scripts/whatsnext.py config set --user plan.staleAfter 2h
-```
-
-**Settings.** `config show` prints every effective setting with its layer. `config set --user <key> <value>` writes one setting to the user layer (`~/.config/whatsnext/config.json`), after checking the key and value type against `skills/whatsnext/schemas/config.schema.json`. It refuses an unknown key (exit 2), never overwrites a user file that is not valid JSON, and prints the effective value after (a project setting still wins and the line says so). Values: `true` or `false` for a boolean, digits for an integer, text for a string or enum.
+### Hand-offs for another plugin
 
 **Compact hand-off (for another plugin).** To compact an open session, run `python3 skills/whatsnext/scripts/whatsnext.py compact-instructions --session <id> --json`. It prints JSON with:
 
@@ -290,10 +265,6 @@ When `wrap_up_first` is true, submit the prompt `wrap up`, wait for that turn to
 - `clear_command`: `clear`, run before `continue_prompt` to clear this chat.
 
 When `wrap_up_first` is true, submit `wrap up`: when that turn ends with the note written, whatsnext's band offers Compact and continue here and Copy for new session (unless rightsize submitted the `wrap up`: rightsize shows its own choice). When it is false, no wrap-up turn runs, so the caller offers the choices itself: `continue_prompt` to paste in a new session, or `terminal_command` in a terminal.
-
-## Where it came from
-
-whatsnext began as the planning part of Groundwork, a separate project that is now retired. whatsnext is the only plugin and owns the name. Decision records, ground rules and presets are not part of it; `CLAUDE.md`, `AGENTS.md` and adr-kit cover them. Scope: [ADR-0001](docs/decisions/ADR-0001-scope.md).
 
 ## Tests
 
@@ -318,8 +289,10 @@ The tests create temporary git repositories and a temporary HOME, so your own co
 | `tests/` | Unit tests (`fixtures.py` holds the shared test bases) |
 | `docs/decisions/` | The current decisions, [index](docs/decisions/README.md) |
 
-## Execution and Codex continuity
+## Where it came from
 
-`what's next?` recommends current work before a new item and flags a handoff that references completed work. The agent reports completed work, current step, next action, blockers and verification at meaningful milestones. “Run all steps” covers one task; “run the ready plan items” approves an explicit set of tasks.
+whatsnext began as the planning part of Groundwork, a separate project that is now retired. whatsnext is the only plugin and owns the name. Decision records, ground rules and presets are not part of it; `CLAUDE.md`, `AGENTS.md` and adr-kit cover them. Scope: [ADR-0001](docs/decisions/ADR-0001-scope.md).
 
-Codex supports `wrap up`, request carryover after compaction, fork startup, session-end and interruption facts. `doctor` separates configured hooks from observed behavior for each agent. Automated two-way workflow coverage is in `tests/test_continuity.py`; live release validation is tracked in [the acceptance checklist](docs/CODEX-ACCEPTANCE.md). Tips, idle wrap-up and compact-summary comparison remain Claude-only.
+## License
+
+MIT. See [LICENSE](LICENSE).

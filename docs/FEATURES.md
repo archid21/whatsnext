@@ -2,7 +2,7 @@
 
 Every whatsnext feature: what it is, how it works and what it gives you.
 
-Current release: 0.6.0
+Current release: 0.7.0
 
 **Since** is the release that added the feature. `Unreleased` means it is on `main` but not in a release yet.
 
@@ -32,6 +32,8 @@ Current release: 0.6.0
 | Plan from a goal | "plan this: <goal>" drafts items with a done means each, reuses open items that overlap, shows the list and asks Next, Now or Later before `plan add`. | An idea becomes checkable work without editing the plan by hand. | 0.5 |
 | Item overview | When items are offered, each gets a short overview: what it is, how it will work, impact and importance. | You can pick without asking what an item is. | 0.5 |
 | Checkpoints and rollback | `plan start` saves the start commit; `plan rollback <id>` resets or reverts after asking and never drops uncommitted work. | An item that went wrong is undone exactly and safely, in any agent. | 0.5 |
+| Run ready items in parallel | One session per ready item, each claimed first and in its own worktree, up to `plan.fanOutCap` (default 4). Codex gets a numbered list of commands instead. See ADR-0032. | Several ready items move at once without two agents taking one item. | 0.7 |
+| Plan side panel | Claude Code only. A pane beside the chat shows open items, the active item and claims; `status --json` adds `open` and `claims`. See ADR-0033. | Who has what is always visible. | 0.7 |
 
 ## Check off
 
@@ -65,6 +67,8 @@ Current release: 0.6.0
 | Richer handoff | `HANDOFF.md` gains Files, Links and Skills sections filled from the session's tool calls, with no model call. | The next session sees what was read, created and used. | 0.4 |
 | Takeover is not plan approval | When a plan was only shown, `status` and the resume note say to ask before running its steps. | A new agent does not run a plan you never approved. | 0.5 |
 | Handoff checks | Wrap-up ends State with `Check:` lines (HEAD, branch, clean, or `run` a command). `status` re-checks the git facts: VERIFIED, STALE or BROKEN. `run` checks need `handoff verify --run-checks`. | A resume shows at once when the note is out of date. | 0.6 |
+| Settled list | Wrap-up adds a `## Settled` section; new lines (dropped, use, expected) go to `docs/project/SETTLED.md` without duplicates, each with its source. The resume note shows them. See ADR-0036. | Later sessions do not retry a dropped approach or chase expected behavior. | 0.7 |
+| Handoff from a transcript | `handoff from-transcript <file.jsonl> --prepare` prints a helper prompt with the trimmed chat and repo facts; `--write` checks the note and saves it as the handoff. No model call inside whatsnext. See ADR-0035. | A handoff for a session that ended without a wrap-up. | 0.7 |
 
 ## Progress and history
 
@@ -96,3 +100,5 @@ Current release: 0.6.0
 | Doctor per agent | `doctor` prints one line per agent with its hooks and what was observed. | See at a glance which agents are set up. | 0.5 |
 | Install backups | `install-hooks` copies each file to `~/.config/whatsnext/backups/` before it changes it; `--undo` restores the exact bytes when the file is unchanged since. | Undo never damages your settings. | 0.6 |
 | Rules preset | `rules` = light, standard or strict sets the rule switches at once (ADR-0031); a key you set yourself wins; `config show` names the preset. | Fewer rules, or more, with one setting. | 0.6 |
+| Agent messages | `message send`, `list`, `answer` and `close` keep one file per message in the shared git folder; `status --json` lists open ones. A message is data, never permission. See ADR-0034. | Agents ask each other, or you, without a chat between them. | 0.7 |
+| MCP server | `whatsnext mcp` serves `status`, `next`, `start`, `done` and `wrap_up` over stdio. Add it to your agent's MCP config. | Agents with no shell can use whatsnext. | 0.7 |
