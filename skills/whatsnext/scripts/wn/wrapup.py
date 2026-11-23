@@ -42,6 +42,7 @@ LINE_SECTIONS = (
     ("Dead ends", ("Dead ends",), 300),
     ("Blockers", ("Open questions and blockers", "Open questions"), 300),
 )
+MAX_SETTLED_CHARS = 400  # the `## Settled` section (ADR-0036); not in the `/compact` line: SETTLED.md carries it
 LINE_SHRINK = ("Dead ends", "Blockers", "Decisions", "Goal")
 LINE_MIN_SLOT = 20
 BODY_ORDER = ("Next action", "Constraints", "Goal", "Decisions", "Dead ends", "Open questions and blockers",
@@ -391,6 +392,13 @@ def line_template():
     return "/compact " + LINE_BASE + " " + slots
 
 
+SETTLED_INSTRUCTION = (
+    "9. `## Settled`: choices made in this session that later sessions must not reopen, one line each in the form "
+    "`- <kind>: <text> (<source>)`, with kind `dropped` (an approach tried and rejected: say what was chosen instead), "
+    "`use` (a tool or approach that must be used) or `expected` (recurring behavior that looks like a problem but is not). "
+    "The source is the ADR path or a handoff note path. Only new facts, not ones already in docs/project/SETTLED.md; "
+    "`none` when nothing new. At most %d characters." % MAX_SETTLED_CHARS)
+
 HOOKLESS = "none"  # the agent name for the instructions tier: no hooks run (ADR-0027)
 
 
@@ -414,7 +422,7 @@ def instructions(root, effective, now=None, session_id=None, agent=None):
                      "fold those lines into the note, then delete that section from the progress file." % (task.id, task.rel))
     lines += [
         "",
-        "Write the file as a `# Handoff` title, then these five header lines exactly as shown, then these eight `##` sections, in this order. Short lines, plain words, no filler:",
+        "Write the file as a `# Handoff` title, then these five header lines exactly as shown, then these nine `##` sections, in this order. Short lines, plain words, no filler:",
         "Session: %s" % (session_id if isinstance(session_id, str) and session_id.strip() else "unknown"),
         "Task: %s" % (task.id if task is not None else "none"),
         "Written: %s" % utc,
@@ -429,6 +437,7 @@ def instructions(root, effective, now=None, session_id=None, agent=None):
         "6. `## Constraints`: what the next session must keep: scope limits, files not to touch, the user's rules for this work, and the user's corrections to you in their own words; `none` when nothing. At most 600 characters.",
         "7. `## Open questions and blockers`: what the user still has to answer, what blocks the work, and work the user asked for that is not done; `none` when nothing. At most 300 characters.",
         "8. `## Dead ends`: approaches tried and dropped, one line each with the reason it was dropped; `none` when nothing. At most 300 characters.",
+        SETTLED_INSTRUCTION,
         "",
         "Write exact values, not descriptions of them: file paths, ids, versions, URLs, commands and error text as they appear. "
         "Use only facts from this session and the repository; mark a guess as a guess. Never write secrets. Do not commit.",
@@ -621,6 +630,11 @@ def settle(root, effective, data, agent=None):
     except OSError:  # without it the note counts as foreign: a stale answer, never a wrong one
         pass
     gwjournal.record(root, effective, "wrap-up", data, agent)
+    try:
+        from . import settled as gwsettled
+        gwsettled.copy_from_handoff(root, handoff)
+    except Exception:  # the settled list is a help; recording the wrap-up is what matters
+        pass
     if task is not None:
         copy_next_action(root, folder, task, handoff)
     return True

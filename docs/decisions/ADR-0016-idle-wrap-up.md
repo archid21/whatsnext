@@ -33,3 +33,6 @@ Whether the wrap-up turn resets Claude Code's idle clock, so that the compact co
 
 ## Correction, 2026-11-07
 Claude Code keeps `autoCompactEnabled` in its global config, not in `settings.json`, so `$.settings.read({ key: 'autoCompactEnabled' })` can never see it. The module now reads only the session's own `isAutoCompactEnabled` (the engine documents it as "whether auto-compaction is on for the session"). `idleCompaction` is a `settings.json` key and is still read with `settings.read`. Found by searching the Claude Code binary and the engine types; the decision itself is unchanged.
+
+## Correction, 2026-11-20
+The idle path sets `wrapAskedAt` itself, just before it submits `wrap up`, because a plugin's own `$.prompt.submit` skips its own hooks: the `prompt.submit` hook never sees it, and without this the band (ADR-0026) never showed after an idle wrap-up. The decision itself is unchanged.

@@ -211,7 +211,7 @@ class DeadEndsPromptTests(HookBase):
         self.task()
         self.commit("task")
         out = self.prompt("wrap up")
-        self.assertIn("these eight `##` sections", out)
+        self.assertIn("these nine `##` sections", out)
         self.assertIn("8. `## Dead ends`", out)
         self.assertIn("with the reason", out)
         self.assertNotIn("/compact Keep:", out)  # Claude Code: the PreCompact hook carries the note (ADR-0019)

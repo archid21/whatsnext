@@ -12,12 +12,16 @@ type World = {
   autoCompact?: boolean
   env?: Record<string, string>
   fire?: boolean // what the whatsnext check answers
+  note?: 'fresh' | 'stale' // the handoff note's file time, after or before the wrap up was asked; unset: no note
 }
+
+const NOW = 1_800_000_000_000
+const PROPS = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 5 }, view: {} }
 
 // What sits beneath the plugin: Claude Code's settings and context size, the whatsnext check, and a record of every
 // `process.run` and `prompt.submit`. The test's own `prompt.submit` hook sees what the plugin submits.
-function world(on: On, { tokens = 250_000, idleCompaction, autoCompact = true, env = {}, fire = true }: World = {}) {
-  const clock = mock.clock(on)
+function world(on: On, { tokens = 250_000, idleCompaction, autoCompact = true, env = {}, fire = true, note }: World = {}) {
+  const clock = mock.clock(on, { now: NOW })
   mock.store(on)
   mock.env(on, env)
   const ran: string[][] = []
@@ -34,8 +38,20 @@ function world(on: On, { tokens = 250_000, idleCompaction, autoCompact = true, e
   on('session.cwd', () => ({ value: '/project' }))
   on('process.run', (_, e) => {
     ran.push([...e.argv])
+    const stdout = note && e.argv.includes('status') ? JSON.stringify({ handoff: { path: 'docs/project/HANDOFF.md' } }) : JSON.stringify({ fire })
 
-    return { value: { exitCode: 0, stdout: JSON.stringify({ fire }), stderr: '' } }
+    return { value: { exitCode: 0, stdout, stderr: '' } }
+  })
+  on('fs.stat', (_, e) => {
+    if (!note || e.path !== '/project/docs/project/HANDOFF.md') throw new Error('ENOENT')
+
+    return { value: { kind: 'file', size: 10, mtimeMs: note === 'fresh' ? NOW + 50 * MINUTE : NOW - 60 * MINUTE, isLink: false } }
+  })
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text dimColor>engine</Text>
   })
   on('prompt.submit', (_, e) => {
     submitted.push(e.text)
@@ -135,4 +151,33 @@ test('the env minimum is never under the floor: 100,000 tokens fires with the va
   await $.turn.complete(TURN)
   await w.clock.advance(IDLE_MS + 1)
   expect(w.submitted).toEqual(['wrap up'])
+})
+
+// The plugin's own `$.prompt.submit` does not pass through its own `prompt.submit` hook, so the idle path sets
+// `wrapAskedAt` itself (ADR-0016). Without that the band never shows after an idle wrap up.
+async function hasBand($: any) {
+  const ui = await $.ui.mount({ plugin: 'whatsnext', component: 'AbovePrompt', surface: 'desktop', props: PROPS })
+  const found = (await ui.find({ type: 'Button', text: 'Compact and continue here' })) !== undefined
+  await ui.unmount()
+
+  return found
+}
+
+test('an idle wrap up that wrote the note shows the band when its turn ends', async ($, on) => {
+  const w = world(on, { note: 'fresh' })
+  await $.turn.complete(TURN)
+  await w.clock.advance(IDLE_MS + 1)
+  expect(w.submitted).toEqual(['wrap up'])
+  expect(await hasBand($)).toBe(false) // not before the wrap-up turn ends
+  await $.turn.complete(TURN) // the wrap-up turn ends
+  expect(await hasBand($)).toBe(true)
+})
+
+test('an idle wrap up that did not write the note shows no band', async ($, on) => {
+  const w = world(on, { note: 'stale' })
+  await $.turn.complete(TURN)
+  await w.clock.advance(IDLE_MS + 1)
+  expect(w.submitted).toEqual(['wrap up'])
+  await $.turn.complete(TURN)
+  expect(await hasBand($)).toBe(false)
 })
