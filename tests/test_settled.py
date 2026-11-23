@@ -87,6 +87,21 @@ class CopyTests(SettledBase):
             self.assertNotIn("settled", f.read().lower())
 
 
+class LinkGuardTests(unittest.TestCase):
+    def test_a_linked_parent_folder_is_not_read_or_written(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as outside:
+            os.makedirs(os.path.join(root, "docs"))
+            os.symlink(outside, os.path.join(root, "docs", "project"))
+            with open(os.path.join(outside, "SETTLED.md"), "w") as f:
+                f.write("# Settled\n\n- use: x (a.md)\n")
+            self.assertEqual(wnsettled.read_lines(root), [])
+            added = wnsettled.add_from_note(root, "## Settled\n- use: y (b.md)\n", "docs/project/HANDOFF.md")
+            self.assertEqual(added, 0)
+            with open(os.path.join(outside, "SETTLED.md")) as f:
+                self.assertNotIn("y (b.md)", f.read())
+
+
 class InstructionTests(SettledBase):
     def test_wrap_up_instructions_ask_for_a_settled_section(self):
         out = self.prompt("wrap up")

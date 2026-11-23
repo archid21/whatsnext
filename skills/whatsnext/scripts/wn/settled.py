@@ -30,6 +30,16 @@ def path(root):
     return os.path.join(root, *SETTLED_PATH.split("/"))
 
 
+def safe(root):
+    """False when the file or a parent folder is a link that leaves the project."""
+    target = path(root)
+    if os.path.islink(target):
+        return False
+    inside = os.path.realpath(root)
+    folder = os.path.realpath(os.path.dirname(target))
+    return os.path.commonpath([folder, inside]) == inside
+
+
 def norm(text):
     """The key two lines are compared by: lower case, white space collapsed."""
     return " ".join(text.lower().split())
@@ -59,6 +69,8 @@ def parse_line(line):
 
 def read_lines(root):
     """The file's valid lines, oldest first, as (kind, text, source)."""
+    if not safe(root):
+        return []
     try:
         with open(path(root), encoding="utf-8", errors="replace") as f:
             body = f.read()
@@ -85,7 +97,7 @@ def add_from_note(root, note_body, note_rel):
     if not section:
         return 0
     target = path(root)
-    if os.path.islink(target):  # a link could point outside the project
+    if not safe(root):  # a link could point outside the project
         return 0
     have = {(k, norm(t)) for k, t, _s in read_lines(root)}
     new = []
