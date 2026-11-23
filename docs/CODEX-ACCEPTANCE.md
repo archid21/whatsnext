@@ -26,7 +26,7 @@ Run in a disposable git repository with the installed versions. Keep production 
 Run each step in the agent under test (A). For a handoff step, B is a second agent that already passed (Claude Code or Codex).
 
 1. Create an item whose done means is `test -f result.txt`, approve the displayed work, and start it in A. Complete a preparatory step without creating the file.
-2. Confirm the milestone update says completed work, current step, next action, blockers and verification. Type exactly `wrap up`. Confirm HANDOFF.md has the writer's session and task and the eight sections.
+2. Confirm the milestone update says completed work, current step, next action, blockers and verification. Type exactly `wrap up`. Confirm HANDOFF.md has the writer's session and task and the nine sections (Settled may be `none`).
 3. Open B in the same checkout. Ask "what's next?" Confirm the same item and unfinished step come first, B reads the handoff, and asks before taking over A's claim.
 4. Run the saved verification while the file is absent. Confirm the task stays open, the failed check is recorded, and execution stops.
 5. Authorize continuing, create the file and run the saved verification. Confirm the task is done, its claim is released, and the next ready item is offered.

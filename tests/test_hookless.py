@@ -15,7 +15,7 @@ from wn import initcmd  # noqa: E402
 
 SKILL = ROOT / "skills" / "whatsnext" / "SKILL.md"
 SECTIONS = ("## Goal", "## Next action", "## State", "## What changed", "## Decisions",
-            "## Constraints", "## Open questions and blockers", "## Dead ends")
+            "## Constraints", "## Open questions and blockers", "## Dead ends", "## Settled")
 
 
 class RulesTests(unittest.TestCase):

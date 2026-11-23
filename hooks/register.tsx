@@ -301,7 +301,13 @@ async function idleWrapUp($: EngineInterface) {
     if (skipReason(await idleFacts($))) return
     if ((await whatsnextHook($, 'idle-check'))?.fire !== true) return
     askedThisPeriod = true
-    await Promise.resolve($.prompt.submit({ text: WRAP_UP })).catch(() => undefined)
+    // A plugin's own `$.prompt.submit` skips its own hooks, so the `prompt.submit` hook below never sees this `wrap up`:
+    // arm the band here (ADR-0016). This `wrap up` is whatsnext's own, not rightsize's, so the rightsize override stays off.
+    wrapAskedAt = await $.clock.now()
+    wrapByRightsize = false
+    await Promise.resolve($.prompt.submit({ text: WRAP_UP })).catch(() => {
+      wrapAskedAt = undefined
+    })
   } catch {
     // no wrap up this time
   }

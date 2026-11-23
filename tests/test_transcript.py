@@ -167,7 +167,7 @@ class TrimTests(TranscriptBase):
         self.assertEqual(data["bytes"], len(data["input"].encode("utf-8")))
         for name in ("Goal", "Next action", "State", "Dead ends", "Open questions and blockers"):
             self.assertIn("`## %s`" % name, data["prompt"])
-        self.assertIn("only the eight", data["prompt"])
+        self.assertIn("only the nine", data["prompt"])
         self.assertNotIn("http", data["prompt"])
 
 
